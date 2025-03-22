@@ -1,0 +1,112 @@
+# ActorDB
+
+**A Python package for video indexing and searching based on audio and scene content.**
+
+## Features
+
+- **Audio Indexing**: Transcribes video audio and creates embeddings for dialogue search.
+- **Scene Indexing**: Creates embeddings of video scenes for content-based visual search.
+- **Dialogue Search**: Search for specific dialogues within a video and jump to the relevant timestamp.
+- **Scene Search**: Search for scenes based on text descriptions and jump to the relevant timestamp.
+
+---
+
+## Installation
+
+### **Prerequisites**
+
+- **Python 3.9 or higher**
+- **Poetry** (Recommended for dependency and package management) – Install from [Poetry Documentation](https://python-poetry.org/docs/)
+- **Alternatively, Pip and ****`build`**** package** (For manual installation)
+
+---
+
+### **Installation Steps**
+
+#### **Option 1: Recommended - Using Poetry**
+
+1.  **Clone the repository**
+
+    ```bash
+    git clone <YOUR_REPOSITORY_URL>
+    cd actordb
+    ```
+
+2.  **Install dependencies using Poetry**
+
+    ```bash
+    poetry install
+    ```
+
+    - This sets up a virtual environment and installs dependencies from `poetry.lock` or `pyproject.toml`.
+    - The `actordb` CLI command will be available after installation.
+
+3.  **Activate the environment (if needed)**
+
+    ```bash
+    poetry shell
+    ```
+
+4.  **Run the CLI tool**
+
+    ```bash
+    actordb --help
+    ```
+
+---
+
+#### **Option 2: Manual Installation - Using Pip**
+
+If you prefer Pip instead of Poetry, follow these steps:
+
+1.  **Clone the repository**
+
+    ```bash
+    git clone <YOUR_REPOSITORY_URL>
+    cd actordb
+    ```
+
+2.  **Install build dependency**
+
+    ```bash
+    pip install build
+    ```
+
+3.  **Build the package**
+
+    ```bash
+    python -m build
+    ```
+
+    - This creates a `dist/` directory with distribution files.
+
+4.  **Install the package**
+
+    ```bash
+    pip install dist/*.whl
+    ```
+
+5.  **Run the CLI tool**
+
+    ```bash
+    actordb --help
+    ```
+
+    - If `actordb` is not recognized, run it manually:
+
+      ```bash
+      python -m actordb.main --help
+      ```
+
+---
+
+## **Usage**
+
+After installation, you can use `actordb` directly from the command line:
+
+```bash
+actordb --help
+actordb videoindex samplevideo.mp4  # Index the video
+actordb dialogue samplevideo.mp4 "your dialogue query"
+actordb scene samplevideo.mp4 "scene description"
+
