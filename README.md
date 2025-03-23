@@ -2,15 +2,11 @@
 
 **A Python package for video indexing and searching based on audio and scene content.**
 
-## Features
+## Product Feature Roadmap Matrix
 
-- **Audio Indexing**: Transcribes video audio and creates embeddings for dialogue search.
-- **Scene Indexing**: Creates embeddings of video scenes for content-based visual search.
-- **Dialogue Search**: Search for specific dialogues within a video and jump to the relevant timestamp.
-- **Scene Search**: Search for scenes based on text descriptions and jump to the relevant timestamp.
-- **ASR**: View active speaker in scene.
-  
----
+|Feature Category|V1 (Basic Features)|V2 (Enhanced Features)|V3 (Advanced Features)|
+|----------------|-------------------|----------------------|----------------------|
+|Hello           |                   |                      |                      |
 
 ## Installation
 
