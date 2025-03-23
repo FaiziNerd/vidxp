@@ -10,7 +10,6 @@
 |Dialogue Search|Search for specific dialogues and jump to the timestamps
 |Actor Detection|Basic actor detection (making clusters of similar faces)
 |Actor Search|N/A
-|Actor Recognition|N/A
 |User Interface|CLI + basic GUI
 
 ## Installation
