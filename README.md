@@ -6,7 +6,8 @@
 
 |Feature Category|V1 (Basic Features)|V2 (Enhanced Features)|V3 (Advanced Features)|
 |----------------|-------------------|----------------------|----------------------|
-|Hello           |                   |                      |                      |
+|Scene Search|Search for scenes based on text description|
+|Dialogue Search|Search for specific dialogues and jump to the timestamps|
 
 ## Installation
 
