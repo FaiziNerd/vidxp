@@ -9,6 +9,7 @@
 |Scene Search|Search for scenes based on text description
 |Dialogue Search|Search for specific dialogues and jump to the timestamps
 |Actor Detection|Basic actor detection (making clusters of similar faces)
+|Active Speaker Recognition|Display active speakers in a scene
 |Actor Search|N/A
 |User Interface|CLI + basic GUI
 
