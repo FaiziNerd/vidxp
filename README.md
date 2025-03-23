@@ -8,7 +8,8 @@
 - **Scene Indexing**: Creates embeddings of video scenes for content-based visual search.
 - **Dialogue Search**: Search for specific dialogues within a video and jump to the relevant timestamp.
 - **Scene Search**: Search for scenes based on text descriptions and jump to the relevant timestamp.
-
+- **ASR**: View active speaker in scene.
+  
 ---
 
 ## Installation
