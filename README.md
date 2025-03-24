@@ -7,8 +7,8 @@
 |Feature Category|V1 (Basic Features)|V2 (Enhanced Features)|V3 (Advanced Features)|
 |----------------|-------------------|----------------------|----------------------|
 |**Scene Search**|**Functionality:** Search for scenes based on text description
-||**Model** CLIP (ViT-B/32)
-||**Example Query:** actordb scene "filepath" "scene description"
+||**Model:** CLIP (ViT-B/32)
+||**Query:** actordb scene "filepath" "scene description"
 |Dialogue Search|Search for specific dialogues and jump to the timestamps
 |Actor Detection|Basic actor detection (making clusters of similar faces)
 |Active Speaker Recognition|Display active speakers in a scene
