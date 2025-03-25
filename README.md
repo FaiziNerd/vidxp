@@ -12,7 +12,9 @@
 |**Dialogue Search**|**Functionality:** Search for specific dialogues and jump to the timestamps
 ||**Model:** WhisperX (large-v2), SentenceTransformer (all-MiniLM-L6-v2)
 ||**Query:** actordb dialogue "filepath" "dialogue"
-|Actor Detection|Basic actor detection (making clusters of similar faces)
+|**Actor Detection**|**Functionality:** Basic actor detection (making clusters of similar faces)
+||**Library:** face_recognition
+||**Query:** actordb face "filepath" "cluster_id"
 |Active Speaker Recognition|Display active speakers in a scene
 |Actor Search|N/A
 |User Interface|CLI + basic GUI
