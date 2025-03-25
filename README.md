@@ -15,7 +15,9 @@
 |**Actor Detection**|**Functionality:** Basic actor detection (making clusters of similar faces)
 ||**Library:** face_recognition
 ||**Query:** actordb face "filepath" "cluster_id"
-|**Active Speaker Recognition**|Display active speakers in a scene
+|**Active Speaker Detection**|**Functionality:** Display active speakers in a scene
+||**Model:** TalkNet-ASD
+||**Query:** 
 |**Actor Search**|N/A
 |**User Interface**|CLI + basic GUI
 ||CLI (Typer) 
