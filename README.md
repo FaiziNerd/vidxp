@@ -15,9 +15,11 @@
 |**Actor Detection**|**Functionality:** Basic actor detection (making clusters of similar faces)
 ||**Library:** face_recognition
 ||**Query:** actordb face "filepath" "cluster_id"
-|Active Speaker Recognition|Display active speakers in a scene
-|Actor Search|N/A
-|User Interface|CLI + basic GUI
+|**Active Speaker Recognition**|Display active speakers in a scene
+|**Actor Search**|N/A
+|**User Interface**|CLI + basic GUI
+||CLI (Typer) 
+||GUI (HTML, CSS, JS)
 
 ## Installation
 
