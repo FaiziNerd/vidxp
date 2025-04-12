@@ -11,16 +11,15 @@ from PIL import Image
 
 app = typer.Typer()
 
-embedder  = SentenceTransformer("all-MiniLM-L6-v2")
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 chroma_client = chromadb.PersistentClient(path="./chroma_data")
 device = "cpu"
 clip_model, preprocess = clip.load("ViT-B/32", device=device)
 voice_collection = chroma_client.get_or_create_collection(name="voiceEmbeddings")
 scene_collection = chroma_client.get_or_create_collection(name="sceneEmbeddings")
 
-@app.command()
-def videoindex(path: str):
 
+def videoindex(path: str):
     print("Audio Indexing...")
 
     batch_size = 16
@@ -43,13 +42,14 @@ def videoindex(path: str):
 
     segments = result["segments"]
 
-    id = 0 
+    id = 0
     for segment in segments:
         dialogue = segment["text"]
         dialogue_embedding = embedder.encode(dialogue, convert_to_tensor=True)
-        voice_collection.add(ids=[f"{id}"],embeddings=[dialogue_embedding.tolist()], metadatas=[{"start":segment["start"]}])
-        id+=1
-    
+        voice_collection.add(ids=[f"{id}"], embeddings=[dialogue_embedding.tolist()],
+                             metadatas=[{"start": segment["start"]}])
+        id += 1
+
     print("Audio Indexing Complete !!!")
 
     print("Scene Indexing...")
@@ -61,7 +61,7 @@ def videoindex(path: str):
 
     fps = video.get(cv2.CAP_PROP_FPS)
     frame_time = 1 / fps
-    
+
     while True:
         ret, frame = video.read()
         if not ret:
@@ -75,7 +75,7 @@ def videoindex(path: str):
             image_features /= image_features.norm(dim=-1, keepdim=True)
 
         embedding_vector = image_features.cpu().numpy().tolist()[0]
-        scene_collection.add(ids=[f"{id}"],embeddings=[embedding_vector],metadatas=[{"time": time}])
+        scene_collection.add(ids=[f"{id}"], embeddings=[embedding_vector], metadatas=[{"time": time}])
 
         id += 1
         time += frame_time
@@ -83,50 +83,46 @@ def videoindex(path: str):
     video.release()
     print("Scene Indexing Complete !!!")
 
-@app.command()
-def dialogue(path: str, dialogue: str):
 
+def dialogue(path: str, dialogue: str):
     filepath = path
 
     query = dialogue
     query_embedding = embedder.encode(query, convert_to_tensor=True)
 
     result = voice_collection.query(query_embeddings=[query_embedding.tolist()], include=["metadatas"], n_results=1)
-    time = result["metadatas"][0][0]["start"]
 
-    def play_from_timestamp(filepath, time):
-        video = VideoFileClip(filepath)
-        start_time = time
-        subclip = video.subclip(start_time)
-        subclip.preview()
+    if result["metadatas"]:
+        time = result["metadatas"][0][0]["start"]
+    else:
+        print("No matching dialogue found.")
+        return None
 
-    play_from_timestamp(filepath, time)
+    return time
 
-@app.command()
+
 def scene(path: str, scene: str):
-
     filepath = path
-    
+
     query = scene
     query = clip.tokenize([query]).to(device)
 
     with torch.no_grad():
         query_features = clip_model.encode_text(query)
         query_features /= query_features.norm(dim=-1, keepdim=True)
-    
+
     query_embedding = query_features.cpu().numpy().tolist()[0]
 
-    result = scene_collection.query(query_embeddings=[query_embedding],include=["metadatas"],n_results=1)
+    result = scene_collection.query(query_embeddings=[query_embedding], include=["metadatas"], n_results=1)
 
-    time = result["metadatas"][0][0]["time"]
+    if result["metadatas"]:
+        time = result["metadatas"][0][0]["time"]
+    else:
+        print("No matching scene found.")
+        return None
 
-    def play_from_timestamp(filepath, time):
-        video = VideoFileClip(filepath)
-        start_time = time
-        subclip = video.subclip(start_time)
-        subclip.preview()
+    return time
 
-    play_from_timestamp(filepath, time)
 
-if __name__ == "__main__":
-    app()
+if _name_ == "_main_":
+    app() 
