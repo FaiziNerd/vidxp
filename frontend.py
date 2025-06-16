@@ -1,5 +1,5 @@
 import streamlit as st
-from main import videoindex, dialogue, scene
+from main import videoindex, dialogue, scene, actor
 
 st.title("ActorDB: An Audio-Visual Analysis tool 🔎")
 uploaded_video = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
@@ -37,4 +37,5 @@ if search_button:
         time = float(scene(query))
         st.video(uploaded_video, start_time=time)
     elif option == "actor":
-        print(123)
+        actor(query, "video.mp4")
+        st.video("./output.mp4", format="video/mp4", start_time=0)
