@@ -4,8 +4,10 @@ import typer
 import torch
 import chromadb
 import whisperx
+import numpy as np
 from PIL import Image
 from rich import print
+import face_recognition
 from moviepy.editor import VideoFileClip
 from sentence_transformers import SentenceTransformer
 
@@ -17,6 +19,7 @@ clip_model, preprocess = clip.load("ViT-B/32", device=device)
 chroma_client = chromadb.PersistentClient(path="./chroma_data")
 voice_collection = chroma_client.get_or_create_collection(name="voiceEmbeddings")
 scene_collection = chroma_client.get_or_create_collection(name="sceneEmbeddings")
+actor_collection = chroma_client.get_or_create_collection(name="actorCollection")
 
 @app.command()
 def videoindex(path: str):
@@ -36,19 +39,29 @@ def videoindex(path: str):
     whisper_model = whisperx.load_model(r"./models/models--Systran--faster-whisper-large-v2/snapshots/f0fe81560cb8b68660e564f55dd99207059c092e", device, compute_type=compute_type)
 
     audio = whisperx.load_audio(audio)
-    result = whisper_model.transcribe(audio, batch_size=batch_size, language="en")
 
-    model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device, model_dir="./torch")
+    result = whisper_model.transcribe(audio, batch_size=batch_size, language="ur")
+
+    model_a, metadata = whisperx.load_align_model(language_code="ur", device=device, model_dir="./torch")
     result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
     segments = result["segments"]
-
-    id = 0 
+    
+    id = 0
+    phrase_length = 5
     for segment in segments:
-        dialogue = segment["text"]
-        dialogue_embedding = embedder.encode(dialogue, convert_to_tensor=True)
-        voice_collection.add(ids=[f"{id}"],embeddings=[dialogue_embedding.tolist()], metadatas=[{"start":segment["start"]}])
-        id+=1
+        words = segment["words"]
+        for i in range(0, len(words), phrase_length):
+            phrase_segments = words[i:i+phrase_length]
+            phrase = " ".join(seg["word"] for seg in phrase_segments)
+            start_time = phrase_segments[0]["start"]
+
+            print(phrase)
+            print(start_time)
+
+            embedding = embedder.encode(phrase, convert_to_tensor=True)
+            voice_collection.add(ids=[str(id)], embeddings=[embedding.tolist()], metadatas=[{"start": start_time}])
+            id += 1
     
     print("[green]Audio Indexing Complete !!![/green]")
 
@@ -83,6 +96,105 @@ def videoindex(path: str):
     video.release()
 
     print("[green]Scene Indexing Complete !!![/green]")
+
+    print("[green]Actor Indexing...[/green]")
+
+    FACE_MATCH_THRESHOLD = 0.55
+    HISTORY_SIZE = 5
+
+    known_face_encodings = []
+    known_face_ids = []
+    next_id = 1
+    face_history = {}
+
+    def get_best_match(face_encoding):
+        """Finds the best matching face with history-based voting."""
+        if not known_face_encodings:
+            return None
+
+        distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+        best_match_idx = distances.argmin()
+
+        if distances[best_match_idx] < FACE_MATCH_THRESHOLD:
+            return best_match_idx
+        return None
+
+    time = 0.0
+    video = cv2.VideoCapture(path)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_time = 1 / fps
+    faces = []
+
+    while True:
+        ret, frame = video.read()
+
+        if not ret:
+            break
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_locations = face_recognition.face_locations(rgb_frame)
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=2)
+
+        for face_encoding, face_location in zip(face_encodings, face_locations):
+            match_idx = get_best_match(face_encoding)
+
+            if match_idx is not None:
+                face_id = known_face_ids[match_idx]
+                
+                
+                if face_id in face_history:
+                    face_history[face_id].append(face_encoding)
+                    if len(face_history[face_id]) > HISTORY_SIZE:
+                        face_history[face_id].pop(0)
+                    
+                    avg_encoding = np.mean(face_history[face_id], axis=0)
+                    known_face_encodings[match_idx] = avg_encoding
+                else:
+                    face_history[face_id] = [face_encoding]
+            else:
+                face_id = f"{next_id}"
+                next_id += 1
+                known_face_encodings.append(face_encoding)
+                known_face_ids.append(face_id)
+                face_history[face_id] = [face_encoding]
+
+            data = {
+                "time": round(time, 3),
+                "face_encoding": face_encoding,
+                "face_location": face_location,
+                "actor_id": face_id
+            }
+            faces.append(data)
+
+        time += frame_time
+
+    video.release()
+
+    buckets = {}
+    for face in faces:
+        actor_id = face["actor_id"]
+        if actor_id not in buckets:
+            buckets[actor_id] = []
+        buckets[actor_id].append(face)
+
+    for actor_id, face_group in buckets.items():
+        if len(face_group) > 3:  
+            actor_metadata = []
+            for face_data in face_group:
+                actor_metadata.append({
+                    "time": face_data["time"],
+                    "face_location": face_data["face_location"]
+                })
+
+            times_str = ",".join(str(d["time"]) for d in actor_metadata)
+            face_str = ",".join(str(d["face_location"]) for d in actor_metadata)
+            actor_collection.add(
+                ids=[f"{actor_id}"], 
+                documents=["-"], 
+                metadatas=[{"time": times_str, "face_location": face_str}]
+            )
+    
+    print("[green]Actor Indexing...[/green]")
 
     print("[bold red]Video Indexing Complete !!![/bold red]")
 
@@ -122,6 +234,44 @@ def scene(scene: str):
     print("[green]Scene found...[/green]")
 
     return time
+
+@app.command()
+def actor(id: str, input_path: str, output_path: str = "output.mp4"):
+    metadata = actor_collection.get(ids=[id], include=["metadatas"])['metadatas'][0]
+    times = [float(t) for t in metadata["time"].split(",")]
+    face_locs = [eval(loc + ")") if not loc.endswith(")") else eval(loc) for loc in metadata["face_location"].split("),")]
+
+    video = cv2.VideoCapture(input_path)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'avc1'), fps, (width, height))
+
+    frame_targets = {round(t * fps): loc for t, loc in zip(times, face_locs)}
+    frame_idx = 0
+
+    while True:
+        ret, frame = video.read()
+        if not ret:
+            break
+
+        if frame_idx in frame_targets:
+            top, right, bottom, left = frame_targets[frame_idx]
+            color = (0, 255, 0)
+            thickness = max(2, int(height / 200))  
+            font_scale = max(0.5, height / 1000)  
+            
+            cv2.rectangle(frame, (left, top), (right, bottom), color, thickness)
+            cv2.putText(frame, f"Actor {id}", (left, top - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
+
+        writer.write(frame)
+        frame_idx += 1
+
+    video.release()
+    writer.release()
+    print(f"[green]Video saved as {output_path}[/green]")
+
 
 if __name__ == "__main__":
     app()
