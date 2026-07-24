@@ -40,9 +40,15 @@ def videoindex(path: str):
 
     audio = whisperx.load_audio(audio)
 
-    result = whisper_model.transcribe(audio, batch_size=batch_size, language="ur")
+    result = whisper_model.transcribe(audio, batch_size=batch_size)
+    detected_language = result["language"]
+    print(f"[green]Detected audio language: {detected_language}[/green]")
 
-    model_a, metadata = whisperx.load_align_model(language_code="ur", device=device, model_dir="./torch")
+    model_a, metadata = whisperx.load_align_model(
+        language_code=detected_language,
+        device=device,
+        model_dir="./torch",
+    )
     result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
     segments = result["segments"]
