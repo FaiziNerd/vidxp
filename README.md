@@ -1,6 +1,13 @@
-# ActorDB
+# VidXP (Video eXPlain) - Video Indexing Engine
 
 **A Python package for video indexing and searching based on audio and scene content.**
+
+## Outline
+
+1. [Product Feature Roadmap Matrix](#product-feature-roadmap-matrix)
+2. [Installation](#installation)
+3. [Usage](#usage)
+4. [Contribution Guidelines](docs/contribution_guidelines.md)
 
 ## Product Feature Roadmap Matrix
 
@@ -8,13 +15,13 @@
 |----------------|-------------------|----------------------|----------------------|
 |**Scene Search**|**Functionality:** Search for scenes based on text description
 ||**Model:** CLIP (ViT-B/32)
-||**Query:** actordb scene "filepath" "scene description"
+||**Query:** vidxp scene "filepath" "scene description"
 |**Dialogue Search**|**Functionality:** Search for specific dialogues and jump to the timestamps
 ||**Model:** WhisperX (large-v2), SentenceTransformer (all-MiniLM-L6-v2)
-||**Query:** actordb dialogue "filepath" "dialogue"
+||**Query:** vidxp dialogue "filepath" "dialogue"
 |**Actor Detection**|**Functionality:** Basic actor detection (making clusters of similar faces)
 ||**Library:** face_recognition
-||**Query:** actordb face "filepath" "cluster_id"
+||**Query:** vidxp face "filepath" "cluster_id"
 |**Active Speaker Detection**|**Functionality:** Display active speakers in a scene
 ||**Model:** TalkNet-ASD
 ||**Query:** 
@@ -28,7 +35,7 @@
 ### **Prerequisites**
 
 - **Python 3.9 or higher**
-- **Poetry** (Recommended for dependency and package management) – Install from [Poetry Documentation](https://python-poetry.org/docs/)
+- **Poetry** (Recommended for dependency and package management) - Install from [Poetry Documentation](https://python-poetry.org/docs/)
 - **Alternatively, Pip and ****`build`**** package** (For manual installation)
 
 ---
@@ -40,8 +47,8 @@
 1.  **Clone the repository**
 
     ```bash
-    git clone <YOUR_REPOSITORY_URL>
-    cd actordb
+    git clone https://github.com/grayhatdevelopers/vix
+    cd vix
     ```
 
 2.  **Install dependencies using Poetry**
@@ -51,7 +58,7 @@
     ```
 
     - This sets up a virtual environment and installs dependencies from `poetry.lock` or `pyproject.toml`.
-    - The `actordb` CLI command will be available after installation.
+    - The `vidxp` CLI command will be available after installation.
 
 3.  **Activate the environment (if needed)**
 
@@ -62,7 +69,7 @@
 4.  **Run the CLI tool**
 
     ```bash
-    actordb --help
+    vidxp --help
     ```
 
 ---
@@ -74,8 +81,8 @@ If you prefer Pip instead of Poetry, follow these steps:
 1.  **Clone the repository**
 
     ```bash
-    git clone <YOUR_REPOSITORY_URL>
-    cd actordb
+    git clone https://github.com/grayhatdevelopers/vix
+    cd vix
     ```
 
 2.  **Install build dependency**
@@ -101,24 +108,24 @@ If you prefer Pip instead of Poetry, follow these steps:
 5.  **Run the CLI tool**
 
     ```bash
-    actordb --help
+    vidxp --help
     ```
 
-    - If `actordb` is not recognized, run it manually:
+    - If `vidxp` is not recognized, run it manually:
 
       ```bash
-      python -m actordb.main --help
+      python -m vidxp.main --help
       ```
 
 ---
 
 ## **Usage**
 
-After installation, you can use `actordb` directly from the command line:
+After installation, you can use `vidxp` directly from the command line:
 
 ```bash
-actordb --help
-actordb videoindex samplevideo.mp4  # Index the video
-actordb dialogue samplevideo.mp4 "your dialogue query"
-actordb scene samplevideo.mp4 "scene description"
-
+vidxp --help
+vidxp videoindex samplevideo.mp4  # Index the video
+vidxp dialogue samplevideo.mp4 "your dialogue query"
+vidxp scene samplevideo.mp4 "scene description"
+```
