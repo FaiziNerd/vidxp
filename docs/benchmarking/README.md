@@ -21,6 +21,9 @@ evaluator.
    adapter changes.
 4. [Research-paper inventory](research_papers.md) is the prioritized reading queue
    and maps relevant papers to the benchmarks they introduce or use.
+5. [Paper-by-paper validation ledger](paper_validation.md) records the experimental
+   datasets, protocols, metrics, artifact checks, and corrections verified from
+   each primary paper rather than inferred from its title or abstract.
 
 ## Current conclusion
 
@@ -28,6 +31,11 @@ No single published benchmark covers VidXP's dialogue retrieval, visual scene
 retrieval, and actor clustering together. The current recommendation is a
 component suite led by DiDeMo, QVHighlights, TVR or its speech-backed alternatives,
 and BCL.
+
+The paper-use audit now tracks 75 unique primary papers. Each inventory entry is
+mapped to the datasets, protocol, and metrics it actually used in
+[the validation ledger](paper_validation.md); this prevents pretraining corpora,
+adapted tasks, and title-level relevance from being counted as benchmark evidence.
 
 The current top-1 point-returning API is not a scientific constraint. Stable IDs,
 top-k results, scores, intervals, metadata, aggregation, and serializers are normal

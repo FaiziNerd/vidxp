@@ -118,18 +118,18 @@ not included.
 | Benchmark | Engineering | Operations | What is executable |
 | --- | --- | --- | --- |
 | DiDeMo | A, small | Ready | Official 21-candidate moment ranking with Rank@1/5 and mean IoU |
-| HiREST | A, small | Ready for released ASR | Official video and moment retrieval using VidXP chunking, MiniLM, Chroma, and released transcripts |
-| QVHighlights | A, medium | Gated by 133.9 GiB raw archive/CPU cost | Official interval retrieval and clip saliency from deterministic two-second aggregation |
-| Charades-STA | A, medium | Gated by data agreement | Official ranked interval retrieval using fixed-grid windows |
+| HiREST | A, small | Ready for released ASR | Official speech-backed instructional video and moment retrieval using VidXP chunking, MiniLM, Chroma, and released transcripts |
+| QVHighlights | A, medium | Gated by 133.9 GiB raw archive/CPU cost | Official interval retrieval and two-second clip saliency on an explicitly named annotation/test release |
+| Charades-STA | A, medium | Gated by data agreement | Official ranked interval retrieval using fixed-grid windows on either the labelled original or filtered split |
 | MSR-VTT | A, small | Ready after media preparation | Official whole-video text retrieval from pooled frame scores |
-| QuerYD | A, small/medium | Ready for transcript/proposal mode; narration audio unresolved | Official proposal retrieval now; WhisperX narration path after file-level audio access succeeds |
+| QuerYD | A, small/medium | Ready for transcript/oracle-proposal mode; narration audio unresolved | Official paragraph-video and supplied-proposal retrieval now; unrestricted boundaries are not the paper protocol |
 | TVR `t`, `v`, `vt` | A, medium | Gated by lawful raw TV clips with audio | Official SVMR/VCMR/VR once media exists |
 | TVR-Ranking | A after TVR | Gated by TVR media and exact license | Official graded ranked moment retrieval |
 | BCL on BBT/Buffy | A/medium evaluator adapter | Gated by lawful episode media | Official WCP/NMI after mapping VidXP detections or tracks to benchmark instances |
 | LongVALE | A/medium with fixed late fusion | Gated by about 254 GB and raw-media survival | Official temporal grounding using existing vision and speech rankings; no generic-audio claim |
-| FLARE | A/medium | Ready, about 71 GB | Official text-to-clip/video rankings; unsupported sound-only queries remain measured failures |
-| TRECVID AVS | A/medium | Gated by agreement and roughly 1.6 TB V3C2 | Official top-1,000 master-shot ranking and xinfAP |
-| MultiVENT 2.0 | A/large operational adapter | Gated by about 1.93 TB and compute | Official ranked-video/nDCG run using scene, ASR, and supplied metadata; OCR/generic audio unsupported |
+| FLARE | A/medium | Ready, about 71 GB | Official caption-to-clip/video retrieval and clip-level simulated-query retrieval; unsupported sound-only queries remain measured failures |
+| TRECVID AVS | A/medium | Gated by agreement and roughly 1.6 TB V3C2 | Archived 2024/2025 top-1,000 master-shot ranking and mean xinfAP using exact-year topics/qrels |
+| MultiVENT 2.0 | A/large operational adapter | Gated by about 1.93 TB and compute | Official ranked-video run using scene, ASR, and supplied descriptions; embedded-text/OCR unsupported and generic acoustic audio is not a benchmark channel |
 | VectorDBBench | A, small | Ready | Chroma recall, indexing time, latency, and QPS diagnostic only |
 
 ## Benchmark-specific corrections
