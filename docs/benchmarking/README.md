@@ -16,7 +16,10 @@ evaluator.
 2. [Published benchmark catalog](benchmark_catalog.md) contains the validated
    benchmark matrix, access constraints, recommended suite, feasibility checks,
    and execution order.
-3. [Research-paper inventory](research_papers.md) is the prioritized reading queue
+3. [Execution readiness](execution_readiness.md) records the corrected engineering
+   boundary and identifies which benchmarks can be run after lightweight API and
+   adapter changes.
+4. [Research-paper inventory](research_papers.md) is the prioritized reading queue
    and maps relevant papers to the benchmarks they introduce or use.
 
 ## Current conclusion
@@ -24,11 +27,12 @@ evaluator.
 No single published benchmark covers VidXP's dialogue retrieval, visual scene
 retrieval, and actor clustering together. The current recommendation is a
 component suite led by DiDeMo, QVHighlights, TVR or its speech-backed alternatives,
-and BCL, with LongVALE reserved for a later combined vision–audio–speech test.
+and BCL.
 
-The next gate is benchmark feasibility: confirm media access, licenses, evaluator
-availability, storage, and processing cost. Adapter implementation starts only
-after that review.
+The current top-1 point-returning API is not a scientific constraint. Stable IDs,
+top-k results, scores, intervals, metadata, aggregation, and serializers are normal
+benchmark plumbing. DiDeMo and transcript-backed HiREST are ready to begin after
+that shared adapter; TVR and BCL remain desirable but media-gated.
 
 ## Historical material
 

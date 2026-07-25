@@ -38,6 +38,20 @@ Do not treat aspirational features from historical reports as implemented scope.
 Examples include speaker diarization, script alignment, combined multimodal search,
 keyframe or shot detection, and distributed indexing.
 
+## Implementation flexibility
+
+The current CLI and return types are not fixed research constraints. Benchmark work
+may add stable corpus IDs, top-k results, scores, richer metadata, start/end
+intervals, filtering, deterministic window aggregation, serializers, timing hooks,
+and non-learned late fusion over existing scene and dialogue rankings.
+
+These are ordinary adapters. A candidate must not be rejected merely because
+`main.py` currently returns one timestamp or stores too little metadata.
+
+New trained models or unsupported capabilities remain material changes. Examples
+include OCR, generic sound-event recognition, speaker identification, learned
+fusion, multilingual encoder replacement, and face/body/voice fusion.
+
 ## First direction: audit published benchmarks
 
 The first phase is discovery, verification, and classification of published work.
@@ -113,6 +127,20 @@ Each candidate receives exactly one initial verdict:
 Published results become a direct baseline only when the competing method and VidXP
 are run on the same frozen data, queries, judgments, output units, and metrics.
 Similar metric names do not make results comparable.
+
+Every serious candidate also receives two execution labels:
+
+- **Engineering A — adapter:** existing encoders can produce evaluator-valid
+  predictions after deterministic plumbing.
+- **Engineering B — material:** a faithful capability claim needs a new model or
+  learned method.
+- **Operations ready:** artifacts are sufficient for a smoke run.
+- **Operations gated:** media, agreement, license, storage, or compute needs a
+  decision.
+- **Operations blocked:** a necessary artifact is not presently obtainable.
+
+An A/ready benchmark can be scientifically valid even if the baseline score is
+poor. Benchmark compatibility is not a performance claim.
 
 ## Execution gates
 
@@ -190,6 +218,8 @@ the current project actually supports.
 
 - [Published benchmark catalog](benchmark_catalog.md) records the validated
   candidates, access constraints, fit decisions, and proposed execution order.
+- [Execution readiness](execution_readiness.md) records the permitted implementation
+  changes, exact adapter boundary, and revised executable shortlist.
 - [Relevant research-paper inventory](research_papers.md) maps the papers
   to the benchmarks they introduce or use and provides the prioritized review
   queue.

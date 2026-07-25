@@ -146,7 +146,9 @@ units.
 - BCL and VPCD use WCP, NMI, and predicted cluster counts. Scores should not be
   mixed with IJB-B B-cubed results as if they were the same protocol.
 - TVR, QVHighlights, and Charades-STA use non-zero temporal intervals and tIoU.
-  VidXP's current point timestamp cannot be passed through those evaluators.
+  VidXP's current point timestamp cannot be passed through those evaluators
+  unchanged, but a deterministic interval adapter is sufficient for an
+  evaluator-valid baseline.
 - DiDeMo's mean IoU is computed over its constrained candidate grid and multiple
   human annotations; it is not interchangeable with unrestricted interval mAP.
 
