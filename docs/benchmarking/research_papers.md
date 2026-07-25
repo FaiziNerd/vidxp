@@ -45,8 +45,8 @@ Start with these papers before reviewing individual model variants:
 | [CONQUER: Contextual Query-aware Ranking for Video Corpus Moment Retrieval](https://arxiv.org/abs/2109.10016) | ACM MM 2021 | TVR and DiDeMo | Corpus moment-ranking comparator |
 | [ReLoCLNet: Video Corpus Moment Retrieval with Contrastive Learning](https://26hzhang.github.io/publication/reloclnet/) | SIGIR 2021 | TVR and ActivityNet Captions | Efficient separately encoded VCMR/SVMR reference; the earlier DiDeMo claim was incorrect |
 | [TVR-Ranking: A Dataset for Ranked Video Moment Retrieval with Imprecise Queries](https://arxiv.org/abs/2407.06597) | SIGIR-AP 2025 | Introduces graded TVR-Ranking | Best graded ranked-search definition, with inherited TVR access limits |
-| [Finding Moments in Video Collections Using Natural Language](https://arxiv.org/abs/1907.12763) | CVPR 2019 | Corpus-converted DiDeMo and Charades-STA; CAL/Multi-Level Corpus protocol | Establishes the video-corpus moment-retrieval lineage on which TVR/XML builds |
-| [VRAgent: Self-Refining Agent for Zero-Shot Multimodal Video Retrieval](https://openaccess.thecvf.com/content/WACV2026/html/Shah_VRAgent_Self-Refining_Agent_for_Zero-Shot_Multimodal_Video_Retrieval_WACV_2026_paper.html) | WACV 2026 | MM-MSRVTT and TVR-1200 | New visual/transcript/joint retrieval reference; public benchmark artifact not yet independently verified |
+| [Finding Moments in Video Collections Using Natural Language](https://arxiv.org/abs/1907.12763) | arXiv 2019 | Corpus-converted DiDeMo and Charades-STA; introduces STAL, with CAL naming used in the repository | Establishes the video-corpus moment-retrieval lineage on which TVR/XML builds |
+| [VRAgent: Self-Refining Agent for Zero-Shot Multimodal Video Retrieval](https://openaccess.thecvf.com/content/WACV2026/html/Shah_VRAgent_Self-Refining_Agent_for_Zero-Shot_Multimodal_Video_Retrieval_WACV_2026_paper.html) | WACV 2026 | MM-MSRVTT and TVR-1200 | New visual/transcript/joint retrieval reference; official paper/supplement checked, but no public annotations, evaluator, predictions, or implementation found |
 | [SAVE: Speech-Aware Video Representation Learning for Video-Text Retrieval](https://openaccess.thecvf.com/content/CVPR2026/html/Zhao_SAVE_Speech-Aware_Video_Representation_Learning_for_Video-Text_Retrieval_CVPR_2026_paper.html) | CVPR 2026 | MSR-VTT-9k/7k, VATEX, Charades, LSMDC | Speech-aware whole-video retrieval, but not timestamp localization |
 | [LongVALE](https://openaccess.thecvf.com/content/CVPR2025/papers/Geng_LongVALE_Vision-Audio-Language-Event_Benchmark_Towards_Time-Aware_Omni-Modal_Perception_of_Long_Videos_CVPR_2025_paper.pdf) | CVPR 2025 | Introduces LongVALE | Strongest peer-reviewed vision–audio–speech temporal target; no actor task |
 | [MultiVENT 2.0](https://openaccess.thecvf.com/content/CVPR2025/papers/Kriz_MultiVENT_2.0_A_Massive_Multilingual_Benchmark_for_Event-Centric_Video_Retrieval_CVPR_2025_paper.pdf) | CVPR 2025 | Introduces MultiVENT 2.0 | Large-corpus visual, speech/ASR, embedded-text/OCR, and description-metadata retrieval; whole videos rather than moments |
@@ -108,7 +108,8 @@ infrastructure make it unsuitable as the first executable benchmark.
 | [Towards a Complete Benchmark on Video Moment Localization](https://proceedings.mlr.press/v238/chae24a.html) | AISTATS 2024 | ActivityNet Captions, Charades-STA, DiDeMo, TACoS, YouCook2, MSR-VTT, TVR; MoLEF framework | Cross-dataset bias, cost, and benchmark-methodology review; not a new dataset or zero-shot baseline |
 | [QD-DETR: Query-Dependent Video Representation for Moment Retrieval and Highlight Detection](https://github.com/wjun0830/QD-DETR) | CVPR 2023 | QVHighlights, Charades-STA, TVSum | Supervised moment/highlight comparator; no experimental Ego4D, TACoS, DiDeMo, MSR-VTT, or ActivityNet result |
 | [UniVTG: Towards Unified Video-Language Temporal Grounding](https://github.com/showlab/UniVTG) | ICCV 2023 | QVHighlights, Ego4D NLQ, Charades-STA, TACoS, YouTube Highlights, TVSum, QFVS | Broad pretrained/supervised temporal-label comparator; only explicitly marked rows are zero-shot |
-| [VERIFIED: A Fine-Grained Benchmark for Video-Language Retrieval](https://proceedings.neurips.cc/paper_files/paper/2024/hash/477929b8d45ab759795b7aac94329b08-Abstract-Datasets_and_Benchmarks_Track.html) | NeurIPS 2024 | Introduces Charades-FIG, DiDeMo-FIG, ActivityNet-FIG for corpus moment retrieval | Future fine-grained VCMR robustness test; standalone evaluator/license remain incomplete |
+| [VERIFIED: A Video Corpus Moment Retrieval Benchmark for Fine-Grained Video Understanding](https://proceedings.neurips.cc/paper_files/paper/2024/hash/477929b8d45ab759795b7aac94329b08-Abstract-Datasets_and_Benchmarks_Track.html) | NeurIPS Datasets & Benchmarks 2024 | Introduces Charades-FIG, DiDeMo-FIG, ActivityNet-FIG for corpus moment retrieval | Major fine-grained VCMR robustness test with published baseline tables and released annotations/features; standalone code/evaluator and repository license remain incomplete |
+| [LoVR: A Benchmark for Long Video Retrieval in Multimodal Contexts](https://arxiv.org/abs/2505.13928) | The Web Conference 2026 | Introduces bidirectional long-video and predefined scene-clip retrieval over 467 videos | Accepted benchmark with published zero-shot baselines and public data/code; released split metadata currently conflicts with the paper and must be pinned before execution |
 | [MAD: A Scalable Dataset for Language Grounding in Videos from Movie Audio Descriptions](https://arxiv.org/abs/2112.00431) | CVPR 2022 | Introduces MAD | Long-film match, but raw movies are not distributed |
 | [Ego4D](https://arxiv.org/abs/2110.07058) | CVPR 2022 | Includes Natural Language Queries | Strong long-video benchmark, deferred for access and compute cost |
 
@@ -196,9 +197,10 @@ When notes are added for the paper team, use one of these labels:
 - **Artifact blocked:** relevant paper whose media, code, or evaluator cannot
   currently support reproduction.
 
-## Items that still need confirmation
+## Items requiring a future release or access recheck
 
-- Exact accessible release, if any, for VRAgent's TVR-1200 annotations.
+- Whether VRAgent's currently absent TVR-1200/MM-MSRVTT annotations, evaluator,
+  predictions, or implementation are released later.
 - Exact Creative Commons variant for TVR-Ranking.
 - Explicit reuse license for QuerYD annotations and narrator audio.
 - Current legal path to TVR clips with audio.

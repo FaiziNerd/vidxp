@@ -35,7 +35,7 @@ retrieval, and actor clustering together. The current recommendation is a
 component suite led by DiDeMo, QVHighlights, TVR or its speech-backed alternatives,
 and BCL.
 
-The paper-use audit now tracks 78 unique primary papers. Each inventory entry is
+The paper-use audit now tracks 79 unique primary papers. Each inventory entry is
 mapped to the datasets, protocol, and metrics it actually used in
 [the validation ledger](paper_validation.md); this prevents pretraining corpora,
 adapted tasks, and title-level relevance from being counted as benchmark evidence.

@@ -237,6 +237,116 @@ these rows.
 VidXP cannot claim the defining MUVR task from text-only search. A pure-video or
 pure-text run must be labeled as the corresponding paper ablation.
 
+### VRAgent: zero-shot multimodal whole-video retrieval
+
+Source: [WACV 2026 paper](https://openaccess.thecvf.com/content/WACV2026/papers/Shah_VRAgent_Self-Refining_Agent_for_Zero-Shot_Multimodal_Video_Retrieval_WACV_2026_paper.pdf).
+All rows are test-time/zero-shot. MM-MSRVTT queries were generated with GPT-4o
+from frames and ASR. For TVR-1200, the authors select one query per video, trim
+each video to that query's ground-truth moment, and perform whole-item retrieval
+over the 1,200 trimmed clips; this is not original TVR full-video or temporal
+retrieval. Scores are `R@1/R@5/R@10 | average recall`.
+
+| Dataset/method | Published result | Comparison use |
+| --- | --- | --- |
+| MM-MSRVTT, VISPROG | 38.7/71.4/78.3 \| 62.8 | Zero-shot agent baseline |
+| MM-MSRVTT, VAST | 39.6/69.0/76.0 \| 61.5 | Zero-shot multimodal context |
+| MM-MSRVTT, ASR tool | 19.6/34.4/39.8 \| 31.3 | Transcript-only control |
+| MM-MSRVTT, Ensemble (RRF) | 19.8/64.0/80.8 \| 54.9 | BLIP-2+InternVideo2+ASR fixed-fusion control |
+| MM-MSRVTT, VRAgent | 50.4/76.4/86.6 \| 71.1 | Defining zero-shot result |
+| TVR-1200, VISPROG | 17.9/36.4/47.0 \| 33.8 | Zero-shot agent baseline |
+| TVR-1200, ASR tool | 9.2/21.3/31.3 \| 20.6 | Transcript-only control |
+| TVR-1200, CLIP | 14.8/32.6/42.3 \| 29.9 | Frozen visual control |
+| TVR-1200, VRAgent | 20.2/38.2/48.0 \| 35.5 | Defining zero-shot result |
+
+No public query annotations, evaluator, predictions, or implementation were
+found. These are useful citations but cannot be independently reproduced from
+the paper alone.
+
+### ContextIQ: expert-fusion precision on a small custom slice
+
+Sources: [WACV 2025 paper](https://openaccess.thecvf.com/content/WACV2025/html/Chaubey_ContextIQ_A_Multimodal_Expert-Based_Video_Retrieval_System_for_Contextual_Advertising_WACV_2025_paper.html)
+and [supplemental annotations](https://github.com/AnokiAI/ContextIQ-Paper).
+Table 3 evaluates 500 validation clips and eight concepts. Each vector is
+`P@5/10/15/20/25/30/35/40/45/50`.
+
+| Method | Precision vector |
+| --- | --- |
+| CLIP-large | 100/100/99.2/98.8/98.5/98.8/96.8/95.0/93.3/90.3 |
+| LanguageBind | 100/98.8/98.3/98.1/98.5/98.8/97.1/95.9/94.7/92.0 |
+| OnePeace | 92.5/91.3/92.5/94.4/93.5/93.3/93.2/92.5/90.8/90.3 |
+| ContextIQ | 100/100/100/99.4/99.0/98.8/98.2/98.1/97.2/97.3 |
+
+The repository supplies metadata/annotations, not the implementation,
+evaluator, or media. Eight multilabel queries are too narrow for a general
+retrieval claim. The paper's separate MSR-VTT `P@1/P@5/R@5/custom-mAP@5`
+numbers—LanguageBind `85.5/66.6/97.7/86.6` and ContextIQ
+`81.7/59.1/93.7/83.2`—use nonstandard metrics and must not be mixed with
+canonical MSR-VTT recall.
+
+### Multi-modal Video Search by Examples: closest private system result
+
+Source: [IET Computer Vision 2024 paper](https://pure.ulster.ac.uk/ws/files/222412425/IET_Computer_Vision_-_2024_-_Wu_-_Multi_modal_video_search_by_examples_A_video_quality_impact_analysis.pdf).
+On the authors' proprietary high-quality BBC corpus, Table 9 reports
+query-by-example fusion for five politician face/speaker queries:
+
+| Fusion | P@1 | P@5 | P@10 | P@50 | P@200 | Recall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| combSUM | 1.000 | 0.920 | 0.880 | 0.488 | 0.177 | 0.744 |
+| Reciprocal-rank fusion | 1.000 | 0.840 | 0.800 | 0.488 | 0.177 | 0.744 |
+
+The corresponding median/mean ranks are `18.4/21.6` for combSUM and
+`19.3/21.9` for reciprocal-rank fusion.
+
+This is the closest functional system comparator, but it measures private
+query-by-example face/speaker retrieval—not open text-to-scene search—and the
+12,576-video BBC corpus and relevance judgments are not portable. It is
+citation context, not a score VidXP can currently reproduce.
+
+### Collaborative Experts and MMT: multi-expert whole-video context
+
+Sources: [corrected Collaborative Experts paper](https://arxiv.org/pdf/1907.13487),
+[official CE repository](https://github.com/albanie/collaborative-experts),
+[MMT paper](https://www.ecva.net/papers/eccv_2020/papers_ECCV/papers/123490205.pdf),
+and [MMT repository](https://github.com/gabeur/mmt).
+On MSR-VTT 1K-A, target-trained CE reports text-to-video
+`20.9±1.2/48.8±0.6/62.4±0.8` and video-to-text
+`20.6±0.6/50.3±0.5/64.0±0.2` at `R@1/5/10`.
+The corrected paper's full-split expert ablation grows from scene-only
+`4.0/14.1/22.4` to scene+speech `4.6/15.5/24.4`, scene+speech+audio
+`5.8/19.0/28.8`, then all experts `10.0/29.0/41.2`. Use the corrected v2
+numbers, not the superseded original.
+
+MMT reports target-trained-from-scratch `R@5 54.0, MedR 4, MnR 26.7`;
+HowTo100M-pretrained plus target-trained `57.1, 4, 24.0`; and zero-shot
+`14.4, 66, 148.1`. Its repository checkpoint expectation
+`R@1/5/10 24.1/56.4/69.6` is not the paper's scratch row and must be labeled
+as a separate released-checkpoint result.
+
+### SAVE/EclipSE audiovisual family: trained ceilings, not frozen peers
+
+Sources: [SAVE CVPR 2026 paper](https://openaccess.thecvf.com/content/CVPR2026/papers/Zhao_SAVE_Speech-Aware_Video_Representation_Learning_for_Video-Text_Retrieval_CVPR_2026_paper.pdf),
+[official SAVE repository](https://github.com/ruc-aimc-lab/SAVE),
+[AVIGATE repository](https://github.com/BoseungJeong/AVIGATE-CVPR2025),
+[EclipSE repository](https://github.com/GenjiB/ECLIPSE), and
+[TEFAL paper](https://openaccess.thecvf.com/content/ICCV2023/papers/Ibrahimi_Audio-Enhanced_Text-to-Video_Retrieval_using_Text-Conditioned_Feature_Alignment_ICCV_2023_paper.pdf).
+Table 3 scores are `R@1/R@5/R@10 | Rsum`; every model is trained for the target
+dataset. SAVE is the only row with a dedicated speech/ASR branch; EclipSE,
+TEFAL, and AVIGATE use generic audio.
+
+| Dataset | EclipSE | TEFAL | AVIGATE | SAVE |
+| --- | --- | --- | --- | --- |
+| MSR-VTT-9K | 44.9/71.3/81.6 \| 197.8 | 49.4/75.9/83.9 \| 209.2 | 50.2/74.3/83.2 \| 207.7 | 51.3/78.0/86.9 \| 216.2 |
+| MSR-VTT-7K | 30.2/55.9/66.6 \| 152.7 | 32.6/59.1/69.3 \| 161.0 | 32.7/59.8/70.2 \| 162.7 | 33.5/60.9/71.4 \| 165.8 |
+| VATEX | 57.8/88.4/94.3 \| 240.5 | 61.0/90.4/95.3 \| 246.7 | 63.1/90.7/95.5 \| 249.3 | 66.1/92.6/96.8 \| 255.5 |
+| Charades | R@1 15.7 only | 18.5/37.3/48.6 \| 104.4 | 18.8/40.0/51.8 \| 110.6 | 20.8/44.7/55.9 \| 121.4 |
+| LSMDC | 22.2/43.8/52.9 \| 118.9 | 24.7/45.1/53.7 \| 123.5 | 24.6/46.0/55.1 \| 125.7 | 26.1/46.4/55.8 \| 128.3 |
+
+These are whole-video or pre-segmented-clip retrieval scores, not boundary
+localization. No official TEFAL implementation was found, and no SAVE checkpoint
+was visible in the audited repository. SAVE's reported query-independent
+retrieval latency (`9.90 ms`) must not be compared directly with TEFAL's
+query-conditioned `140.57 ms` without matching hardware and corpus setup.
+
 ### TRECVID 2024 AVS: submitted runs, not portable model names
 
 Sources: [official TRECVID 2024 overview](https://trec.nist.gov/pubs/trec33/papers/Overview_avs_vtt_actev.pdf),
@@ -406,6 +516,93 @@ says How2R features/code will be available soon. How2R is therefore not a
 turnkey reproduction from the currently documented official artifacts; present
 media availability and redistribution rights remain unresolved.
 
+### CAL/STAL: the pre-TVR corpus-moment protocol
+
+Sources: [2019 paper](https://arxiv.org/abs/1907.12763) and
+[official MIT-licensed repository](https://github.com/escorciav/moments-retrieval).
+This work converts DiDeMo and Charades-STA from known-video localization into
+exhaustive video-corpus moment retrieval. Table 5's test result averages recall
+at tIoU `.5` and `.7`; it is neither the original DiDeMo metric nor the original
+Charades-STA metric.
+
+| Dataset/method | R@1 | R@10 | R@100 | Median rank | Comparison use |
+| --- | ---: | ---: | ---: | ---: | --- |
+| DiDeMo, MCN+TEF | 1.03 | 5.76 | 26.67 | 354 | Target-trained corpus-conversion baseline |
+| DiDeMo, STAL | 2.25 | 10.40 | 36.46 | 234 | Target-trained corpus-conversion context |
+| Charades, MCN+TEF | 0.23 | 1.24 | 5.55 | 3,902 | Target-trained corpus-conversion baseline |
+| Charades, STAL | 0.31 | 2.02 | 9.80 | 2,751 | Target-trained corpus-conversion context |
+
+The repository is useful lineage and evaluator context, but its legacy
+dependencies and unresolved data-preparation TODOs mean a fresh local snapshot
+must be pinned before treating it as executable evidence.
+
+### VERIFIED: fine-grained corpus video and moment retrieval
+
+Sources: [NeurIPS paper](https://arxiv.org/html/2410.08593),
+[supplement](https://proceedings.neurips.cc/paper_files/paper/2024/file/477929b8d45ab759795b7aac94329b08-Supplemental-Datasets_and_Benchmarks_Track.pdf),
+and [released annotations/features](https://github.com/hlchen23/VERIFIED).
+VERIFIED adds fine-grained captions to Charades, DiDeMo, and ActivityNet, making
+partially matched moments/candidates the central retrieval challenge. The
+paper's separately generated disturbed hard negatives train its noise evaluator;
+they are not explicit benchmark-negative records.
+Table 4 evaluates models trained on each corresponding FIG dataset; these are
+not frozen or cross-dataset scores. ActivityNet-FIG uses `val_2`.
+Each result is `VCMR R@1/R@10 at .5 | VCMR R@1/R@10 at .7 |
+VR R@1/R@10`.
+
+| Dataset | HERO | XML | ReLoCLNet | CONQUER | SQuiDNet |
+| --- | --- | --- | --- | --- | --- |
+| Charades-FIG | 0.11/0.40 \| 0.05/0.24 \| 1.69/11.51 | 1.05/4.33 \| 0.43/2.26 \| 2.80/14.11 | 0.78/2.88 \| 0.30/1.56 \| 2.42/12.61 | 1.21/5.46 \| 0.65/2.93 \| 2.80/14.11 | 2.61/11.59 \| 0.94/6.05 \| 11.67/44.01 |
+| DiDeMo-FIG | 0.24/1.75 \| 0.17/1.08 \| 8.48/39.52 | 3.19/14.05 \| 2.32/10.69 \| 14.83/53.95 | 3.74/15.62 \| 1.92/9.84 \| 14.08/50.88 | 5.48/22.33 \| 3.66/15.87 \| 14.83/53.95 | 2.89/11.94 \| 0.52/1.99 \| 16.94/59.26 |
+| ActivityNet-FIG | 1.46/4.89 \| 0.75/2.60 \| 7.95/36.49 | 2.81/12.19 \| 1.63/7.04 \| 13.46/49.99 | 3.72/15.94 \| 2.23/9.24 \| 17.49/56.49 | 2.95/13.31 \| 1.63/7.04 \| 13.46/49.99 | 4.66/17.12 \| 2.10/9.85 \| 32.57/87.93 |
+
+Table 5 also reports CONQUER known-video SVMR as
+`R@1/R@10 at .5 | R@1/R@10 at .7`: Charades-FIG
+`31.99/76.05 | 15.08/50.19`, DiDeMo-FIG
+`34.06/95.54 | 20.81/82.48`, and ActivityNet-FIG
+`26.57/71.11 | 13.41/41.97`. CONQUER and SQuiDNet consume XML top-`K`
+candidates, so they are two-stage systems. The repository releases annotations
+and pre-extracted features but no standalone implementation/evaluator or
+explicit license; source-dataset media terms still apply. These scores are
+citable trained ceilings, while a VidXP execution remains partially blocked.
+
+### mTVR: English/Chinese multilingual TVR
+
+Sources: [ACL-IJCNLP paper](https://aclanthology.org/2021.acl-short.92.pdf) and
+[official repository](https://github.com/jayleicn/mTVRetrieval).
+On `test-public`, the principal VCMR `R@1` scores are:
+
+| Method | English, tIoU .5 / .7 | Chinese, tIoU .5 / .7 | Comparison use |
+| --- | --- | --- | --- |
+| XML | 7.25 / 3.25 | 5.91 / 2.57 | Monolingual target-trained baseline |
+| mXML | 8.30 / 3.82 | 6.76 / 3.20 | Joint English/Chinese target-trained context |
+
+The validation modality/query-type ablation for mXML reports video input on
+visual queries `4.12/1.89` English and `3.73/1.86` Chinese; subtitle input on
+subtitle queries `6.33/2.90` and `4.15/1.97`; and video+subtitle input on joint
+queries `8.29/4.09` and `5.89/3.11`, all `R@1` at tIoU `.5/.7`. These are
+selected matching input/query-type conditions, not aggregate modality results.
+This measures only English and Chinese—not Urdu—and supplied subtitles bypass
+ASR. Hidden test ground truth, gated TV media, and roughly 24 GB of released
+features constrain reproduction.
+
+### TREC Podcasts: transcript-only segment retrieval
+
+Source: [TREC 2020 Podcasts overview](https://trec.nist.gov/pubs/trec29/papers/OVERVIEW.P.pdf).
+Table 4's fixed-segment results are:
+
+| Run | nDCG | nDCG@30 | P@10 | Comparison use |
+| --- | ---: | ---: | ---: | --- |
+| BM25 baseline | 0.52 | 0.40 | 0.49 | Lexical transcript baseline |
+| Query-likelihood baseline | 0.52 | 0.40 | 0.48 | Lexical transcript baseline |
+| BERT description reranker | 0.43 | 0.48 | 0.57 | Neural reranking context |
+| UMD IR run 3 | 0.67 | 0.52 | 0.60 | Best submitted-run context |
+
+This is semantic search over supplied podcast transcripts and fixed segments,
+with no visual modality and no ASR test. Spotify no longer distributes the
+evaluation corpus, so the values are citation context rather than a runnable
+VidXP target.
+
 ## Visual scene, whole-video, and temporal retrieval
 
 ### QVHighlights: official test versus `val-filt`
@@ -508,6 +705,72 @@ The [canonical split/caption archive](https://github.com/ArrowLuo/CLIP4Clip/rele
 and [raw-video mirror](https://www.robots.ox.ac.uk/~maxbain/frozen-in-time/data/MSRVTT.zip)
 were HTTP-checked by the result audit. CLIP4Clip and X-CLIP provide code and
 scripts but not the target-trained checkpoints/predictions behind every row.
+
+### LoVR: bidirectional long-video and predefined-clip retrieval
+
+Sources: [Web Conference 2026 paper](https://arxiv.org/html/2505.13928),
+[accepted-paper listing](https://www2026.thewebconf.org/accepted/research-tracks.html),
+[project](https://lovrbench.github.io/),
+[MIT-licensed code](https://github.com/TechNomad-ds/LoVR-benchmark), and
+[CC BY-NC-SA data](https://huggingface.co/datasets/debugger123/LoVR-benchmark).
+The models below are used zero-shot/pretrained. Results are `R@1/R@5/R@10`.
+
+| Method | Text→video | Video→text | Text→clip | Clip→text |
+| --- | --- | --- | --- | --- |
+| CLIP | 23.34/43.90/54.39 | 16.70/35.55/47.11 | 18.78/37.28/46.31 | 18.29/35.99/44.76 |
+| VideoCLIP-XL-v2 | 29.98/55.67/67.67 | 25.05/52.03/64.03 | 55.34/78.29/84.95 | 48.54/73.82/81.75 |
+| LanguageBind-Video | 42.61/66.60/77.94 | 37.47/60.39/73.23 | 40.30/65.13/74.26 | 35.83/61.12/70.84 |
+
+LoVR contains 467 videos and, according to the paper, 40,804 predefined scene
+clips used as a test-only benchmark. Clip retrieval therefore ranks supplied
+clips; it does not predict temporal boundaries. The current Hugging Face
+release exposes differently named/counting splits (including a `train` split
+with a different row count), conflicting with the paper. A run is valid only
+after pinning the dataset revision and documenting how that discrepancy was
+resolved.
+
+### EclipSE: long-range audiovisual paragraph-to-video retrieval
+
+Source: [ECCV 2022 paper](https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136940405.pdf).
+The paper repurposes QVHighlights, DiDeMo, and YouCook2 by concatenating segment
+captions into paragraph-to-whole-video queries; Charades instead uses its
+provided single descriptions for text-to-video retrieval. None is evaluated as
+its original temporal task here. Target-trained text-to-video `R@1` is:
+
+| Method | QVHighlights | DiDeMo | YouCook2 | Charades |
+| --- | ---: | ---: | ---: | ---: |
+| CLIP4Clip | 70.2 | 42.5 | 37.6 | 13.9 |
+| EclipSE | 70.8 | 44.2 | 38.5 | 15.7 |
+
+On ActivityNet `val1`, EclipSE with a ViT-B/32 backbone and 32 frames reports
+`R@1/5/10 42.3/73.2/83.8, MnR 8.2`; with a ViT-B/16 backbone and the same
+32 frames, `45.3/75.7/86.2, MnR 6.2`. All are target-trained whole-video
+ceilings.
+
+### TACoS, MSVD, and cross-dataset failure context
+
+UniVTG's [ICCV 2023 paper](https://openaccess.thecvf.com/content/ICCV2023/html/Lin_UniVTG_Towards_Unified_Video-Language_Temporal_Grounding_ICCV_2023_paper.html)
+reports TACoS `R@1` at IoU `.3/.5/.7 | mIoU`: 2D-TAN
+`40.01/27.99/12.92 | 27.22`; target-trained UniVTG
+`51.44/34.97/17.35 | 33.60`; pretrained plus target-trained
+`56.11/43.44/24.27 | 38.63`; and explicitly zero-shot UniVTG
+`5.17/1.27/0.27 | 4.40`. That last row is zero-shot only with respect to
+TACoS fine-tuning; it still uses 4.2M temporal-label pretraining examples. This
+narrow cooking-domain known-video task is a useful stress test but not a
+corpus-ranking result.
+
+Q2E's [AACL paper](https://aclanthology.org/2025.ijcnlp-long.121.pdf) reports
+zero-shot MSVD `R@1/5/10 63.77/85.30/89.99`; its cited target-trained
+Cap4Video row is `51.80/80.80/88.30`. Both use the later standard
+1,200/100/670 train/validation/test retrieval adaptation, not a protocol from
+the defining MSVD paper. MSVD is whole-video retrieval and contains no audio
+track in the standard prepared release, so it tests visual retrieval only.
+
+The [MoLEF benchmark study](https://proceedings.mlr.press/v238/chae24a.html)
+shows why in-distribution trained scores are weak evidence for VidXP
+generalization. CMIN's `R@1@.5` falls from IID to OOD:
+ActivityNet `50.39→8.94`, Charades `50.95→32.42`, and YouCook2
+`34.38→3.60`. These are methodology warnings, not VidXP baselines.
 
 ### MAD-v1: zero-shot full-movie localization
 
@@ -638,15 +901,186 @@ The repository warns that its current downloadable dataset does not have the
 exact paper statistics and promises a corrected release. These are valid
 published citations, but the current package is not a clean reproduction target.
 
+### VideoClusterNet and MovieFaceCluster
+
+Source: [ECCV 2024 paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/04432.pdf).
+On the six-episode protocol, Table 1 reports track-level WCP/clustering
+accuracy, weighted by cluster track count:
+
+| Method | BBT | Buffy | Training/use |
+| --- | ---: | ---: | --- |
+| MLR | 83.71 | 66.37 | Supervised historical context |
+| BCL | 89.63 | 83.62 | Supervised unknown-`K` context |
+| VC-TRSF | 94.20 | Not reported | Same-video self-supervised context |
+| VideoClusterNet | 98.70 | 96.10 | Same-video self-supervised, target-video adapted |
+
+Table 3's nine MovieFaceCluster rows are `WCP / predicted-to-true cluster ratio`:
+*An Elephant's Journey* `97.2/1.11`, *Armed Response* `94.1/0.93`,
+*Angel Of The Skies* `85.9/0.72`, *Death Do Us Part (2019)* `98.0/1.14`,
+*American Fright Fest* `97.6/0.92`, *The Fortress* `89.3/1.02`,
+*Under the Shadow* `82.5/1.88`, *The Hidden Soldier* `98.5/1.04`, and
+*S.M.A.R.T. Chase* `93.8/1.50`.
+The method fine-tunes ArcFace on each target video using self-supervision. No
+working dataset release, code, evaluator, features, or predictions were found,
+so these are published target-video-adapted ceilings only.
+
+### EasyCom / VC-TRSF: known- and unknown-`K` egocentric clustering
+
+Sources: [TPAMI paper](https://arxiv.org/pdf/2203.13166) and
+[empty release pointer](https://github.com/ibug-group/Easycom-Clustering).
+Table 7 reports `known-K NMI/WCP | unknown-K #C DIF/NMI`, where `#C DIF` is
+the sum of absolute differences between predicted and true cluster counts
+across all dataset videos:
+
+| Method | BBT average | EasyCom average |
+| --- | --- | --- |
+| Temp Avg | 88.57/95.84 \| 62/90.26 | 65.05/78.44 \| 25/48.13 |
+| SSiam | 92.34/97.01 \| 74/85.46 | 83.42/93.07 \| 27/83.89 |
+| CCL | 93.98/97.11 \| 75/91.14 | 85.84/94.62 \| 82/84.61 |
+| TSiam | 94.11/97.04 \| 61/92.75 | 87.10/95.84 \| 76/85.70 |
+| CT-TRSF | 91.86/96.77 \| 76/90.04 | 84.48/94.49 \| 15/79.78 |
+| VC-TRSF | 94.20/97.50 \| 56/92.95 | 91.01/97.45 \| 15/87.44 |
+
+All learned methods except the nonlearned Temp Avg baseline adapt within the
+target video. Clustering thresholds were
+selected on BBT episode 2 or EasyCom session V09, so this is not a clean
+held-out zero-shot protocol. The official repository still has no data, code,
+evaluator, checkpoint, features, or predictions.
+
+### IJB-B: generic face-template clustering
+
+Sources: [IJB-B benchmark paper](https://openaccess.thecvf.com/content_cvpr_2017_workshops/w6/html/Whitelam_IARPA_Janus_Benchmark-B_CVPR_2017_paper.html),
+[official NIST README](https://www.nist.gov/system/files/documents/2021/06/07/ijbb_challenge_documentation_readme.pdf),
+and [NIST Face Challenges page](https://www.nist.gov/programs-projects/face-challenges).
+The GOTS clustering results below are `B-cubed precision/recall/F-score`.
+
+| Subprotocol ground-truth subjects | Result |
+| ---: | --- |
+| 32 | 0.589 / 0.298 / 0.395 |
+| 64 | 0.578 / 0.302 / 0.396 |
+| 128 | 0.605 / 0.352 / 0.445 |
+| 256 | 0.581 / 0.362 / 0.446 |
+| 512 | 0.516 / 0.328 / 0.401 |
+| 1,024 | 0.485 / 0.345 / 0.403 |
+| 1,845 | Memory failure; no score |
+
+Each subprotocol also supplies a coarse subject-count hint; the first column is
+not a requested output cluster count. This clusters individual images/video
+frames rather than within-video tracks. The paper excludes failure-to-enroll
+samples, while later evaluator defaults may count them as zero unless `-no_fte`
+is used. NIST discontinued distribution in March 2023, so a new run requires a
+lawful existing copy and an explicitly pinned FTE policy.
+
+### SSiam/TSiam and ACCIO: fixed-`K` clustering versus retrieval
+
+Source: [IEEE FG 2019 paper](https://www.cs.toronto.edu/~makarand/papers/FG2019_FClst.pdf).
+For known-`K`, frame-level clustering accuracy/WCP, Table IX reports BBT-0101
+TSiam `98.58`, SSiam `99.04`; Buffy-0502 TSiam `92.46`, SSiam `90.87`.
+On ACCIO's 36-character condition, `precision/recall/F-score` is JFAC
+`0.690/0.350/0.460`, TSiam `0.749/0.382/0.506`, and SSiam
+`0.766/0.386/0.514`. At 40 clusters it is respectively
+`0.711/0.352/0.471`, `0.763/0.362/0.491`, and `0.777/0.371/0.502`.
+The [official SSIAM repository](https://github.com/vivoutlaw/SSIAM) contains
+MATLAB code, metrics, and a claimed BBT-0101 reproduction path. Reproduction is
+still blocked by unavailable media/features and legacy dependencies, not by an
+absent implementation.
+
+ACCIO's separate [ICMR 2015 retrieval paper](https://www.cs.toronto.edu/~makarand/papers/ICMR2015.pdf)
+measures query-by-example face-track retrieval, not clustering. Table 4 uses
+VF² descriptors with Euclidean-distance ranking under the restricted protocol:
+no external data/training and no use of other ACCIO tracks. Its within-film
+`P@1/P@5/P@10/mAP` results are HP1 `90.8/81.5/75.9/42.40`, HP2
+`89.3/79.0/71.6/31.73`, HP3 `90.9/79.1/70.2/31.19`, HP4
+`85.1/72.3/64.5/28.36`, HP5 `89.4/79.3/72.0/32.09`, HP6
+`91.1/80.4/72.2/30.38`, HP7 `91.3/82.1/75.3/38.55`, and HP8
+`89.4/78.6/69.7/33.21`. These two ACCIO protocols must never share one result
+column.
+
+Table 5's across-movie age-retrieval protocol is directional. For the HP-1
+query row, `mAP` against HP-2 through HP-8 is
+`33.1/26.8/24.5/21.5/22.2/27.4/20.0`; the within-movie HP-1 diagonal is
+`42.4`. In the reverse endpoint, HP-8→HP-1 is `19.9`, showing that the matrix
+is not symmetric. The movie media and a complete ready-to-run artifact package
+remain unavailable.
+
+### Erdos-Renyi end-to-end cast grouping
+
+Source: [ICCV 2017 paper](https://openaccess.thecvf.com/content_iccv_2017/html/Jin_End-To-End_Face_Detection_ICCV_2017_paper.html).
+The proposed unified pairwise balanced F-measure, `F_alpha` with `alpha=0.5`,
+jointly penalizes detection misses and identity-grouping errors; it is not the
+standard precision-weighted `F_beta`. With the automatically selected threshold
+from LFW validation it scores BBT `0.7728`, Buffy `0.5661`, and Hannah `0.6436`;
+target-data oracle-threshold values are `0.7828`, `0.6299`, and `0.6813`. This
+is an end-to-end
+detection+tracking+clustering protocol, not WCP/NMI, and the gated media plus
+missing portable evaluator prevent a clean reproduction.
+
+### Prior-Less: unknown-`K` end-to-end multi-face tracking
+
+Source: [CVPR 2018 paper](https://openaccess.thecvf.com/content_cvpr_2018/papers/Lin_A_Prior-Less_Method_CVPR_2018_paper.pdf).
+Table 1 reports music-video `WCP | predicted/ground-truth clusters`:
+`0.89|6/6`, `0.79|6/6`, `0.85|11/11`, `0.70|4/4`, `0.73|7/8`,
+`0.92|6/6`, `0.86|4/4`, and `0.92|5/5`. Table 3 reports the four
+body-worn-camera videos as `0.73|4/5`, `0.80|3/3`, `0.80|2/2`, and
+`0.81|3/3`. This is directly relevant unknown-`K` raw-video
+detection/tracking/clustering evidence. Dataset availability and a portable
+artifact package were not confirmed, so it is a non-executable published
+ceiling—not a reason to omit the scores.
+
+### Earlier known-`K` clustering and joint-tracking references
+
+The [CVPR 2013 constrained-clustering paper](https://openaccess.thecvf.com/content_cvpr_2013/html/Wu_Constrained_Clustering_and_2013_CVPR_paper.html)
+reports HMRF all-link clustering accuracy `50.30±2.73` on Buffy and
+`84.39±1.47` on Notting Hill. The
+[ICCV 2013 joint clustering/tracklet-linking paper](https://openaccess.thecvf.com/content_iccv_2013/html/Wu_Simultaneous_Clustering_and_2013_ICCV_paper.html)
+reports `track/face accuracy`: Frontal `90.70/94.95`, Turning
+`90.00/92.57`, and BBT01 `66.48/66.77`. These are known-`K` or joint
+tracking protocols with unverified legacy artifacts; they are historical
+context, not unknown-`K` VidXP baselines.
+
 ### Actor candidates that remain citation context
 
 | Candidate | Published result source | Why it is not an executable comparison yet |
 | --- | --- | --- |
-| EasyCom-Clustering | [TPAMI paper](https://arxiv.org/pdf/2203.13166) contains BBT/EasyCom result tables | [Official repository](https://github.com/ibug-group/Easycom-Clustering) has no data, code, checkpoint, features, or predictions and still says the link will be updated |
-| MovieFaceCluster / VideoClusterNet | [ECCV paper](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/04432.pdf) contains BBT/Buffy/MovieFaceCluster values | Dataset endpoint was unavailable and no official code/checkpoint/features/predictions were validated |
-| Hannah | [End-to-end ICCV paper](https://openaccess.thecvf.com/content_ICCV_2017/papers/Jin_End-To-End_Face_Detection_ICCV_2017_paper.pdf) reports results | Requires research access plus a separate film; no official prediction/checkpoint package was validated |
-| MovieGraphs face clustering | [MovieGraphs Table 3](https://openaccess.thecvf.com/content_cvpr_2018/papers/Vicol_MovieGraphs_Towards_Understanding_CVPR_2018_paper.pdf) reports `75.8%` WCP | One supplied-track dataset baseline; raw movies are not a turnkey distributed corpus |
-| ACCIO | [ICMR retrieval paper](https://www.cs.toronto.edu/~makarand/papers/ICMR2015.pdf) and [FG clustering paper](https://www.cs.toronto.edu/~makarand/papers/FG2019_FClst.pdf) publish different-task scores | No complete official evaluator/checkpoint/prediction package was validated; retrieval and 36-character clustering must not be merged |
+| MovieGraphs face clustering | [MovieGraphs Section 5, PDF p. 7](https://openaccess.thecvf.com/content_cvpr_2018/papers/Vicol_MovieGraphs_Towards_Understanding_CVPR_2018_paper.pdf) reports `75.8%` WCP | One supplied-track dataset baseline; raw movies are not a turnkey distributed corpus |
+| Dynamic character graph | [2020 paper](https://arxiv.org/abs/2007.14913) reports BF2006 accuracy `82.12`, NH2016 accuracy `93.84`, and V-measure `0.68`/`0.89` | Six-movie downstream act/major-character labels were expert/manual; no official code/evaluator/data package was found |
+| MovieGraphs person identification | [MovieGraphs Section 5, PDF p. 7](https://openaccess.thecvf.com/content_cvpr_2018/papers/Vicol_MovieGraphs_Towards_Understanding_CVPR_2018_paper.pdf) reports `43.7%` person ID versus `13.2%` chance | Downstream identification over supplied tracks; not an unknown-`K` clustering result |
+
+## Complete candidate-to-result disposition
+
+This closes the earlier category error that omitted VERIFIED: a candidate may be
+non-executable and still have published competitor numbers worth citing. Every
+candidate in the catalog now has one of the dispositions below. “Covered” means
+the exact score and protocol are transcribed above; it does not make the score
+directly comparable to a future VidXP run.
+
+| Catalog candidates | Published-result disposition | Explicit constraint |
+| --- | --- | --- |
+| TVR `sub-only` queries; TVR `video-only` queries; TVR `video+sub` queries | Covered under TVR/XML | Main public table combines modalities; a VidXP modality claim needs the corresponding query slice |
+| HiREST, QuerYD, TVR-Ranking, How2R | Covered | Released ASR bypasses transcription; QuerYD localizes oracle proposals; How2R artifacts remain incomplete |
+| TREC Podcasts | Covered as blocked citation context | Closed corpus; transcript-only fixed-segment retrieval |
+| NIST OpenKWS | No portable competitor score copied | Evaluation plan defines occurrence/ATWV/timing protocol; Babel/LDC data and system-specific thresholds prevent a fair fixed baseline |
+| SAVA, MediaEval 2015 | No result table suitable for reuse | Overview describes a historical BBC task; data/judgments are not presently portable |
+| mTVR | Covered | English/Chinese only, supplied subtitles, hidden test labels; no Urdu inference |
+| DiDeMo, QVHighlights, Charades-STA | Covered | Original task/split/evaluator must be named; later whole-video adaptations are separate |
+| MSR-VTT, ActivityNet Captions, MAD, Ego4D NLQ | Covered | Split/task/access caveats stated in each section |
+| VERIFIED, LoVR, TACoS, MSVD | Covered | VERIFIED is target-trained/partially blocked; LoVR has a release conflict; TACoS is known-video; MSVD is whole-video |
+| LSMDC, VATEX | Covered through the SAVE/EclipSE comparator family | Later retrieval adaptations, not native temporal protocols; target-trained ceilings |
+| BCL on BBT/Buffy; C1C / Friends; VPCD | Covered | Supplied tracks/features do not measure VidXP detection or embeddings unless replaced |
+| Hannah; Erdos-Renyi BBT/Buffy/Hannah protocol | Covered | End-to-end unified F-measure, gated movie, not WCP/NMI |
+| MovieNet | No single result can represent it | Component dataset, not one official end-to-end VidXP benchmark |
+| MovieGraphs | Covered for face clustering/person ID; retrieval remains source context | Raw films gated; it is also BCL training/validation data |
+| BF0502 and Notting-Hill; Frontal, Turning, and BBT01 | Covered as historical context | Known-`K` or joint tracking protocols with unverified legacy artifacts |
+| Music-video and body-worn-camera sets | Covered under Prior-Less as blocked citation context | Direct unknown-`K` end-to-end actor evidence; dataset/artifact availability unconfirmed |
+| ACCIO; ACCIO retrieval protocol | Covered separately | Fixed-`K` clustering and query-by-example retrieval are different tasks |
+| Dynamic CIG six-movie protocol | Covered as citation context | Manual/expert downstream labels; no portable packaged evaluator |
+| IJB-B | Covered | Distribution discontinued; generic image/frame templates, not video tracks; FTE policy matters |
+| MovieFaceCluster / VideoClusterNet; EasyCom-Clustering | Covered as blocked trained/adapted ceilings | No executable artifact/data package validated |
+| LFW / dlib protocol | No video benchmark result | Face-embedding verification provenance only |
+| LongVALE; FLARE; MultiVENT 2.0; TRECVID AVS / V3C; MUVR; VALOR-32K | Covered | Each section states modality, training, scale, and access limits |
+| MM-MSRVTT and TVR-1200; ContextIQ Val-1 | Covered as artifact-limited citations | Generated/custom queries and missing code/evaluator prevent reproduction |
+| VectorDBBench | Configuration-dependent engineering section below | Same-machine harness only; no universal external score |
+| WhisperX evaluation; MGB Challenge | No end-to-end retrieval score copied | Component transcription/alignment evaluations, not retrieval benchmarks |
 
 ## Engineering benchmark with no fixed competitor score
 
