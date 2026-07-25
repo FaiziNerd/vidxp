@@ -7,7 +7,7 @@
 1. [Product Feature Roadmap Matrix](#product-feature-roadmap-matrix)
 2. [Installation](#installation)
 3. [Usage](#usage)
-4. [Contribution Guidelines](docs/contribution_guidelines.md)
+4. [Contribution Guidelines](docs/CONTRIBUTING.md)
 
 ## Product Feature Roadmap Matrix
 
