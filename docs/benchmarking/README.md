@@ -16,12 +16,15 @@ evaluator.
 2. [Published benchmark catalog](benchmark_catalog.md) contains the validated
    benchmark matrix, including what every candidate measures, what its result would
    and would not demonstrate about VidXP, access constraints, and execution order.
-3. [Execution readiness](execution_readiness.md) records the corrected engineering
+3. [Published comparison results](published_results.md) records exact competitor
+   scores, splits, training status, primary-paper table/page citations, and
+   official artifacts without merging incompatible protocols.
+4. [Execution readiness](execution_readiness.md) records the corrected engineering
    boundary and identifies which benchmarks can be run after lightweight API and
    adapter changes.
-4. [Research-paper inventory](research_papers.md) is the prioritized reading queue
+5. [Research-paper inventory](research_papers.md) is the prioritized reading queue
    and maps relevant papers to the benchmarks they introduce or use.
-5. [Paper-by-paper validation ledger](paper_validation.md) records the experimental
+6. [Paper-by-paper validation ledger](paper_validation.md) records the experimental
    datasets, protocols, metrics, artifact checks, and corrections verified from
    each primary paper rather than inferred from its title or abstract.
 
@@ -32,7 +35,7 @@ retrieval, and actor clustering together. The current recommendation is a
 component suite led by DiDeMo, QVHighlights, TVR or its speech-backed alternatives,
 and BCL.
 
-The paper-use audit now tracks 75 unique primary papers. Each inventory entry is
+The paper-use audit now tracks 78 unique primary papers. Each inventory entry is
 mapped to the datasets, protocol, and metrics it actually used in
 [the validation ledger](paper_validation.md); this prevents pretraining corpora,
 adapted tasks, and title-level relevance from being counted as benchmark evidence.

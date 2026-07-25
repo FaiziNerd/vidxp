@@ -242,7 +242,7 @@ Record peak:
 - GPU utilization and device memory over time where available;
 - CPU utilization, disk reads/writes, and index size.
 
-PyTorch's `max_memory_allocated()` returns the peak tensor memory since program start and documents resetting peak statistics between stages ([official API](https://docs.pytorch.org/docs/stable/generated/torch.cuda.max_memory_allocated.html)). Python exposes maximum RSS through `resource.getrusage` ([official documentation](https://docs.python.org/3/library/resource.html)); NVIDIA documents sampled GPU utilization and frame-buffer memory semantics in `nvidia-smi` ([official documentation](https://docs.nvidia.com/deploy/nvidia-smi/index.html)).
+PyTorch's `max_memory_allocated()` returns the peak tensor memory since program start and documents resetting peak statistics between stages ([official API](https://docs.pytorch.org/docs/stable/generated/torch.cuda.memory.max_memory_allocated.html)). Python exposes maximum RSS through `resource.getrusage` ([official documentation](https://docs.python.org/3/library/resource.html)); NVIDIA documents sampled GPU utilization and frame-buffer memory semantics in `nvidia-smi` ([official documentation](https://docs.nvidia.com/deploy/nvidia-smi/index.html)).
 
 For every result table, report CPU model/core count, RAM, storage, GPU and VRAM, OS, accelerator driver/runtime, Python and dependency versions, model identifiers/hashes, precision/compute type, batch size, thread counts, input resolution/fps, frame stride, database settings, and Git commit. Fix seeds where randomness exists, keep the machine otherwise idle, randomize condition order, and publish raw per-run measurements and the benchmark script.
 

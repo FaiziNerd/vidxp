@@ -13,6 +13,9 @@ claim that VidXP has been run on any of them. Published results become comparabl
 baselines only after VidXP and the competing method use the same data, task,
 prediction unit, and evaluator.
 
+Exact published competitor scores and their table/page citations are maintained
+separately in [published comparison results](published_results.md).
+
 ## Decision summary
 
 There is no credible single benchmark that directly exercises the current dialogue
@@ -29,7 +32,7 @@ The smallest credible suite is therefore component-based:
 2. **HiREST with released ASR** as the first executable speech-backed
    instructional retrieval benchmark.
 3. **QVHighlights** as the stronger variable-duration scene benchmark.
-4. **TVR `t` queries** as the preferred subtitle-related semantic benchmark if lawful clips with
+4. **TVR `sub-only` queries** as the preferred subtitle-related semantic benchmark if lawful clips with
    audio are obtainable; otherwise use **HiREST** and **QuerYD** as speech-backed
    component tests and state their semantic mismatch.
 5. **BCL on BBT/Buffy** as the best reproducible actor-clustering protocol, provided
@@ -68,9 +71,9 @@ protocol. It does not mean that a similar published score is already comparable.
 
 | Category | Benchmark or protocol | Capability actually measured | What a VidXP result would tell us | What it would **not** tell us | Current status |
 | --- | --- | --- | --- | --- | --- |
-| Dialogue | [TVR `t` queries](https://github.com/jayleicn/TVRetrieval) | Subtitle-related paraphrastic query to ranked video intervals, both known-video and corpus-wide | Whether WhisperX/MiniLM transcript evidence can identify and temporally localize relevant TV moments; a subtitle-only run isolates embedding and retrieval | Verbatim quote lookup, scene understanding, actor clustering, generic audio, or end-to-end ASR quality when supplied subtitles are used | Engineering A; raw TV media gated |
-| Visual | [TVR `v` queries](https://github.com/jayleicn/TVRetrieval) | Visual-language query to ranked video intervals | Whether frame/clip CLIP evidence can retrieve visual moments across a TV corpus | Dialogue retrieval, actor identity, or performance on non-TV domains | Engineering A; raw TV media gated |
-| Combined | [TVR `vt` queries](https://github.com/jayleicn/TVRetrieval) | Queries annotators judged to need both visual and subtitle evidence | Whether fixed late fusion improves corpus moment retrieval when both implemented paths contain useful evidence | Generic sound understanding, actor clustering, learned cross-modal reasoning, or intended `vt` coverage from a dialogue-only ablation | Engineering A with fixed fusion; raw TV media gated |
+| Dialogue | [TVR `sub-only` queries](https://github.com/jayleicn/TVRetrieval) | Subtitle-related paraphrastic query to ranked video intervals, both known-video and corpus-wide | Whether WhisperX/MiniLM transcript evidence can identify and temporally localize relevant TV moments; a subtitle-only run isolates embedding and retrieval | Verbatim quote lookup, scene understanding, actor clustering, generic audio, or end-to-end ASR quality when supplied subtitles are used | Engineering A; raw TV media gated |
+| Visual | [TVR `video-only` queries](https://github.com/jayleicn/TVRetrieval) | Visual-language query to ranked video intervals | Whether frame/clip CLIP evidence can retrieve visual moments across a TV corpus | Dialogue retrieval, actor identity, or performance on non-TV domains | Engineering A; raw TV media gated |
+| Combined | [TVR `video+sub` queries](https://github.com/jayleicn/TVRetrieval) | Queries annotators judged to need both visual and subtitle evidence | Whether fixed late fusion improves corpus moment retrieval when both implemented paths contain useful evidence | Generic sound understanding, actor clustering, learned cross-modal reasoning, or intended `video+sub` coverage from a dialogue-only ablation | Engineering A with fixed fusion; raw TV media gated |
 | Speech-backed instructional | [HiREST](https://github.com/j-min/HiREST) | Instructional goal to ranked videos, one relevant interval, moment segmentation, and step captioning | Whether VidXP's chunking, MiniLM embeddings, vector index, and interval selection retrieve semantically relevant spoken procedural content | Verbatim dialogue search, entertainment-video generalization, actors, or WhisperX accuracy in released-ASR mode | Engineering A; released-ASR retrieval tasks ready |
 | Narrated retrieval | [QuerYD](https://www.robots.ox.ac.uk/~vgg/data/queryd/) | Paragraph text↔video retrieval and narration text↔localized-clip ranking over supplied ground-truth proposals | Whether speech/text indexing can rank the correct narrated video or oracle segment proposal | In-scene conversational dialogue, overlapping speech, scene-only search, or unrestricted boundary prediction | Engineering A for transcript/proposal mode; narration audio unresolved |
 | Ranked search | [TVR-Ranking](https://huggingface.co/axgroup/TVR-Ranking) | Graded ranking of multiple relevant corpus moments for imprecise queries | Whether VidXP orders several partially relevant moments usefully, not merely whether its top result overlaps one answer | ASR quality when subtitles are supplied, actors, or generalization outside TVR | Engineering A after TVR; media/license gated |
@@ -103,7 +106,7 @@ protocol. It does not mean that a similar published score is already comparable.
 | End-to-end grouping | [Erdos-Renyi BBT/Buffy/Hannah protocol](https://openaccess.thecvf.com/content_iccv_2017/html/Jin_End-To-End_Face_Detection_ICCV_2017_paper.html) | Unified pairwise precision, recall, and F-measure across detection, missed faces, and identity clustering | Whether the complete face-detection-to-cast-grouping pipeline balances missed detections and identity errors | Scene/dialogue retrieval or generalization beyond the three video sets | Hannah/episode media gated; evaluator portability unconfirmed |
 | Unconstrained multi-face tracking | [Music-video and body-worn-camera sets](https://openaccess.thecvf.com/content_cvpr_2018/html/Lin_A_Prior-Less_Method_CVPR_2018_paper.html) | Unknown-K WCP/cluster count and CLEAR MOT tracking measures across edited and unedited video | Whether a future VidXP tracker withstands shot changes, occlusion, and first-person camera motion | Current face-only clustering performance without implementing its raw-video tracking path | Paper protocol; dataset availability unconfirmed |
 | Larger-cast face clustering | [ACCIO](https://www.cs.toronto.edu/~makarand/papers/FG2019_FClst.pdf) | Precision, recall, and F-score for fixed-count clustering of 36 named characters in a movie | Whether VidXP embeddings separate a larger, imbalanced named cast | Unknown-K estimation, background extras, or end-to-end face detection | Paper protocol; artifact availability unconfirmed |
-| Movie face-track retrieval | [ACCIO retrieval protocol](https://www.robots.ox.ac.uk/~vgg/publications/2015/Ghaleb15/ghaleb15.pdf) | Within-movie and cross-movie face-track retrieval for 121 named Harry Potter characters, including restricted and unrestricted settings | Whether VidXP can retrieve instances of a queried character across shots and films when supplied a character example | Unknown-K cast discovery, face detection, or the later 36-character clustering protocol | Defining paper verified; movie media and complete artifact access gated |
+| Movie face-track retrieval | [ACCIO retrieval protocol](https://www.cs.toronto.edu/~makarand/papers/ICMR2015.pdf) | Within-movie and cross-movie face-track retrieval for 121 named Harry Potter characters, including restricted and unrestricted settings | Whether VidXP can retrieve instances of a queried character across shots and films when supplied a character example | Unknown-K cast discovery, face detection, or the later 36-character clustering protocol | Defining paper verified; movie media and complete artifact access gated |
 | Character-graph downstream tasks | [Dynamic CIG six-movie protocol](https://arxiv.org/abs/2007.14913) | Act-boundary timestamp error and top-five major-character precision after online face clustering | Whether actor clusters are useful for chronological narrative analysis | A portable clustering benchmark: the six-movie downstream labels relied on expert/manual validation | Reference-only/custom protocol |
 | Face clustering | [IJB-B](https://openaccess.thecvf.com/content_cvpr_2017_workshops/w6/html/Whitelam_IARPA_Janus_Benchmark-B_CVPR_2017_paper.html) | Template/face clustering with B-cubed precision, recall, and F-score | Whether embeddings separate identities under the IJB protocol | Within-video actor continuity, dialogue/scene search, or a new run without an existing lawful copy | Distribution discontinued; reference-only |
 | Movie face clustering | [MovieFaceCluster / VideoClusterNet](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/4432_ECCV_2024_paper.php) | Unsupervised face-track clustering across nine movies | Whether VidXP actor clustering generalizes to a recent movie protocol | Executable evidence while the dataset link and code remain unavailable | Blocked/reference-only |
@@ -129,7 +132,7 @@ their published numbers alone do not answer a VidXP capability question:
 | System | What a same-harness run could tell us | Why the published work alone is insufficient |
 | --- | --- | --- |
 | [WISE](https://www.robots.ox.ac.uk/~vgg/publications/2026/sridhar2026wise/) | Whether a broader released multimodal engine outperforms VidXP on the exact selected corpus/evaluator/hardware | The paper provides deployments and timing context, not a portable judged benchmark |
-| [MVSE](https://doi.org/10.1049/cvi2.12303) | How its experimentally tested face, speaker, two-stage retrieval, and fusion paths compare if its full system and judgments were obtainable | BBC corpus, relevance data, and implementation are not portable; scene and ASR paths were not extensively evaluated |
+| [MVSE](https://pure.ulster.ac.uk/ws/files/222412425/IET_Computer_Vision_-_2024_-_Wu_-_Multi_modal_video_search_by_examples_A_video_quality_impact_analysis.pdf) | How its experimentally tested face, speaker, two-stage retrieval, and fusion paths compare if its full system and judgments were obtainable | BBC corpus, relevance data, and implementation are not portable; scene and ASR paths were not extensively evaluated |
 | [ContextIQ](https://openaccess.thecvf.com/content/WACV2025/html/Chaubey_ContextIQ_A_Multimodal_Expert-Based_Video_Retrieval_System_for_Contextual_Advertising_WACV_2025_paper.html) | Whole-video comparison of video/audio/transcript/metadata experts on a shared dataset | No public implementation/checkpoint; its custom result is not the VidXP task |
 | [Collaborative Experts](https://www.robots.ox.ac.uk/~vgg/research/collaborative-experts/) | A supervised multi-expert whole-video baseline on MSR-VTT or another shared retrieval set | It does not natively evaluate timestamps or actor clustering |
 
@@ -400,7 +403,7 @@ The evaluator, not VidXP, should compute the published metrics.
 ### C1C / Friends face clustering
 
 - **Sources:** [project](https://www.robots.ox.ac.uk/~vgg/research/c1c/),
-  [BMVC paper](https://www.bmvc2020-conference.com/assets/papers/0899.pdf),
+  [BMVC archive paper](https://www.bmva-archive.org.uk/bmvc/2020/assets/papers/0899.pdf),
   [repository](https://github.com/vkalogeiton/c1c).
 - **Year/venue:** 2020, BMVC.
 - **Task:** face-track clustering with cannot-link temporal constraints.
@@ -552,7 +555,7 @@ The evaluator, not VidXP, should compute the published metrics.
 
 | System | Overlap with VidXP | Why it is reference-only |
 | --- | --- | --- |
-| [MVSE](https://doi.org/10.1049/cvi2.12303) | Architecture includes face, scene, speaker, and ASR; experiments mainly test face, speaker, two-stage retrieval, and fusion on BBC video | Its BBC corpus, queries, and relevance data are not released as a reusable benchmark; no public implementation was verified, and scene/ASR were not extensively evaluated |
+| [MVSE](https://pure.ulster.ac.uk/ws/files/222412425/IET_Computer_Vision_-_2024_-_Wu_-_Multi_modal_video_search_by_examples_A_video_quality_impact_analysis.pdf) | Architecture includes face, scene, speaker, and ASR; experiments mainly test face, speaker, two-stage retrieval, and fusion on BBC video | Its BBC corpus, queries, and relevance data are not released as a reusable benchmark; no public implementation was verified, and scene/ASR were not extensively evaluated |
 | [WISE](https://www.robots.ox.ac.uk/~vgg/publications/2026/sridhar2026wise/) | Scene/object/face, acoustic-event, WhisperX speech, metadata, composite search; current [Apache-2.0 code](https://gitlab.com/vgg/wise/wise) | SIGIR 2026 system/demo paper with deployments and timing claims, not a portable judged relevance protocol; face mode is identity search, not clustering |
 | [ContextIQ](https://openaccess.thecvf.com/content/WACV2025/html/Chaubey_ContextIQ_A_Multimodal_Expert-Based_Video_Retrieval_System_for_Contextual_Advertising_WACV_2025_paper.html) | Video, audio, transcript, and metadata experts | Whole-clip retrieval; IDs, splits, queries, and annotations are public under Apache-2.0, but no implementation/checkpoint is available |
 | [Collaborative Experts](https://www.robots.ox.ac.uk/~vgg/research/collaborative-experts/) | Appearance, motion, scene, ASR, OCR, and audio expert streams | Strong whole-video architecture/baseline reference but no actor or native moment output |

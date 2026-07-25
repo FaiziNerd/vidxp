@@ -123,7 +123,7 @@ not included.
 | Charades-STA | A, medium | Gated by data agreement | Official ranked interval retrieval using fixed-grid windows on either the labelled original or filtered split |
 | MSR-VTT | A, small | Ready after media preparation | Official whole-video text retrieval from pooled frame scores |
 | QuerYD | A, small/medium | Ready for transcript/oracle-proposal mode; narration audio unresolved | Official paragraph-video and supplied-proposal retrieval now; unrestricted boundaries are not the paper protocol |
-| TVR `t`, `v`, `vt` | A, medium | Gated by lawful raw TV clips with audio | Official SVMR/VCMR/VR once media exists |
+| TVR `sub-only`, `video-only`, `video+sub` | A, medium | Gated by lawful raw TV clips with audio | Official SVMR/VCMR/VR once media exists |
 | TVR-Ranking | A after TVR | Gated by TVR media and exact license | Official graded ranked moment retrieval |
 | BCL on BBT/Buffy | A/medium evaluator adapter | Gated by lawful episode media | Official WCP/NMI after mapping VidXP detections or tracks to benchmark instances |
 | LongVALE | A/medium with fixed late fusion | Gated by about 254 GB and raw-media survival | Official temporal grounding using existing vision and speech rankings; no generic-audio claim |
