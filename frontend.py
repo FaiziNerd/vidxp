@@ -1,7 +1,7 @@
 import streamlit as st
 from main import videoindex, dialogue, scene, actor
 
-st.title("ActorDB: An Audio-Visual Analysis tool 🔎")
+st.title("VidXP (Video eXPlain) - Video Indexing Engine")
 uploaded_video = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
 
 if uploaded_video:
