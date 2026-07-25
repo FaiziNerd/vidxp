@@ -14,8 +14,8 @@ evaluator.
 1. [Direction and source of truth](direction.md) defines the scope, evidence
    requirements, classification rules, and execution gates.
 2. [Published benchmark catalog](benchmark_catalog.md) contains the validated
-   benchmark matrix, access constraints, recommended suite, feasibility checks,
-   and execution order.
+   benchmark matrix, including what every candidate measures, what its result would
+   and would not demonstrate about VidXP, access constraints, and execution order.
 3. [Execution readiness](execution_readiness.md) records the corrected engineering
    boundary and identifies which benchmarks can be run after lightweight API and
    adapter changes.

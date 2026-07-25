@@ -106,6 +106,8 @@ Every candidate benchmark must have a record containing:
 | Code and models | Official implementation, checkpoints, environment, and maintenance state |
 | Reproduction cost | Expected storage, preprocessing, compute, and runtime |
 | VidXP fit | Matching capabilities and important mismatches |
+| Interpretation | What a VidXP result on this protocol would demonstrate |
+| Non-claims | What the result would not demonstrate and must not be used to claim |
 | Verdict | Directly runnable, adaptable, reference-only, or irrelevant |
 | Confidence | Confirmed, partially confirmed, or unresolved |
 
@@ -197,10 +199,12 @@ Agents researching a lane should return:
 
 1. A short lane conclusion.
 2. Completed benchmark records for every serious candidate.
-3. A ranked shortlist with explicit verdicts.
-4. Confirmed access, licensing, code, and compute blockers.
-5. Unresolved questions requiring follow-up.
-6. Primary-source links for every material claim.
+3. An explicit statement of what each result would and would not establish about
+   VidXP.
+4. A ranked shortlist with explicit verdicts.
+5. Confirmed access, licensing, code, and compute blockers.
+6. Unresolved questions requiring follow-up.
+7. Primary-source links for every material claim.
 
 Agents should not edit paper prose, invent a local dataset, implement adapters, or
 report published scores as VidXP baselines during the discovery phase.
