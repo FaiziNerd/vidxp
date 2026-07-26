@@ -123,7 +123,9 @@ disables another indexing run and all search controls.
 
 `--modalities` can select any combination of `dialogue`, `scene`, and `actor`.
 Scene-only indexing does not load WhisperX or face recognition. `--frame-stride N`
-indexes every Nth frame for scene and actor work; the default remains every frame.
+materializes every Nth frame for scene and actor work; the default remains every
+frame. When both visual modalities are enabled, they share one frame stream and
+one color conversion instead of decoding the video independently.
 
 The Python API also supports isolated multi-video runs, released timestamped
 transcripts, resumable per-video checkpoints, and metadata-rich top-k results.

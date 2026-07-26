@@ -81,6 +81,19 @@ do not load CLIP or WhisperX. CLIP inference, dialogue encoding, and Chroma writ
 use their configured batch sizes. Cancellation is cooperative and is checked
 between batches.
 
+Scene and actor indexing share one video probe and one sampled-frame stream when
+both are enabled. Each materialized frame is converted to RGB once and then fed
+to independently sized scene and actor batches. Actor detections are written
+incrementally; clusters below `actor_min_detections` are removed after clustering
+instead of retaining every detection in process memory.
+
+`frame_stride` controls which frames are retrieved into Python and sent through
+the models. Skipped frames are advanced with the video backend without being
+materialized. Inter-frame codecs may still require backend-internal decoding, so
+stride is not claimed to reduce codec work in direct proportion to the stride.
+Manifests distinguish `source_frames_advanced`, unique `sampled_frames`, and the
+sum of per-modality `frame_operations`.
+
 ## Stored identity and metadata
 
 Every record has a deterministic escaped source ID:
