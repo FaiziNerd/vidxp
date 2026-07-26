@@ -3,15 +3,31 @@ FROM python:3.10-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
     ffmpeg \
+    libglib2.0-0 \
+    libgl1 \
+    libsm6 \
+    libopenblas-dev \
+    liblapack-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml README.md LICENSE MANIFEST.in ./
+COPY src ./src
 
-COPY . .
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && pip install ".[frontend]"
 
 EXPOSE 8501
 
-ENTRYPOINT ["streamlit", "run", "frontend.py"]
+CMD ["vidxp-ui", "--server.address=0.0.0.0", "--server.port=8501"]
