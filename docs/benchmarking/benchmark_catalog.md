@@ -74,8 +74,8 @@ protocol. It does not mean that a similar published score is already comparable.
 | Dialogue | [TVR `sub-only` queries](https://github.com/jayleicn/TVRetrieval) | Subtitle-related paraphrastic query to ranked video intervals, both known-video and corpus-wide | Whether WhisperX/MiniLM transcript evidence can identify and temporally localize relevant TV moments; a subtitle-only run isolates embedding and retrieval | Verbatim quote lookup, scene understanding, actor clustering, generic audio, or end-to-end ASR quality when supplied subtitles are used | Engineering A; raw TV media gated |
 | Visual | [TVR `video-only` queries](https://github.com/jayleicn/TVRetrieval) | Visual-language query to ranked video intervals | Whether frame/clip CLIP evidence can retrieve visual moments across a TV corpus | Dialogue retrieval, actor identity, or performance on non-TV domains | Engineering A; raw TV media gated |
 | Combined | [TVR `video+sub` queries](https://github.com/jayleicn/TVRetrieval) | Queries annotators judged to need both visual and subtitle evidence | Whether fixed late fusion improves corpus moment retrieval when both implemented paths contain useful evidence | Generic sound understanding, actor clustering, learned cross-modal reasoning, or intended `video+sub` coverage from a dialogue-only ablation | Engineering A with fixed fusion; raw TV media gated |
-| Speech-backed instructional | [HiREST](https://github.com/j-min/HiREST) | Instructional goal to ranked videos, one relevant interval, moment segmentation, and step captioning | Whether VidXP's chunking, MiniLM embeddings, vector index, and interval selection retrieve semantically relevant spoken procedural content | Verbatim dialogue search, entertainment-video generalization, actors, or WhisperX accuracy in released-ASR mode | Engineering A; released-ASR retrieval tasks ready |
-| Narrated retrieval | [QuerYD](https://www.robots.ox.ac.uk/~vgg/data/queryd/) | Paragraph text↔video retrieval and narration text↔localized-clip ranking over supplied ground-truth proposals | Whether speech/text indexing can rank the correct narrated video or oracle segment proposal | In-scene conversational dialogue, overlapping speech, scene-only search, or unrestricted boundary prediction | Engineering A for transcript/proposal mode; narration audio unresolved |
+| Speech-backed instructional | [HiREST](https://github.com/j-min/HiREST) | Instructional goal to ranked videos, one relevant interval, moment segmentation, and step captioning | Whether VidXP's chunking, MiniLM embeddings, vector index, and interval selection retrieve semantically relevant spoken procedural content | Verbatim dialogue search, entertainment-video generalization, actors, WhisperX accuracy in released-ASR mode, or full video retrieval when negative candidates lack ASR | Engineering A; released-ASR known-video moment task ready; full video retrieval gated |
+| Narrated retrieval | [QuerYD](https://www.robots.ox.ac.uk/~vgg/data/queryd/) | Paragraph text↔video retrieval and narration text↔localized-clip ranking over supplied ground-truth proposals | Whether VidXP visual representations rank the correct narrated video or oracle segment proposal once source media are processed | In-scene conversational dialogue, overlapping speech, unrestricted boundary prediction, or VidXP quality from the released Collaborative Experts features | Protocol/reference artifacts ready; true VidXP run raw-media gated; narration audio unresolved |
 | Ranked search | [TVR-Ranking](https://huggingface.co/axgroup/TVR-Ranking) | Graded ranking of multiple relevant corpus moments for imprecise queries | Whether VidXP orders several partially relevant moments usefully, not merely whether its top result overlaps one answer | ASR quality when subtitles are supplied, actors, or generalization outside TVR | Engineering A after TVR; media/license gated |
 | Speech-backed whole-video | [How2R](https://aclanthology.org/2020.emnlp-main.161/) | Instructional-video retrieval using video plus aligned speech/subtitles, introduced with HERO | Whether VidXP can rank instructional clips from transcript and scene evidence under HERO's retrieval setup | Conversational dialogue, temporal boundary prediction, actors, or immediate executability before artifacts/licenses are rechecked | Relevant benchmark; current artifact/access status unresolved |
 | Spoken retrieval | [TREC Podcasts](https://trecpodcasts.github.io/) | Semantic query to graded, timestamped long-form spoken segments | Whether VidXP can rank relevant spoken passages across a large audio corpus | Visual retrieval, video timing beyond fixed segments, or actor clustering | Reference-only; corpus access closed |
@@ -95,7 +95,7 @@ protocol. It does not mean that a similar published score is already comparable.
 | Small whole-video visual | [MSVD](https://aclanthology.org/P11-1020/) | Caption-to-short-video retrieval under later 1,200/100/670 adaptations | Whether pooled scene embeddings pass a small, inexpensive corpus-ranking smoke test | Temporal localization, long-video behavior, dialogue, or a retrieval protocol defined by the original paper | Component-only; media reconstruction attrition applies |
 | Movie clip retrieval | [LSMDC](https://arxiv.org/abs/1605.03705) | Natural-language movie description to a pre-segmented movie clip, commonly from a 1,000-clip pool | Whether VidXP scene embeddings rank movie-domain clips | Timestamp localization inside full movies, actor clustering, or easy public-media reproducibility | Registration/copyright gated; context-only |
 | Multilingual caption adaptation | [VATEX](https://openaccess.thecvf.com/content_ICCV_2019/html/Wang_VaTeX_A_Large-Scale_High-Quality_Multilingual_Dataset_for_Video-and-Language_Research_ICCV_2019_paper.html) | Captioning/translation dataset later adapted to whole-video retrieval | Whether a deliberately selected comparator's retrieval adaptation transfers to VidXP | Temporal localization, an intentional multilingual requirement, or a retrieval protocol defined by the VATEX paper itself | Optional comparator context; not a selected baseline |
-| Face clustering | [BCL on BBT/Buffy](https://github.com/makarandtapaswi/BallClustering_ICCV2019) | Unknown-number clustering of labelled face tracks, measured with WCP/NMI and cluster count | Whether VidXP keeps the same character together without merging different characters | Face-detection recall when benchmark tracks are supplied, scene/dialogue retrieval, or VidXP embeddings if only BCL's features are used | Engineering A/medium; raw episode media gated |
+| Face clustering | [BCL on BBT/Buffy](https://github.com/makarandtapaswi/BallClustering_ICCV2019) | Unknown-number clustering of labelled face tracks, measured with WCP/NMI and cluster count | Whether VidXP keeps the same character together without merging different characters under a separately frozen VidXP clustering adapter | Face-detection recall when benchmark tracks are supplied, scene/dialogue retrieval, or VidXP embeddings if only BCL's learned feature/inference package is used | Engineering A/medium; released script is not an arbitrary-cluster scorer; raw episode media gated |
 | Constrained face clustering | [C1C / Friends](https://github.com/vkalogeiton/c1c) | Frame-level WCP/NMI for face-track clustering on BBT, Buffy, Sherlock, and Friends using temporal constraints | Whether temporal constraints reduce false actor merges and fragmentation across principal and secondary named characters | End-to-end face detection, arbitrary background-person handling under the standard Friends setup, or reproduction of the unpublished C1C algorithm | Data adaptable; algorithm code unavailable |
 | Multimodal person clustering | [VPCD](https://www.robots.ox.ac.uk/~vgg/data/Video_Person_Clustering/) | Person clustering from face, body, and voice tracks | How much multimodal identity evidence can improve clustering over face-only features | Current VidXP performance as a face-only system, unless evaluated on a declared face-only slice | Feature-level adaptable; implementation incomplete |
 | End-to-end movie actors | [Hannah](https://www.interdigital.com/data_sets/hannah-dataset) | Face detection, tracking, and identity grouping throughout one full movie | Whether VidXP finds faces, maintains actor identity over time, and avoids false merges/fragmentation end to end | Generalization across many movies or dialogue/scene retrieval | Engineering A/medium; agreement and movie gated |
@@ -112,7 +112,7 @@ protocol. It does not mean that a similar published score is already comparable.
 | Movie face clustering | [MovieFaceCluster / VideoClusterNet](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/4432_ECCV_2024_paper.php) | Unsupervised face-track clustering across nine movies | Whether VidXP actor clustering generalizes to a recent movie protocol | Executable evidence while the dataset link and code remain unavailable | Blocked/reference-only |
 | Egocentric face clustering | [EasyCom-Clustering](https://github.com/ibug-group/Easycom-Clustering) | Face-track clustering in egocentric social video | Whether actor clusters remain stable under first-person views, occlusion, and viewpoint changes | Any executable result until the promised data is released | Blocked/reference-only |
 | Face verification provenance | [LFW / dlib protocol](https://github.com/ageitgey/face_recognition) | Same/different identity verification on still-image pairs | Only the provenance and generic discrimination of the underlying face embedding | VidXP actor clustering, face detection coverage, temporal continuity, or unknown-K performance | Not an actor benchmark; provenance only |
-| Combined temporal | [LongVALE](https://github.com/ttgeng233/LongVALE) | Vision, speech, and generic-audio event grounding in long videos | Whether fixed fusion of VidXP scene and speech evidence localizes multimodal events | Actor clustering or full omni-modal coverage because VidXP lacks generic-audio recognition | Engineering A/medium; media/runtime gated |
+| Combined temporal | [LongVALE](https://github.com/ttgeng233/LongVALE) | Vision, speech, and generic-audio event grounding in long videos, with one interval per event query | Whether a frozen VidXP interval proposal and scene/speech fusion localize multimodal events | Actor clustering or full omni-modal coverage because VidXP lacks generic-audio recognition | Engineering A/medium; artifacts reachable; compliance, interval, and runtime gates remain |
 | Audiovisual retrieval | [FLARE](https://flarebench.github.io/) | Caption-to-clip/video retrieval plus clip-level model-simulated visual-only, audio-only, and joint query retrieval | Where VidXP's scene, speech, and fixed-fusion clip rankings succeed or fail across evidence types | Actor performance, human-authored-query generalization, or full generic-sound capability | Engineering A/medium; ready/watchlist preprint |
 | Large-corpus event | [MultiVENT 2.0](https://huggingface.co/datasets/hltcoe/MultiVENT2.0) | Multilingual event-centric ranked-video retrieval using visual, speech/ASR, embedded-text/OCR, and human-description metadata evidence | Whether existing VidXP visual, speech, and metadata paths scale to a large heterogeneous corpus; unsupported OCR becomes a measurable weakness | Timestamp localization, actor clustering, generic acoustic-event retrieval, or multilingual adequacy of current MiniLM | Engineering A with large operational adapter; approximately 1.93 TB gated |
 | Large-corpus shot | [TRECVID AVS / V3C](https://www-nlpir.nist.gov/projects/tv2025/avs.html) | Natural-language query to up to 1,000 ranked master shots, measured with mean xinfAP | Whether VidXP scene retrieval scales to over a million pooled/judged shots and returns useful corpus rankings | Dialogue or actor performance, or comparable latency across different hardware | Archived 2024/2025 protocol; agreement and approximately 1.6 TB gated |
@@ -141,14 +141,14 @@ their published numbers alone do not answer a VidXP capability question:
 | Priority | Lane | Benchmark | Engineering | Operations | Main constraint |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Visual | DiDeMo | A, small adapter | Ready | Published five-second candidate aggregation |
-| 2 | Dialogue | HiREST released-ASR mode | A, small adapter | Ready | Queries are instructional goals rather than quoted dialogue |
-| 3 | Visual | QVHighlights | A, medium adapter | Gated | 133.9 GiB raw archive and current CPU indexing cost |
-| 4 | Dialogue | QuerYD transcript/proposal mode | A, small/medium adapter | Ready; raw narration pending | Narration rather than in-scene dialogue |
+| 2 | Dialogue | HiREST known-video moment retrieval, released-ASR mode | A, small adapter | Ready | Full video retrieval is not covered because negative candidates lack released ASR |
+| 3 | Visual | QVHighlights | A, medium adapter | Gated | 133.863 GiB all-splits raw archive and current CPU indexing cost |
+| 4 | Narrated visual retrieval | QuerYD | A, small/medium adapter | Protocol ready; VidXP media-gated | Raw YouTube gallery required; narration audio separately unresolved |
 | 5 | Dialogue | TVR, `t` subset | A, medium adapter | Gated | Lawful TV clips with original audio |
-| 6 | Actor | BCL on BBT/Buffy | A, medium evaluator adapter | Gated | Lawful raw episodes needed for VidXP embeddings |
+| 6 | Actor | BCL on BBT/Buffy | A, medium clustering adapter | Gated | Released inference script cannot score VidXP clusters; lawful raw episodes needed |
 | 7 | Visual | Charades-STA | A, medium adapter | Gated | Dataset agreement and narrow staged domain |
-| 8 | Whole system | LongVALE | A, medium fixed-fusion adapter | Gated | About 254 GB, raw-media survival, no generic-audio capability |
-| 9 | Whole system | FLARE | A, medium adapter | Ready/watchlist | Preprint; generated rank-filtered queries; generic audio unsupported |
+| 8 | Whole system | LongVALE | A, medium fixed-fusion adapter | Artifacts reachable; compliance/runtime gate | Evaluation-only raw archives are 40.523 GiB; full 254 GB repository is not required; no generic-audio capability |
+| 9 | Whole system | FLARE | A, medium adapter | Ready artifacts; runtime gate/watchlist | 66.267 GiB release; preprint; generated rank-filtered queries; generic audio unsupported |
 | 10 | Actor | Hannah | A, medium evaluator adapter | Gated | Research agreement and separately obtained movie |
 | 11 | Actor/system | MovieNet | A for component slices | Gated | Registration; movies excluded; actor labels are keyframe-oriented |
 
@@ -220,14 +220,24 @@ The evaluator, not VidXP, should compute the published metrics.
   negatives.
 - **Metrics:** video R@1/5/10/50; moment R@1 at tIoU 0.5 and 0.7.
 - **Artifacts:** MIT code, evaluator, pretrained model, ASR, MiniLM ASR embeddings,
-  and visual features. Raw video is recovered from YouTube.
+  and visual features. `ASR.zip` is 7,160,738 bytes (6.83 MiB), contains 3,375
+  subtitle files, and expands to 17,236,665 bytes (16.44 MiB). The supplied MiniLM
+  archive is 244.95 MiB; the one-frame-per-second and 32-frame visual archives are
+  3.451 GiB and 9.645 GiB respectively. Raw video is recovered from YouTube.
 - **VidXP fit:** unusually strong implementation match: the official baseline uses
   Whisper transcripts and `all-MiniLM-L6-v2`. The queries express procedural goals,
-  not dialogue quotations.
-- **Verdict/confidence:** **Engineering A and ready in released-ASR mode.** This can
-  run VidXP's own chunking, MiniLM embedding, Chroma indexing, ranking, and official
-  evaluation now. A raw-video WhisperX run remains subject to a full YouTube
-  survival audit.
+  not dialogue quotations. Released ASR covers the 776 test query–video pairs used
+  for known-video moment retrieval, so VidXP can rechunk and re-embed it while
+  holding transcription fixed.
+- **Protocol constraint:** the official test video-retrieval pool has 1,391
+  annotated candidates plus 2,891 negative-only candidates. Those distractors do
+  not have released ASR, so the small transcript package cannot support a complete
+  official video-retrieval run. That run requires acquiring all 4,282 videos and
+  transcribing them consistently, or else uses the authors' visual features and is
+  not an end-to-end VidXP result.
+- **Verdict/confidence:** **Engineering A and ready only for released-ASR
+  known-video moment retrieval.** Full video retrieval and raw-video WhisperX
+  evaluation remain gated by a complete YouTube/media audit.
 
 ### QuerYD
 
@@ -240,16 +250,26 @@ The evaluator, not VidXP, should compute the published metrics.
 - **Scale:** 2,593 YouTube videos, 207 hours of video, 74 hours of volunteer audio
   descriptions, and 31,441 descriptions; 13,019 have start/end intervals.
 - **Metrics:** R@1/5/10, median rank, and mean rank.
-- **Artifacts:** video URLs, description audio, transcripts, timestamps, splits,
-  precomputed features, and baseline code. A clear dataset-wide license was not
-  found; YouTube media has separate rights.
+- **Artifacts:** video URLs, metadata/download paths for description audio,
+  transcripts, timestamps, splits, precomputed features, and baseline code. Current
+  narrator-audio availability is unresolved. The fixed metadata, transcript,
+  timestamp, confidence, and two feature releases total 840,716,055 bytes
+  (801.77 MiB). The v2 downloader lists 2,926 YouTube URLs, but it selects a
+  variable `streams.first()` representation, so there is no stable raw-video byte
+  total. The sampled narrator-audio endpoint returned an error during validation.
+  A clear dataset-wide license was not found; YouTube media has separate rights.
 - **VidXP fit:** can exercise WhisperX, word timing, MiniLM, indexing, and
   timestamp retrieval. The speech is narration rather than in-scene dialogue, and
   the published localization baseline ranks oracle proposals rather than freely
   predicting boundaries.
-- **Verdict/confidence:** **Engineering A and ready for the released
-  transcript/proposal protocol.** End-to-end WhisperX over narrator WAV files and
-  the exact reuse license remain unresolved.
+- **Execution constraint:** the transcripts are volunteer description/query
+  annotations, not a released text gallery for the source videos. The fixed package
+  can supply queries, splits, labels, oracle proposals, and a Collaborative Experts
+  reference reproduction; it cannot alone produce an official VidXP score.
+- **Verdict/confidence:** **Engineering A, protocol/reference artifacts ready, true
+  VidXP execution media-gated.** A VidXP result needs surviving raw YouTube videos
+  processed by its visual path. End-to-end WhisperX over narrator WAVs and the exact
+  reuse license remain separately unresolved.
 
 ### TVR-Ranking
 
@@ -288,13 +308,20 @@ The evaluator, not VidXP, should compute the published metrics.
 - **Year/venue:** 2017, ICCV.
 - **Task:** natural-language query to a ranked set of moments in a known video.
 - **Scale verified from official JSON:** 33,005 train annotations/8,511 videos;
-  4,180 validation/1,094; 4,021 test/1,037.
+  4,180 validation/1,094; 4,021 test/1,037; 41,206 queries and 10,642 unique
+  videos overall.
 - **Output/metrics:** rank the 21 contiguous moments formed from six five-second
   chunks; Rank@1, Rank@5, and mean IoU with multiple human annotations.
 - **Artifacts/license:** downloadable YFCC100M/Flickr videos with individual
-  Creative Commons records; BSD-2-Clause code and evaluator.
+  Creative Commons records. All 1,037 test videos are currently reachable and total
+  5,323,396,782 bytes (4.958 GiB); all 1,094 validation videos total 4.919 GiB.
+  Across the full corpus, 10,629 of 10,642 videos are currently reachable and total
+  49.565 GiB. The repository README says BSD-2-Clause, but no standalone license
+  file was found; preserve every source video's individual Creative Commons record.
 - **VidXP fit:** aggregate CLIP frame similarity per five-second chunk, construct
-  the legal moments, and rank them. No training is required.
+  the legal moments, and rank them. Respect the annotation `num_segments` and first
+  six chunks even when source media exceed 30 seconds. No training or model
+  checkpoint is required; the legacy Caffe RGB/flow features are not a VidXP input.
 - **Verdict/confidence:** **Adaptable; confirmed and first execution candidate.**
 
 ### QVHighlights / Moment-DETR
@@ -309,15 +336,23 @@ The evaluator, not VidXP, should compute the published metrics.
   test-with-ground-truth annotation rows.
 - **Metrics:** moment mAP over tIoU 0.50:0.05:0.95, mAP@0.5/0.75, R@1 at tIoU
   0.5/0.7, highlight mAP, and Hit@1.
-- **Artifacts/license:** official evaluator, checkpoints, and an 8 GB
-  pre-extracted-feature release; raw archive verified at 143,734,787,897 bytes
-  (133.9 GiB). Code is MIT; annotations are CC BY-NC-SA 4.0.
+- **Artifacts/license:** official evaluator, checkpoints, and a documented 8 GB
+  pre-extracted-feature release; the single all-splits raw archive is
+  143,734,787,897 bytes (133.863 GiB). Its extracted size is not published, and a
+  val/test-only raw package was not found. Code is MIT; annotations are
+  CC BY-NC-SA 4.0.
 - **Release caveat:** the defining paper used private test labels/CodaLab; the
-  public test-with-ground-truth file is a later artifact. Record the split filename
-  and release date for every run.
+  public test-with-ground-truth file is a later artifact. The validated public file
+  is `highlight_test_with_gt.jsonl` at repository commit
+  `b7e553ac3b0c898ee6b85e03ee507c064eab89ca`, 824,658 bytes, SHA-256
+  `bd50ec6bb5dd3f72571126ba5fdc7418efdd9219a9487984e483a02e2ce5d493`.
+  Record the exact commit, filename, and checksum for every run.
 - **VidXP fit:** aggregate frames into two-second clips and construct scored,
-  non-zero intervals. Highlight metrics may be omitted unless VidXP is explicitly
-  adapted to produce dense saliency.
+  non-zero intervals. A complete QVHighlights submission needs both non-zero scored
+  `pred_relevant_windows` and one saliency score per two-second clip. A
+  moment-retrieval-only run is valid as an explicitly labelled component result,
+  not as complete benchmark coverage. Supplied CLIP/SlowFast features evaluate a
+  foreign feature stack rather than VidXP.
 - **Verdict/confidence:** **Adaptable; confirmed and recommended primary visual
   benchmark.**
 
@@ -369,16 +404,25 @@ The evaluator, not VidXP, should compute the published metrics.
 - **Metrics:** weighted clustering purity (WCP), normalized mutual information
   (NMI), and predicted number of clusters.
 - **Artifacts:** official evaluator, pretrained checkpoint, track metadata, HAC
-  baseline, and 256-D SE-ResNet50 features. The track and feature archives were
-  confirmed reachable at about 5.5 MB and 543 MB. No clear repository license was
-  found; raw copyrighted episodes are not included.
+  baseline, and 256-D SE-ResNet50 features. The reachable track and feature
+  archives are 5,525,780 bytes (5.27 MiB) and 543,260,129 bytes (518.09 MiB), or
+  523.36 MiB combined. No clear repository license was found; raw copyrighted
+  episodes are not included.
 - **VidXP fit:** the closest reproducible unknown-K actor-clustering protocol.
   Supplied features cannot validate VidXP's dlib 128-D embeddings. A true VidXP run
   needs lawful raw episodes or derived face crops plus an adapter from per-frame
   detections to the benchmark tracks.
+- **Evaluator constraint:** the released script is not a general scorer for
+  arbitrary cluster IDs. It loads 256-D SE-ResNet features, applies the authors'
+  learned 256→64 MLP and learned HAC stopping rule, and then reports WCP/NMI.
+  Therefore the supplied 523.36 MiB package only reproduces BCL. A VidXP result
+  requires a separate frozen clustering protocol over VidXP features, alignment to
+  the released tracks/labels, and WCP/NMI computation; the BCL MLP cannot consume
+  VidXP's 128-D dlib vectors.
 - **Verdict/confidence:** **Engineering A/medium, operations gated.** Stable
   per-detection cluster output plus frozen time/bounding-box matching is sufficient
-  for the official evaluator. Raw-media and code-license constraints remain.
+  for the benchmark labels, but not as direct input to the released BCL inference
+  script. Raw-media and code-license constraints remain.
 
 ### VPCD
 
@@ -455,19 +499,43 @@ The evaluator, not VidXP, should compute the published metrics.
   human-refined evaluation split contains 1,171 videos, 13,867 events, and 75.6
   hours.
 - **Metrics:** R@1 at tIoU 0.3/0.5/0.7 and mean IoU for temporal grounding.
-- **Artifacts/license:** public annotations, training/evaluation code, model code,
-  and released CLIP ViT-L/14, BEATs, and Whisper large-v2 features. The repository
-  is MIT; the dataset card is CC BY-NC-SA 4.0 and reports about 254 GB. Underlying
+- **Artifacts/license:** the evaluation split is directly released as nine raw
+  video ZIPs totalling 43,511,050,176 bytes (40.52 GiB), plus a 4.52 MB
+  evaluation-annotation JSON. The three evaluation-feature ZIPs total
+  583,729,907 bytes (0.54 GiB): CLIP ViT-L/14 visual, BEATs audio, and Whisper
+  large-v2 speech features. Those figures were enumerated from Hugging Face
+  revision `18889b01886e30c36b0d1c650ac4439ad460ee73`; the page's approximately
+  254 GB headline is the complete training, evaluation, checkpoint, and
+  instruction-data repository, not the benchmark-evaluation requirement. The
+  repository code is MIT; the dataset card is CC BY-NC-SA 4.0, while underlying
   video copyright remains with source owners.
+- **Output/protocol:** Omni-TVG creates one query for every event and expects one
+  interval per query, encoded by the reference path as integer start/end
+  percentages from 0 to 99. It reports R1@tIoU 0.3/0.5/0.7 and mean IoU on the
+  evaluation protocol; it is not a generic top-k list task.
 - **VidXP fit:** strongest peer-reviewed combined temporal target. It covers vision,
-  speech, and generic audio but not actors. VidXP can produce ranked intervals and
-  combine its existing visual and speech lists with a frozen, non-learned fusion
-  rule. Generic-audio queries remain an unsupported capability and may score
-  poorly. Released features can reproduce external baselines but cannot substitute
-  for running VidXP on raw video.
-- **Verdict/confidence:** **Adaptable and evaluator-executable after a fixed
-  visual/speech fusion adapter; confirmed.** Generic-audio coverage remains an
-  explicit limitation.
+  speech, and generic audio but not actors. VidXP must freeze a point-to-interval
+  or interval-proposal rule and emit one top-ranked interval, then combine its
+  existing visual and speech evidence with a frozen, non-learned fusion rule.
+  Returning top three alone does not satisfy the protocol. Generic-audio evidence
+  within official event queries remains unsupported; keep all 13,867 queries in
+  the denominator unless a separately justified diagnostic slice is declared.
+  Released LongVALE features are precomputed inputs to the official LongVALE-LLM
+  path, not a standalone reproduction package. That path additionally needs its
+  base model/projector/stage weights, CUDA environment, and evaluator. In all
+  cases, those features bypass VidXP and cannot substitute for running VidXP's
+  CLIP/WhisperX/MiniLM encoders on the raw evaluation videos.
+- **Operations:** raw evaluation media are now packaged directly, so YouTube
+  survival is no longer the access gate. The raw MP4 payload expands to
+  43,662,117,997 bytes (40.664 GiB); retaining both raw ZIPs and extracted MP4s
+  consumes 87,173,168,173 bytes (81.186 GiB) before temporary audio, embeddings,
+  or the index. The evaluation features expand to 630,699,136 bytes (0.587 GiB)
+  across 1,171 files per modality. CPU throughput and VidXP index growth still
+  require a measured pilot. No LongVALE model checkpoint is needed for a VidXP
+  run.
+- **Verdict/confidence:** **Adaptable with reachable evaluation artifacts and
+  license/compliance plus runtime/capacity gates; confirmed.** Generic-audio
+  coverage remains an explicit limitation.
 
 ### FLARE
 
@@ -483,8 +551,14 @@ The evaluator, not VidXP, should compute the published metrics.
   the generated-query regime evaluates clip-level text-to-clip and clip-to-text
   only.
 - **Metrics:** R@1/5/10.
-- **Artifacts/license:** 71.2 GB public segmented MP4 release with audio; MIT code;
-  stated CC BY 4.0 dataset; harness for 15 retrievers.
+- **Artifacts/license:** pinned Hugging Face revision
+  `e8a02ad90d768361778887652e304cd773ab2681` contains 14 ZIPs totalling
+  70,160,238,062 bytes and nine JSONL files totalling 992,501,704 bytes. Those
+  benchmark media/data artifacts sum to 71,152,739,766 bytes (66.266 GiB); the full
+  revision, including 1,170,108 bytes of other repository files, totals
+  71,153,909,874 bytes (66.267 GiB). It contains 399 directories and 87,697
+  segmented MP4s with audio. Code is MIT; the dataset states CC BY 4.0; the
+  repository includes a harness for 15 retrievers.
 - **VidXP fit:** closest obtainable combined scene/dialogue retrieval stress test.
   It does not test actor clustering. Audio queries include music and sound events,
   so a declared speech-only subset is necessary for VidXP's dialogue path.
@@ -580,7 +654,16 @@ These are system measurements, not a substitute for retrieval accuracy.
 [VectorDBBench](https://github.com/zilliztech/vectordbbench) can separately measure
 Chroma index build time, recall, latency, and maximum QPS using custom embeddings.
 It should be labelled a database-only diagnostic: it excludes video decoding,
-model inference, media preprocessing, and end-user latency.
+model inference, media preprocessing, and end-user latency. Its dataset size is
+configuration-dependent rather than a fixed “small” download; built-in cases range
+from 50K×1,536 to 100M×768 vectors, and a custom run needs train, test, and exact
+neighbor Parquet files. As a raw float32 lower bound, 100K/1M MiniLM-384 vectors
+occupy 146.48 MiB/1.43 GiB and CLIP-512 vectors occupy 195.31 MiB/1.91 GiB before
+Chroma/index overhead. Record that overhead empirically. Pin VectorDBBench commit
+`cda6227206fe9ffaa742fe366de1fcac224c8018`, Python 3.11+, the Chroma install
+extra/version, and client/persistence mode. If the benchmark adapter does not match
+VidXP's persistent in-process Chroma configuration, label it as a database
+diagnostic rather than VidXP's measured store behavior.
 
 ## Rejected scope expansions
 
@@ -597,12 +680,14 @@ model inference, media preprocessing, and end-user latency.
 1. Confirm legal and technical access to TVR clips with original audio.
 2. Probe a stratified sample of HiREST and QuerYD YouTube IDs for survival.
 3. Resolve the QuerYD and TVR-Ranking annotation license language.
-4. Confirm DiDeMo media retrieval for a small test sample and preserve each source
-   item's Creative Commons record.
-5. Decide whether the QVHighlights 133.9 GiB raw download is acceptable or whether
-   a smaller validation sample is the first milestone.
-6. Estimate the LongVALE raw-video survival rate and storage/processing budget
-   before treating it as an executable combined benchmark.
+4. Decode/checksum a small DiDeMo test sample and preserve each source item's
+   Creative Commons record; all 1,037 test URLs were already confirmed reachable.
+5. Decide whether the QVHighlights 133.863 GiB raw download is acceptable. A
+   declared subset reduces preprocessing/runtime, not the monolithic download,
+   unless its media are obtained independently.
+6. Download one LongVALE evaluation ZIP, measure extracted size and VidXP
+   per-video preprocessing/index growth, and extrapolate CPU runtime over the
+   official 75.6-hour evaluation split before the full run.
 7. Determine whether the team owns or can lawfully access BBT/Buffy episodes for an
    end-to-end BCL run; otherwise separate a feature-level clustering experiment
    from a true VidXP actor result.
@@ -615,18 +700,21 @@ model inference, media preprocessing, and end-user latency.
 
 1. Implement the shared stable-ID, top-k, score, interval, filter, and serializer
    contract with tests.
-2. Run DiDeMo on a small verified sample and HiREST's released-ASR protocol in
-   parallel, then run their full public evaluation paths.
-3. Run QuerYD's transcript/proposal protocol while probing narrator-audio access.
-4. Run QVHighlights validation, first on a declared subset and then in full if
-   storage permits.
+2. Run DiDeMo on a small verified sample and HiREST's released-ASR known-video
+   moment protocol in parallel, then run their full valid public evaluation paths.
+3. Audit and prepare QuerYD raw-video media; use released features only for a
+   clearly labelled Collaborative Experts protocol/reference check.
+4. Run QVHighlights validation, first on a declared subset for preprocessing
+   validation and then in full if storage permits; the subset does not reduce the
+   monolithic archive download.
 5. Resolve TVR media access. If successful, run `t`, `v`, and `vt` separately.
-6. Run BCL's official evaluator first on its supplied reference features to verify
-   the protocol, then on VidXP-derived features only if lawful raw media is
-   available.
+6. Reproduce BCL's released learned pipeline on its supplied reference features as
+   a protocol check. Treat a lawful raw-media VidXP run as a separate clustering
+   adapter scored against the same labels, not as input to BCL's inference script.
 7. Add fixed hardware-aware indexing and query measurements to every executed
    experiment.
 8. Run LongVALE after freezing a simple visual/speech rank-fusion rule and
-   confirming its media/runtime budget.
+   confirming its runtime/peak-working-space budget; use only the 1,171-video
+   evaluation split, not the training release.
 9. Consider Charades-STA, FLARE, and large-corpus MultiVENT/TRECVID experiments
    only after the core suite produces valid, archived predictions.
