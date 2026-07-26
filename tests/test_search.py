@@ -9,6 +9,7 @@ from vidxp.core.search import (
     distance_to_score,
     search_dialogue,
     serialize_predictions,
+    stable_query_id,
 )
 
 
@@ -27,7 +28,11 @@ def dialogue_row(source_id, distance, video_id="video-1"):
         "source_id": source_id,
         "raw_distance": distance,
         "metadata": {
+            "dataset": "sample",
+            "split": "test",
+            "run_id": "run-1",
             "video_id": video_id,
+            "source_id": source_id,
             "start": 1.0,
             "end": 2.0,
             "text": "fresh bread",
@@ -84,6 +89,21 @@ class SearchTests(unittest.TestCase):
     def test_score_is_strictly_monotonic_and_not_a_probability(self):
         self.assertGreater(distance_to_score(0.1), distance_to_score(0.2))
         self.assertEqual(distance_to_score(2.5), -2.5)
+
+    def test_generated_query_ids_are_scoped_to_the_benchmark_run(self):
+        first = stable_query_id("fresh bread", "dialogue", self.config)
+        second = stable_query_id(
+            "fresh bread",
+            "dialogue",
+            IndexConfig(
+                dataset="sample",
+                split="test",
+                run_id="run-2",
+                enabled_modalities=("dialogue",),
+            ),
+        )
+
+        self.assertNotEqual(first, second)
 
     def test_nonpositive_top_k_is_rejected_before_querying(self):
         with self.assertRaisesRegex(ValueError, "top_k"):

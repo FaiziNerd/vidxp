@@ -51,6 +51,15 @@ class ContractTests(unittest.TestCase):
                 first.fingerprint(),
                 first.for_video("video-1").fingerprint(),
             )
+            relocated = IndexConfig(
+                dataset="didemo",
+                split="test",
+                run_id="stride-1",
+                output_root=str(Path(directory) / "relocated"),
+                storage_directory=str(Path(directory) / "custom-index"),
+                enabled_modalities=("scene",),
+            )
+            self.assertEqual(first.fingerprint(), relocated.fingerprint())
 
     def test_invalid_config_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "At least one"):
@@ -61,8 +70,12 @@ class ContractTests(unittest.TestCase):
             IndexConfig(frame_stride=0)
         with self.assertRaisesRegex(ValueError, "cannot be"):
             IndexConfig(dataset="..").run_directory
+        with self.assertRaisesRegex(ValueError, "reserved on Windows"):
+            IndexConfig(dataset="CON.txt").run_directory
         with self.assertRaisesRegex(ValueError, "distinct"):
             IndexConfig(collection_names=("shared", "shared", "actor"))
+        with self.assertRaisesRegex(ValueError, "3-512"):
+            IndexConfig(collection_names=("a", "scene", "actor"))
         with self.assertRaisesRegex(ValueError, "vector_distance"):
             IndexConfig(vector_distance="unknown")
         with self.assertRaisesRegex(ValueError, "SHA-256"):

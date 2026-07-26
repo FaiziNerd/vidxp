@@ -18,7 +18,11 @@ from vidxp.core.storage import IndexStorage
 
 REQUIRED_METADATA = {
     "dialogue": {
+        "dataset",
+        "split",
+        "run_id",
         "video_id",
+        "source_id",
         "start",
         "end",
         "text",
@@ -26,7 +30,11 @@ REQUIRED_METADATA = {
         "modality",
     },
     "scene": {
+        "dataset",
+        "split",
+        "run_id",
         "video_id",
+        "source_id",
         "start",
         "end",
         "frame_index",
@@ -51,8 +59,21 @@ def distance_to_score(raw_distance: float) -> float:
     return -distance
 
 
-def stable_query_id(query: str, modality: str) -> str:
-    digest = hashlib.sha256(f"{modality}\0{query}".encode("utf-8")).hexdigest()
+def stable_query_id(
+    query: str,
+    modality: str,
+    config: IndexConfig,
+) -> str:
+    identity = "\0".join(
+        (
+            config.dataset,
+            config.split,
+            config.run_id,
+            modality,
+            query,
+        )
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return f"{modality}:{digest}"
 
 
@@ -161,7 +182,7 @@ def search(
         if owns_storage:
             store.close()
     return SearchResult(
-        query_id=query_id or stable_query_id(query, modality),
+        query_id=query_id or stable_query_id(query, modality, config),
         query=query,
         modality=modality,
         hits=_to_hits(modality, rows),

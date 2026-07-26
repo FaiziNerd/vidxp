@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import string
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -34,6 +35,14 @@ def _filesystem_component(value: str) -> str:
     value = _require_identifier("path component", value)
     if value in {".", ".."}:
         raise ValueError("Run path components cannot be '.' or '..'.")
+    windows_stem = value.rstrip(" .").split(".", 1)[0].upper()
+    reserved = {"CON", "PRN", "AUX", "NUL"}
+    reserved.update(f"COM{index}" for index in range(1, 10))
+    reserved.update(f"LPT{index}" for index in range(1, 10))
+    if windows_stem in reserved:
+        raise ValueError(
+            f"Run path component {value!r} is reserved on Windows."
+        )
     return quote(value, safe="._-")
 
 
@@ -124,8 +133,20 @@ class IndexConfig:
             )
         if len(self.collection_names) != len(SUPPORTED_MODALITIES):
             raise ValueError("collection_names must define dialogue, scene, and actor.")
-        if any(not str(name).strip() for name in self.collection_names):
-            raise ValueError("collection_names must not contain empty names.")
+        collection_pattern = re.compile(
+            r"^[A-Za-z0-9][A-Za-z0-9._-]{1,510}[A-Za-z0-9]$"
+        )
+        invalid_names = [
+            name
+            for name in self.collection_names
+            if not collection_pattern.fullmatch(str(name))
+        ]
+        if invalid_names:
+            raise ValueError(
+                "collection_names must be 3-512 characters, begin and end "
+                "with an alphanumeric character, and contain only "
+                "letters, numbers, periods, underscores, or hyphens."
+            )
         if len(set(self.collection_names)) != len(self.collection_names):
             raise ValueError("collection_names must be distinct.")
 
@@ -190,8 +211,9 @@ class IndexConfig:
         return payload
 
     def fingerprint(self) -> str:
-        payload = self.to_dict()
-        payload.pop("video_id", None)
+        payload = asdict(self)
+        for excluded in ("video_id", "output_root", "storage_directory"):
+            payload.pop(excluded, None)
         encoded = json.dumps(
             payload,
             ensure_ascii=False,

@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import quote
 
 from vidxp.core.contracts import (
     INDEX_SCHEMA_VERSION,
@@ -64,11 +63,11 @@ def sha256_file(path: str | Path) -> str:
 
 
 def source_checksums(source: VideoSource) -> dict[str, str]:
-    if source.checksum:
-        return {"declared": source.checksum}
     checksums = {}
     if source.path is not None:
-        checksums["video"] = sha256_file(source.path)
+        checksums["video"] = source.checksum or sha256_file(source.path)
+    elif source.checksum:
+        checksums["declared"] = source.checksum
     if source.transcript is not None:
         encoded = json.dumps(
             list(source.transcript),
@@ -195,7 +194,8 @@ class ManifestStore:
         )
 
     def _checkpoint_path(self, video_id: str) -> Path:
-        return self.checkpoint_directory / f"{quote(video_id, safe='._-')}.json"
+        digest = hashlib.sha256(video_id.encode("utf-8")).hexdigest()
+        return self.checkpoint_directory / f"{digest}.json"
 
     def _model_manifest(
         self,
