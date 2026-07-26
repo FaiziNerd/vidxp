@@ -51,7 +51,7 @@ dependencies = [
 
 [project.optional-dependencies]
 frontend = [
-  "streamlit",
+  "streamlit>=1.37",
 ]
 
 [project.scripts]
