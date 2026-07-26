@@ -1,27 +1,48 @@
-1. Install Dlib
+# Installation guide
 
-- On Linux and macOS, install it from PyPI as part of the normal requirements install.
+## Prerequisites
 
-- On Windows, if pip cannot build `dlib` for your environment, you can use a prebuilt wheel from a trusted source or install the matching PyPI package if available for your Python version.
+- Python 3.10 through 3.13
+- FFmpeg available on `PATH`
+- A C/C++ build toolchain if pip needs to compile `dlib`
 
-- Do not keep a platform-specific `.whl` file in the project root.
+On Windows, install the Microsoft C++ Build Tools if no compatible `dlib` wheel is available. Do not keep platform-specific wheels in the repository.
 
-2. Set Up a Virtual Environment
+## Environment
 
-- Open a terminal in the project folder and run:
+```bash
+python -m venv venv
+```
 
-- Create a virtual environment named 'venv': python -m venv venv
+```bash
+# Windows
+venv\Scripts\activate
 
-- Activate the virtual environment
+# macOS/Linux
+source venv/bin/activate
+```
 
-- On Windows: venv\Scripts\activate
+```bash
+python -m pip install --upgrade pip
+python -m pip install ".[frontend]"
+```
 
-- On macOS/Linux: source venv/bin/activate
+Confirm that both installed entry points start:
 
-3. Install Project Requirements
+```bash
+vidxp --help
+vidxp-ui
+```
 
-- Install the package and frontend extras with: `pip install ".[frontend]"`
+## Models
 
-4. Run the Application
+VidXP downloads model weights on first use instead of expecting repository-local snapshot directories:
 
-- Start the Streamlit application: `streamlit run src/vidxp/frontend.py`
+| Capability | Model |
+|---|---|
+| Dialogue embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
+| Transcription | WhisperX `large-v2` |
+| Scene search | CLIP `ViT-B/32` |
+| Word alignment | WhisperX default for the detected language |
+
+SentenceTransformer and WhisperX use the Hugging Face cache. CLIP uses its standard user cache. These downloads are not part of `pip install`, so the first indexing or search operation requires network access.

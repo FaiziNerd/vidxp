@@ -32,100 +32,55 @@
 
 ## Installation
 
-### **Prerequisites**
+VidXP supports Python 3.10 through 3.13 and requires FFmpeg.
 
-- **Python 3.9 or higher**
-- **Poetry** (Recommended for dependency and package management) - Install from [Poetry Documentation](https://python-poetry.org/docs/)
-- **Alternatively, Pip and ****`build`**** package** (For manual installation)
+```bash
+git clone https://github.com/grayhatdevelopers/vidxp
+cd vidxp
+python -m venv venv
+```
 
----
+Activate the environment:
 
-### **Installation Steps**
+```bash
+# Windows
+venv\Scripts\activate
 
-#### **Option 1: Recommended - Using Poetry**
+# macOS/Linux
+source venv/bin/activate
+```
 
-1.  **Clone the repository**
+Install VidXP with the Streamlit frontend:
 
-    ```bash
-    git clone https://github.com/grayhatdevelopers/vix
-    cd vix
-    ```
+```bash
+python -m pip install ".[frontend]"
+```
 
-2.  **Install dependencies using Poetry**
+See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for platform notes.
 
-    ```bash
-    poetry install
-    ```
+### Model downloads
 
-    - This sets up a virtual environment and installs dependencies from `poetry.lock` or `pyproject.toml`.
-    - The `vidxp` CLI command will be available after installation.
+Model weights are not stored in this repository. VidXP uses the model identifiers below and lets their libraries download and cache the weights when each capability is first used:
 
-3.  **Activate the environment (if needed)**
+- dialogue embeddings: `sentence-transformers/all-MiniLM-L6-v2`;
+- transcription: WhisperX `large-v2`;
+- scene search: CLIP `ViT-B/32`;
+- language-specific alignment: the default model selected by WhisperX.
 
-    ```bash
-    poetry shell
-    ```
+The first indexing or search run therefore requires an internet connection and can take longer. Running `vidxp --help` does not load or download models.
 
-4.  **Run the CLI tool**
-
-    ```bash
-    vidxp --help
-    ```
-
----
-
-#### **Option 2: Manual Installation - Using Pip**
-
-If you prefer Pip instead of Poetry, follow these steps:
-
-1.  **Clone the repository**
-
-    ```bash
-    git clone https://github.com/grayhatdevelopers/vix
-    cd vix
-    ```
-
-2.  **Install build dependency**
-
-    ```bash
-    pip install build
-    ```
-
-3.  **Build the package**
-
-    ```bash
-    python -m build
-    ```
-
-    - This creates a `dist/` directory with distribution files.
-
-4.  **Install the package**
-
-    ```bash
-    pip install dist/*.whl
-    ```
-
-5.  **Run the CLI tool**
-
-    ```bash
-    vidxp --help
-    ```
-
-    - If `vidxp` is not recognized, run it manually:
-
-      ```bash
-      python -m vidxp --help
-      ```
-
----
-
-## **Usage**
-
-After installation, you can use `vidxp` directly from the command line:
+## Usage
 
 ```bash
 vidxp --help
-vidxp videoindex samplevideo.mp4  # Index the video
-vidxp dialogue samplevideo.mp4 "your dialogue query"
-vidxp scene samplevideo.mp4 "scene description"
+vidxp videoindex samplevideo.mp4
+vidxp dialogue "your dialogue query"
+vidxp scene "scene description"
+vidxp actor 1 samplevideo.mp4
+```
+
+Start the frontend with:
+
+```bash
+vidxp-ui
 ```

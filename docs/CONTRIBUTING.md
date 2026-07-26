@@ -11,7 +11,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Design notes and guides (including this file) |
 | `chroma_data/` | Local ChromaDB index (generated; do not commit) |
-| Model / cache dirs | Local WhisperX, SentenceTransformer, CLIP weights (do not commit) |
+| Model caches | Managed by WhisperX, SentenceTransformer, and CLIP outside the repository |
 
 Indexing writes three collections: `voiceEmbeddings`, `sceneEmbeddings`, and `actorCollection`.
 
@@ -27,9 +27,9 @@ pip install ".[frontend]"
 ```
 
 CLI: `vidxp --help`  
-UI: `streamlit run src/vidxp/frontend.py`
+UI: `vidxp-ui`
 
-Models default to CPU in `main.py`. Point local model paths at your machine, or document path changes in the PR.
+Models default to CPU and download into their libraries' standard caches on first use. If a model identifier changes, update the setup documentation and record the exact identifier in benchmark results.
 
 ## Where to put work
 
