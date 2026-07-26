@@ -53,59 +53,333 @@ def get_chroma_client():
 
 
 def get_collections():
-    chroma_client = get_chroma_client()
-    return (
-        chroma_client.get_or_create_collection(name=COLLECTION_NAMES[0]),
-        chroma_client.get_or_create_collection(name=COLLECTION_NAMES[1]),
-        chroma_client.get_or_create_collection(name=COLLECTION_NAMES[2]),
+    client = get_chroma_client()
+    return tuple(
+        client.get_or_create_collection(name=name)
+        for name in COLLECTION_NAMES
     )
 
 
 def reset_collections():
-    chroma_client = get_chroma_client()
+    client = get_chroma_client()
     existing = {
         getattr(collection, "name", collection)
-        for collection in chroma_client.list_collections()
+        for collection in client.list_collections()
     }
-    for collection_name in COLLECTION_NAMES:
-        if collection_name in existing:
-            chroma_client.delete_collection(collection_name)
+    for name in COLLECTION_NAMES:
+        if name in existing:
+            client.delete_collection(name)
     return get_collections()
 
 
-def _report_progress(
-    callback: ProgressCallback | None,
-    *,
-    stage: str,
-    message: str,
-    video: dict[str, Any],
-    current: int | None = None,
-    total: int | None = None,
-    announce: bool = True,
-):
-    event = {
-        "stage": stage,
-        "message": message,
-        "current": current,
-        "total": total,
-    }
-    write_index_status(
+class _IndexProgress:
+    def __init__(
+        self,
+        callback: ProgressCallback | None,
+        video: dict[str, Any],
+    ):
+        self.callback = callback
+        self.video = video
+        self.stage = "initializing"
+
+    def __call__(
+        self,
+        stage,
+        message,
+        current=None,
+        total=None,
+        announce=True,
+        *,
         state="indexing",
-        stage=stage,
-        message=message,
-        video=video,
-        current=current,
-        total=total,
-    )
-    if announce:
-        print(f"[cyan]{message}[/cyan]")
-    if callback is not None:
-        callback(event)
+        summary=None,
+        error=None,
+    ):
+        if state == "indexing":
+            self.stage = stage
+        event = {
+            "state": state,
+            "stage": stage,
+            "message": message,
+            "current": current,
+            "total": total,
+        }
+        if summary is not None:
+            event["summary"] = summary
+        if error is not None:
+            event["error"] = error
+
+        write_index_status(video=self.video, **event)
+        if announce:
+            print(f"[cyan]{message}[/cyan]")
+        if self.callback is not None:
+            self.callback(event)
 
 
 def _should_report_progress(current: int, total: int) -> bool:
     interval = max(total // 100, 1) if total > 0 else 100
     return current == 1 or current == total or current % interval == 0
+
+
+def _prepare_models(report: _IndexProgress):
+    report(
+        "preparing_dialogue_model",
+        f"Preparing dialogue model: {SENTENCE_MODEL}",
+    )
+    embedder = get_embedder()
+
+    report(
+        "preparing_scene_model",
+        f"Preparing scene model: CLIP {CLIP_MODEL}",
+    )
+    clip_model, preprocess = get_clip_model()
+    return embedder, clip_model, preprocess
+
+
+def _transcribe_audio(input_path: Path, report: _IndexProgress):
+    import whisperx
+    from moviepy.editor import VideoFileClip
+
+    audio_path = Path("audio.wav")
+    report("extracting_audio", "Extracting audio from the video.")
+    with VideoFileClip(str(input_path)) as source_video:
+        if source_video.audio is None:
+            raise ValueError("The selected video does not contain an audio track.")
+        source_video.audio.write_audiofile(str(audio_path))
+
+    report(
+        "preparing_transcription_model",
+        f"Preparing transcription model: WhisperX {WHISPER_MODEL}",
+    )
+    whisper_model = whisperx.load_model(
+        WHISPER_MODEL,
+        DEVICE,
+        compute_type="float32",
+    )
+    audio = whisperx.load_audio(str(audio_path))
+
+    report("transcribing_audio", "Transcribing the video audio.")
+    transcription = whisper_model.transcribe(audio, batch_size=16)
+    language = transcription["language"]
+    print(f"[green]Detected audio language: {language}[/green]")
+
+    report(
+        "preparing_alignment_model",
+        f"Preparing the {language} alignment model.",
+    )
+    alignment_model, metadata = whisperx.load_align_model(
+        language_code=language,
+        device=DEVICE,
+    )
+    report("aligning_audio", "Aligning transcript words to timestamps.")
+    aligned = whisperx.align(
+        transcription["segments"],
+        alignment_model,
+        metadata,
+        audio,
+        DEVICE,
+        return_char_alignments=False,
+    )
+    return aligned["segments"], language
+
+
+def _index_dialogue(
+    segments,
+    collection,
+    embedder,
+    report: _IndexProgress,
+) -> int:
+    phrases = []
+    for segment in segments:
+        words = segment["words"]
+        for offset in range(0, len(words), 5):
+            phrase_words = words[offset:offset + 5]
+            phrases.append(
+                (
+                    " ".join(item["word"] for item in phrase_words),
+                    phrase_words[0]["start"],
+                )
+            )
+
+    total = len(phrases)
+    report("dialogue_indexing", "Indexing dialogue phrases.", 0, total)
+    for phrase_id, (phrase, start_time) in enumerate(phrases):
+        embedding = embedder.encode(phrase, convert_to_tensor=True)
+        collection.add(
+            ids=[str(phrase_id)],
+            embeddings=[embedding.tolist()],
+            metadatas=[{"start": start_time}],
+        )
+        current = phrase_id + 1
+        if _should_report_progress(current, total):
+            report(
+                "dialogue_indexing",
+                "Indexing dialogue phrases.",
+                current,
+                total,
+                False,
+            )
+    return total
+
+
+def _open_video(path: Path, cv2):
+    video = cv2.VideoCapture(str(path))
+    fps = video.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        video.release()
+        raise ValueError("The selected video has an invalid frame rate.")
+    return video, fps, int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+
+
+def _index_scenes(
+    input_path: Path,
+    collection,
+    clip_model,
+    preprocess,
+    report: _IndexProgress,
+) -> int:
+    import cv2
+    import torch
+    from PIL import Image
+
+    video, fps, total = _open_video(input_path, cv2)
+    report("scene_indexing", "Indexing video scenes.", 0, total)
+    timestamp = 0.0
+    count = 0
+
+    while True:
+        retrieved, frame = video.read()
+        if not retrieved:
+            break
+
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        image = preprocess(image).unsqueeze(0).to(DEVICE)
+        with torch.no_grad():
+            features = clip_model.encode_image(image)
+            features /= features.norm(dim=-1, keepdim=True)
+
+        collection.add(
+            ids=[str(count)],
+            embeddings=[features.cpu().numpy().tolist()[0]],
+            metadatas=[{"time": timestamp}],
+        )
+        count += 1
+        timestamp += 1 / fps
+        if _should_report_progress(count, total):
+            report(
+                "scene_indexing",
+                "Indexing video scenes.",
+                count,
+                total,
+                False,
+            )
+
+    video.release()
+    return count
+
+
+def _best_face_match(face_recognition, known_encodings, encoding):
+    if not known_encodings:
+        return None
+    distances = face_recognition.face_distance(known_encodings, encoding)
+    match = distances.argmin()
+    return match if distances[match] < 0.55 else None
+
+
+def _store_actor_clusters(collection, faces) -> int:
+    buckets = {}
+    for face in faces:
+        buckets.setdefault(face["actor_id"], []).append(face)
+
+    stored = 0
+    for actor_id, group in buckets.items():
+        if len(group) <= 3:
+            continue
+        collection.add(
+            ids=[actor_id],
+            documents=["-"],
+            metadatas=[
+                {
+                    "time": ",".join(str(item["time"]) for item in group),
+                    "face_location": ",".join(
+                        str(item["face_location"]) for item in group
+                    ),
+                }
+            ],
+        )
+        stored += 1
+    return stored
+
+
+def _index_actors(
+    input_path: Path,
+    collection,
+    report: _IndexProgress,
+) -> tuple[int, int]:
+    import cv2
+    import face_recognition
+    import numpy as np
+
+    video, fps, total = _open_video(input_path, cv2)
+    report("actor_indexing", "Detecting and clustering actors.", 0, total)
+
+    known_encodings = []
+    known_ids = []
+    face_history = {}
+    faces = []
+    next_id = 1
+    frame_index = 0
+    timestamp = 0.0
+
+    while True:
+        retrieved, frame = video.read()
+        if not retrieved:
+            break
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        locations = face_recognition.face_locations(rgb_frame)
+        encodings = face_recognition.face_encodings(
+            rgb_frame,
+            locations,
+            num_jitters=2,
+        )
+
+        for encoding, location in zip(encodings, locations):
+            match = _best_face_match(face_recognition, known_encodings, encoding)
+            if match is None:
+                actor_id = str(next_id)
+                next_id += 1
+                known_encodings.append(encoding)
+                known_ids.append(actor_id)
+                face_history[actor_id] = [encoding]
+            else:
+                actor_id = known_ids[match]
+                history = face_history[actor_id]
+                history.append(encoding)
+                if len(history) > 5:
+                    history.pop(0)
+                known_encodings[match] = np.mean(history, axis=0)
+
+            faces.append(
+                {
+                    "time": round(timestamp, 3),
+                    "face_location": location,
+                    "actor_id": actor_id,
+                }
+            )
+
+        frame_index += 1
+        timestamp += 1 / fps
+        if _should_report_progress(frame_index, total):
+            report(
+                "actor_indexing",
+                "Detecting and clustering actors.",
+                frame_index,
+                total,
+                False,
+            )
+
+    video.release()
+    return frame_index, _store_actor_clusters(collection, faces)
 
 
 def indexing_in_progress() -> bool:
@@ -119,7 +393,6 @@ def index_video(
 ):
     if not _INDEXING_LOCK.acquire(blocking=False):
         raise IndexingInProgressError("Another video is already being indexed.")
-
     try:
         return _index_video(path, progress_callback, source_name)
     finally:
@@ -137,26 +410,7 @@ def _index_video(
 
     video_info = fingerprint_file(input_path)
     video_info["source_name"] = source_name or input_path.name
-    current_stage = "initializing"
-
-    def report(
-        stage: str,
-        message: str,
-        current: int | None = None,
-        total: int | None = None,
-        announce: bool = True,
-    ):
-        nonlocal current_stage
-        current_stage = stage
-        _report_progress(
-            progress_callback,
-            stage=stage,
-            message=message,
-            video=video_info,
-            current=current,
-            total=total,
-            announce=announce,
-        )
+    report = _IndexProgress(progress_callback, video_info)
 
     report(
         "initializing",
@@ -165,325 +419,56 @@ def _index_video(
     print("[bold red]Video Indexing...[/bold red]")
 
     try:
-        import cv2
-        import face_recognition
-        import numpy as np
-        import torch
-        import whisperx
-        from moviepy.editor import VideoFileClip
-        from PIL import Image
-
-        report(
-            "preparing_dialogue_model",
-            f"Preparing dialogue model: {SENTENCE_MODEL}",
-        )
-        embedder = get_embedder()
-
-        report(
-            "preparing_scene_model",
-            f"Preparing scene model: CLIP {CLIP_MODEL}",
-        )
-        clip_model, preprocess = get_clip_model()
-
+        embedder, clip_model, preprocess = _prepare_models(report)
         report(
             "preparing_index",
             "Clearing any incomplete index and preparing storage.",
         )
-        voice_collection, scene_collection, actor_collection = reset_collections()
-
-        report("extracting_audio", "Extracting audio from the video.")
-        audio_path = Path("audio.wav")
-        with VideoFileClip(str(input_path)) as source_video:
-            if source_video.audio is None:
-                raise ValueError("The selected video does not contain an audio track.")
-            source_video.audio.write_audiofile(str(audio_path))
-
-        batch_size = 16
-        compute_type = "float32"
-
-        report(
-            "preparing_transcription_model",
-            f"Preparing transcription model: WhisperX {WHISPER_MODEL}",
+        dialogue_store, scene_store, actor_store = reset_collections()
+        segments, language = _transcribe_audio(input_path, report)
+        dialogue_count = _index_dialogue(
+            segments,
+            dialogue_store,
+            embedder,
+            report,
         )
-        whisper_model = whisperx.load_model(
-            WHISPER_MODEL,
-            DEVICE,
-            compute_type=compute_type,
+        scene_count = _index_scenes(
+            input_path,
+            scene_store,
+            clip_model,
+            preprocess,
+            report,
         )
-        audio = whisperx.load_audio(str(audio_path))
-
-        report("transcribing_audio", "Transcribing the video audio.")
-        result = whisper_model.transcribe(audio, batch_size=batch_size)
-        detected_language = result["language"]
-        print(f"[green]Detected audio language: {detected_language}[/green]")
-
-        report(
-            "preparing_alignment_model",
-            f"Preparing the {detected_language} alignment model.",
+        actor_frames, actor_count = _index_actors(
+            input_path,
+            actor_store,
+            report,
         )
-        model_a, metadata = whisperx.load_align_model(
-            language_code=detected_language,
-            device=DEVICE,
-        )
-
-        report("aligning_audio", "Aligning transcript words to timestamps.")
-        result = whisperx.align(
-            result["segments"],
-            model_a,
-            metadata,
-            audio,
-            DEVICE,
-            return_char_alignments=False,
-        )
-
-        phrase_length = 5
-        phrases = []
-        for segment in result["segments"]:
-            words = segment["words"]
-            for offset in range(0, len(words), phrase_length):
-                phrase_segments = words[offset:offset + phrase_length]
-                phrases.append(
-                    (
-                        " ".join(item["word"] for item in phrase_segments),
-                        phrase_segments[0]["start"],
-                    )
-                )
-
-        phrase_total = len(phrases)
-        report(
-            "dialogue_indexing",
-            "Indexing dialogue phrases.",
-            current=0,
-            total=phrase_total,
-        )
-        for phrase_id, (phrase, start_time) in enumerate(phrases):
-            print(phrase)
-            print(start_time)
-            embedding = embedder.encode(phrase, convert_to_tensor=True)
-            voice_collection.add(
-                ids=[str(phrase_id)],
-                embeddings=[embedding.tolist()],
-                metadatas=[{"start": start_time}],
-            )
-            current = phrase_id + 1
-            if _should_report_progress(current, phrase_total):
-                report(
-                    "dialogue_indexing",
-                    "Indexing dialogue phrases.",
-                    current=current,
-                    total=phrase_total,
-                    announce=False,
-                )
-
-        video = cv2.VideoCapture(str(input_path))
-        fps = video.get(cv2.CAP_PROP_FPS)
-        scene_total = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-        if fps <= 0:
-            video.release()
-            raise ValueError("The selected video has an invalid frame rate.")
-        frame_time = 1 / fps
-        report(
-            "scene_indexing",
-            "Indexing video scenes.",
-            current=0,
-            total=scene_total,
-        )
-
-        scene_count = 0
-        timestamp = 0.0
-        while True:
-            ret, frame = video.read()
-            if not ret:
-                break
-
-            image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            image = preprocess(image).unsqueeze(0).to(DEVICE)
-            with torch.no_grad():
-                image_features = clip_model.encode_image(image)
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-
-            embedding_vector = image_features.cpu().numpy().tolist()[0]
-            scene_collection.add(
-                ids=[str(scene_count)],
-                embeddings=[embedding_vector],
-                metadatas=[{"time": timestamp}],
-            )
-
-            scene_count += 1
-            timestamp += frame_time
-            if _should_report_progress(scene_count, scene_total):
-                report(
-                    "scene_indexing",
-                    "Indexing video scenes.",
-                    current=scene_count,
-                    total=scene_total,
-                    announce=False,
-                )
-
-        video.release()
-
-        face_match_threshold = 0.55
-        history_size = 5
-        known_face_encodings = []
-        known_face_ids = []
-        next_id = 1
-        face_history = {}
-
-        def get_best_match(face_encoding):
-            if not known_face_encodings:
-                return None
-
-            distances = face_recognition.face_distance(
-                known_face_encodings,
-                face_encoding,
-            )
-            best_match_idx = distances.argmin()
-            if distances[best_match_idx] < face_match_threshold:
-                return best_match_idx
-            return None
-
-        video = cv2.VideoCapture(str(input_path))
-        fps = video.get(cv2.CAP_PROP_FPS)
-        actor_total = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-        if fps <= 0:
-            video.release()
-            raise ValueError("The selected video has an invalid frame rate.")
-        frame_time = 1 / fps
-        report(
-            "actor_indexing",
-            "Detecting and clustering actors.",
-            current=0,
-            total=actor_total,
-        )
-
-        faces = []
-        actor_frame = 0
-        timestamp = 0.0
-        while True:
-            ret, frame = video.read()
-            if not ret:
-                break
-
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            face_locations = face_recognition.face_locations(rgb_frame)
-            face_encodings = face_recognition.face_encodings(
-                rgb_frame,
-                face_locations,
-                num_jitters=2,
-            )
-
-            for face_encoding, face_location in zip(
-                face_encodings,
-                face_locations,
-            ):
-                match_idx = get_best_match(face_encoding)
-                if match_idx is not None:
-                    face_id = known_face_ids[match_idx]
-                    if face_id in face_history:
-                        face_history[face_id].append(face_encoding)
-                        if len(face_history[face_id]) > history_size:
-                            face_history[face_id].pop(0)
-                        known_face_encodings[match_idx] = np.mean(
-                            face_history[face_id],
-                            axis=0,
-                        )
-                    else:
-                        face_history[face_id] = [face_encoding]
-                else:
-                    face_id = str(next_id)
-                    next_id += 1
-                    known_face_encodings.append(face_encoding)
-                    known_face_ids.append(face_id)
-                    face_history[face_id] = [face_encoding]
-
-                faces.append(
-                    {
-                        "time": round(timestamp, 3),
-                        "face_encoding": face_encoding,
-                        "face_location": face_location,
-                        "actor_id": face_id,
-                    }
-                )
-
-            actor_frame += 1
-            timestamp += frame_time
-            if _should_report_progress(actor_frame, actor_total):
-                report(
-                    "actor_indexing",
-                    "Detecting and clustering actors.",
-                    current=actor_frame,
-                    total=actor_total,
-                    announce=False,
-                )
-
-        video.release()
-
-        buckets = {}
-        for face in faces:
-            buckets.setdefault(face["actor_id"], []).append(face)
-
-        actor_count = 0
-        for actor_id, face_group in buckets.items():
-            if len(face_group) <= 3:
-                continue
-
-            times_str = ",".join(str(item["time"]) for item in face_group)
-            face_str = ",".join(
-                str(item["face_location"])
-                for item in face_group
-            )
-            actor_collection.add(
-                ids=[actor_id],
-                documents=["-"],
-                metadatas=[{"time": times_str, "face_location": face_str}],
-            )
-            actor_count += 1
-
         summary = {
-            "language": detected_language,
-            "dialogue_phrases": phrase_total,
+            "language": language,
+            "dialogue_phrases": dialogue_count,
             "scene_frames": scene_count,
-            "actor_frames": actor_frame,
+            "actor_frames": actor_frames,
             "actor_clusters": actor_count,
         }
-        write_index_status(
+        report(
+            "complete",
+            "Video indexing completed successfully.",
+            announce=False,
             state="ready",
-            stage="complete",
-            message="Video indexing completed successfully.",
-            video=video_info,
             summary=summary,
         )
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "stage": "complete",
-                    "message": "Video indexing completed successfully.",
-                    "current": 1,
-                    "total": 1,
-                    "summary": summary,
-                }
-            )
         print("[bold green]Video Indexing Complete !!![/bold green]")
         return summary
     except Exception as exc:
-        error_message = f"{type(exc).__name__}: {exc}"
-        write_index_status(
+        error = f"{type(exc).__name__}: {exc}"
+        report(
+            report.stage,
+            f"Indexing failed during {report.stage.replace('_', ' ')}.",
+            announce=False,
             state="failed",
-            stage=current_stage,
-            message=f"Indexing failed during {current_stage.replace('_', ' ')}.",
-            video=video_info,
-            error=error_message,
+            error=error,
         )
-        if progress_callback is not None:
-            progress_callback(
-                {
-                    "stage": "failed",
-                    "message": "Video indexing failed.",
-                    "current": None,
-                    "total": None,
-                    "error": error_message,
-                }
-            )
         raise
 
 
@@ -500,10 +485,7 @@ def dialogue(dialogue: str):
     voice_collection, _, _ = get_collections()
 
     print("[green]Searching dialogue...[/green]")
-
-    query = dialogue
-    query_embedding = embedder.encode(query, convert_to_tensor=True)
-
+    query_embedding = embedder.encode(dialogue, convert_to_tensor=True)
     result = voice_collection.query(
         query_embeddings=[query_embedding.tolist()],
         include=["metadatas"],
@@ -514,10 +496,9 @@ def dialogue(dialogue: str):
         raise IndexNotReadyError(
             "The completed index contains no searchable dialogue phrases."
         )
-    time = metadatas[0][0]["start"]
 
     print("[green]Dialogue found !!![/green]")
-    return time
+    return metadatas[0][0]["start"]
 
 
 @app.command()
@@ -530,18 +511,13 @@ def scene(scene: str):
     _, scene_collection, _ = get_collections()
 
     print("[green]Searching scene...[/green]")
-
-    query = scene
-    query = clip.tokenize([query]).to(DEVICE)
-
+    query = clip.tokenize([scene]).to(DEVICE)
     with torch.no_grad():
-        query_features = clip_model.encode_text(query)
-        query_features /= query_features.norm(dim=-1, keepdim=True)
-
-    query_embedding = query_features.cpu().numpy().tolist()[0]
+        features = clip_model.encode_text(query)
+        features /= features.norm(dim=-1, keepdim=True)
 
     result = scene_collection.query(
-        query_embeddings=[query_embedding],
+        query_embeddings=[features.cpu().numpy().tolist()[0]],
         include=["metadatas"],
         n_results=1,
     )
@@ -550,10 +526,9 @@ def scene(scene: str):
         raise IndexNotReadyError(
             "The completed index contains no searchable scene frames."
         )
-    time = metadatas[0][0]["time"]
 
     print("[green]Scene found...[/green]")
-    return time
+    return metadatas[0][0]["time"]
 
 
 @app.command()
@@ -562,7 +537,6 @@ def actor(id: str, input_path: str, output_path: str = "output.mp4"):
 
     require_ready_index()
     _, _, actor_collection = get_collections()
-
     metadatas = actor_collection.get(
         ids=[id],
         include=["metadatas"],
@@ -571,38 +545,53 @@ def actor(id: str, input_path: str, output_path: str = "output.mp4"):
         raise IndexNotReadyError(
             f"Actor cluster {id} was not found in the completed index."
         )
+
     metadata = metadatas[0]
-    times = [float(t) for t in metadata["time"].split(",")]
-    face_locs = [
-        literal_eval(loc + ")") if not loc.endswith(")") else literal_eval(loc)
-        for loc in metadata["face_location"].split("),")
+    times = [float(timestamp) for timestamp in metadata["time"].split(",")]
+    face_locations = [
+        literal_eval(location + ")")
+        if not location.endswith(")")
+        else literal_eval(location)
+        for location in metadata["face_location"].split("),")
     ]
 
     video = cv2.VideoCapture(input_path)
     fps = video.get(cv2.CAP_PROP_FPS)
     width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"avc1"), fps, (width, height))
+    writer = cv2.VideoWriter(
+        output_path,
+        cv2.VideoWriter_fourcc(*"avc1"),
+        fps,
+        (width, height),
+    )
+    frame_targets = {
+        round(timestamp * fps): location
+        for timestamp, location in zip(times, face_locations)
+    }
 
-    frame_targets = {round(t * fps): loc for t, loc in zip(times, face_locs)}
-    frame_idx = 0
-
+    frame_index = 0
     while True:
-        ret, frame = video.read()
-        if not ret:
+        retrieved, frame = video.read()
+        if not retrieved:
             break
-
-        if frame_idx in frame_targets:
-            top, right, bottom, left = frame_targets[frame_idx]
+        if frame_index in frame_targets:
+            top, right, bottom, left = frame_targets[frame_index]
             color = (0, 255, 0)
             thickness = max(2, int(height / 200))
             font_scale = max(0.5, height / 1000)
-
             cv2.rectangle(frame, (left, top), (right, bottom), color, thickness)
-            cv2.putText(frame, f"Actor {id}", (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
-
+            cv2.putText(
+                frame,
+                f"Actor {id}",
+                (left, top - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                color,
+                thickness,
+            )
         writer.write(frame)
-        frame_idx += 1
+        frame_index += 1
 
     video.release()
     writer.release()
