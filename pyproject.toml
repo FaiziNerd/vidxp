@@ -6,7 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "vidxp"
 version = "0.1.0"
 authors = [
-  { name = "Saad Bazaz", email = "saadbazaz@hotmail.com" },
+  { name = "Muhammad Haroon" },
+  { name = "Talha Momin" },
+  { name = "Talha Amjad" },
+  { name = "Abdurrehman Subhani" },
+  { name = "Saad Bazaz" },
+
 ]
 description = "VidXP - Video indexing and search by dialogue, scene, and actor"
 readme = "README.md"
