@@ -106,18 +106,38 @@ class IndexStateTests(unittest.TestCase):
             video = Path(directory) / "sample.mp4"
             video.write_bytes(b"video")
             callback = Mock()
+            calls = []
+
+            def record(name, result=None):
+                calls.append(name)
+                return result
 
             with (
                 patch.object(
                     main,
-                    "_prepare_models",
-                    return_value=("embedder", "clip", "preprocess"),
+                    "_require_indexing_dependencies",
+                    side_effect=lambda: record("dependencies"),
                 ),
-                patch.object(main, "reset_collections", return_value=(1, 2, 3)),
+                patch.object(
+                    main,
+                    "_prepare_models",
+                    side_effect=lambda report: record(
+                        "models",
+                        ("embedder", "clip", "preprocess"),
+                    ),
+                ),
                 patch.object(
                     main,
                     "_transcribe_audio",
-                    return_value=(["segment"], "en"),
+                    side_effect=lambda path, report: record(
+                        "transcription",
+                        (["segment"], "en"),
+                    ),
+                ),
+                patch.object(
+                    main,
+                    "reset_collections",
+                    side_effect=lambda: record("reset", (1, 2, 3)),
                 ),
                 patch.object(main, "_index_dialogue", return_value=4),
                 patch.object(main, "_index_scenes", return_value=5),
@@ -137,6 +157,10 @@ class IndexStateTests(unittest.TestCase):
                     "actor_clusters": 2,
                 },
             )
+            self.assertEqual(
+                calls,
+                ["dependencies", "models", "transcription", "reset"],
+            )
             self.assertEqual(write_status.call_args.kwargs["state"], "ready")
             self.assertEqual(callback.call_args.args[0]["summary"], summary)
 
@@ -146,6 +170,7 @@ class IndexStateTests(unittest.TestCase):
             video.write_bytes(b"video")
 
             with (
+                patch.object(main, "_require_indexing_dependencies"),
                 patch.object(
                     main,
                     "_prepare_models",
@@ -161,6 +186,20 @@ class IndexStateTests(unittest.TestCase):
             self.assertEqual(failure["state"], "failed")
             self.assertEqual(failure["stage"], "initializing")
             self.assertEqual(failure["error"], "RuntimeError: model failed")
+
+    def test_dependency_failures_identify_the_broken_import(self):
+        def import_dependency(module_name):
+            if module_name == "cv2":
+                raise ImportError("missing binary")
+            return Mock()
+
+        with patch.object(main, "import_module", side_effect=import_dependency):
+            failures = main._dependency_failures()
+
+        self.assertEqual(
+            failures,
+            [("OpenCV", "ImportError: missing binary")],
+        )
 
 
 if __name__ == "__main__":

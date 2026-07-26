@@ -1,5 +1,6 @@
 from ast import literal_eval
 from functools import lru_cache
+from importlib import import_module
 from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
@@ -25,6 +26,18 @@ COLLECTION_NAMES = (
     "voiceEmbeddings",
     "sceneEmbeddings",
     "actorCollection",
+)
+INDEXING_DEPENDENCIES = (
+    ("ChromaDB", "chromadb"),
+    ("CLIP", "clip"),
+    ("face recognition", "face_recognition"),
+    ("MoviePy", "moviepy.editor"),
+    ("NumPy", "numpy"),
+    ("OpenCV", "cv2"),
+    ("Pillow", "PIL.Image"),
+    ("PyTorch", "torch"),
+    ("Sentence Transformers", "sentence_transformers"),
+    ("WhisperX", "whisperx"),
 )
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -70,6 +83,23 @@ def reset_collections():
         if name in existing:
             client.delete_collection(name)
     return get_collections()
+
+
+def _dependency_failures():
+    failures = []
+    for label, module_name in INDEXING_DEPENDENCIES:
+        try:
+            import_module(module_name)
+        except Exception as exc:
+            failures.append((label, f"{type(exc).__name__}: {exc}"))
+    return failures
+
+
+def _require_indexing_dependencies():
+    failures = _dependency_failures()
+    if failures:
+        details = "; ".join(f"{label}: {error}" for label, error in failures)
+        raise RuntimeError(f"Indexing dependencies are unavailable: {details}")
 
 
 class _IndexProgress:
@@ -419,13 +449,14 @@ def _index_video(
     print("[bold red]Video Indexing...[/bold red]")
 
     try:
+        _require_indexing_dependencies()
         embedder, clip_model, preprocess = _prepare_models(report)
+        segments, language = _transcribe_audio(input_path, report)
         report(
             "preparing_index",
             "Clearing any incomplete index and preparing storage.",
         )
         dialogue_store, scene_store, actor_store = reset_collections()
-        segments, language = _transcribe_audio(input_path, report)
         dialogue_count = _index_dialogue(
             segments,
             dialogue_store,

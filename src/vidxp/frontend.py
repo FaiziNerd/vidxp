@@ -114,6 +114,7 @@ def _run_indexing(uploaded_video, status):
     except IndexingInProgressError as exc:
         task.update(label=str(exc), state="error")
     except Exception as exc:
+        task.update(label="Video indexing failed.", state="error")
         st.error(f"{type(exc).__name__}: {exc}")
     else:
         st.rerun()
