@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+      - "README.md"
+      - "LICENSE"
+      - "MANIFEST.in"
+      - "utils/build_package.sh"
+      - "utils/build-requirements.txt"
+      - "utils/fix_readme_links.py"
 
 permissions:
   contents: write
@@ -15,12 +24,12 @@ jobs:
     environment: testpypi
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
