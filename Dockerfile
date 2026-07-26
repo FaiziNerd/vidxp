@@ -26,7 +26,7 @@ COPY pyproject.toml setup.py README.md LICENSE MANIFEST.in ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && pip install .
+    && pip install ".[frontend]"
 
 EXPOSE 8501
 

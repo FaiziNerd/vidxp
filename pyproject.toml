@@ -34,42 +34,31 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "accelerate",
-  "audiofile>=0.0.0",
   "chromadb",
-  "cmake",
-  "decorator>=4.3.0",
-  "dlib",
   "face_recognition",
-  "hf_xet",
-  "imageio>=2.5.0",
   "moviepy==1.0.3",
   "numpy==1.26.4",
   "opencv-python",
   "Pillow>=7.0.0",
-  "pydub>=0.23.0",
-  "pygame",
   "rich",
-  "scipy>=1.3.0",
   "sentence-transformers",
-  "streamlit",
   "torch",
   "typer",
-  "tqdm>=4.0.0",
-  "Unidecode>=1.3.6",
   "whisperx",
-  "ply>=3.11",
-  "PyYAML>=6.0",
   "clip @ git+https://github.com/openai/CLIP.git",
+]
+
+[project.optional-dependencies]
+frontend = [
+  "streamlit",
 ]
 
 [project.scripts]
 vidxp = "vidxp.main:main"
 
 [project.urls]
-Homepage = "https://universalpython.github.io"
-Repository = "https://github.com/grayhatdevelopers/vix"
-Issues = "https://github.com/grayhatdevelopers/vix/issues"
+Repository = "https://github.com/grayhatdevelopers/vidxp"
+Issues = "https://github.com/grayhatdevelopers/vidxp/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

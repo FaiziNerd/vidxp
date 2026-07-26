@@ -6,9 +6,9 @@ Thanks for contributing to VidXP (Video eXPlain).
 
 | File / path | Role |
 |-------------|------|
-| `main.py` | Typer CLI and core pipeline (`videoindex`, `dialogue`, `scene`, `actor`) |
-| `frontend.py` | Streamlit UI that calls those same functions |
-| `requirements.txt` | Python dependencies |
+| `src/vidxp/main.py` | Typer CLI and core pipeline (`videoindex`, `dialogue`, `scene`, `actor`) |
+| `src/vidxp/frontend.py` | Streamlit UI that calls those same functions |
+| `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Design notes and guides (including this file) |
 | `chroma_data/` | Local ChromaDB index (generated; do not commit) |
 | Model / cache dirs | Local WhisperX, SentenceTransformer, CLIP weights (do not commit) |
@@ -17,17 +17,17 @@ Indexing writes three collections: `voiceEmbeddings`, `sceneEmbeddings`, and `ac
 
 ## Setup
 
-Follow `INSTALLATION_GUIDE.md` (Windows often needs a local `dlib` wheel before `pip install -r requirements.txt`).
+Follow `INSTALLATION_GUIDE.md` or install from the package metadata directly.
 
 ```bash
 python -m venv venv
 # Windows: venv\Scripts\activate
 # macOS/Linux: source venv/bin/activate
-pip install -r requirements.txt
+pip install ".[frontend]"
 ```
 
-CLI: `python main.py --help`  
-UI: `streamlit run frontend.py`
+CLI: `vidxp --help`  
+UI: `streamlit run src/vidxp/frontend.py`
 
 Models default to CPU in `main.py`. Point local model paths at your machine, or document path changes in the PR.
 
@@ -35,7 +35,7 @@ Models default to CPU in `main.py`. Point local model paths at your machine, or 
 
 - Pipeline, retrieval, or face clustering: `main.py`
 - Upload / search UX: `frontend.py` (keep it thin; reuse CLI functions)
-- New dependencies: update `requirements.txt` and note why in the PR
+- New dependencies: update `pyproject.toml` and note why in the PR
 - Roadmap items (see README): active speaker detection, richer actor search, stronger GUI
 
 Prefer small, focused PRs. If you change how embeddings or metadata are stored, say whether existing `chroma_data` must be wiped and re-indexed.

@@ -21,6 +21,9 @@ def read_long_description() -> str:
 
 
 project = load_project_metadata()
+primary_author = project["authors"][0] if project.get("authors") else {}
+primary_author_name = primary_author.get("name")
+primary_author_email = primary_author.get("email")
 
 setup(
     name=project["name"],
@@ -28,8 +31,8 @@ setup(
     description=project["description"],
     long_description=read_long_description(),
     long_description_content_type="text/markdown",
-    author=project["authors"][0]["name"],
-    author_email=project["authors"][0]["email"],
+    author=primary_author_name,
+    author_email=primary_author_email,
     python_requires=project["requires-python"],
     packages=find_packages(where="src"),
     package_dir={"": "src"},

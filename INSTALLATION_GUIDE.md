@@ -20,8 +20,8 @@
 
 3. Install Project Requirements
 
-- Install the remaining dependencies with: pip install -r requirements.txt
+- Install the package and frontend extras with: `pip install ".[frontend]"`
 
 4. Run the Application
 
-- Start the Streamlit application: streamlit run src/vidxp/frontend.py
+- Start the Streamlit application: `streamlit run src/vidxp/frontend.py`
