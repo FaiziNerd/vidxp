@@ -114,7 +114,7 @@ If you prefer Pip instead of Poetry, follow these steps:
     - If `vidxp` is not recognized, run it manually:
 
       ```bash
-      python -m vidxp.main --help
+      python -m vidxp --help
       ```
 
 ---

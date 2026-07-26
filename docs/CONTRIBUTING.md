@@ -17,7 +17,7 @@ Indexing writes three collections: `voiceEmbeddings`, `sceneEmbeddings`, and `ac
 
 ## Setup
 
-Follow `Installation Guide.txt` (Windows often needs a local `dlib` wheel before `pip install -r requirements.txt`).
+Follow `INSTALLATION_GUIDE.md` (Windows often needs a local `dlib` wheel before `pip install -r requirements.txt`).
 
 ```bash
 python -m venv venv
