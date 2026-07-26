@@ -40,12 +40,14 @@ jobs:
           pip install -r utils/build-requirements.txt
 
       - name: Determine and tag prerelease version
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           semantic-release version --commit --tag --push
 
       - name: Publish to TestPyPI
+        if: steps.release.outputs.released == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
