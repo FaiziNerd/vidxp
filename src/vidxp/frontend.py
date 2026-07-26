@@ -11,13 +11,19 @@ from vidxp.index_state import (
     IndexNotReadyError,
     read_index_status,
 )
-from vidxp.index_worker import indexing_in_progress, start_indexing
+from vidxp.index_worker import (
+    can_cancel_indexing,
+    cancel_indexing,
+    indexing_in_progress,
+    start_indexing,
+)
 
 SAVED_VIDEO_PATH = Path("video.mp4")
 ACTOR_OUTPUT_PATH = Path("output.mp4")
 INDEX_REQUESTED_KEY = "_vidxp_index_requested"
 INDEX_ERROR_KEY = "_vidxp_index_error"
 SEARCH_RESULT_KEY = "_vidxp_search_result"
+CANCEL_REQUESTED_KEY = "_vidxp_cancel_requested"
 
 
 def _video_hash(uploaded_video) -> str | None:
@@ -98,6 +104,16 @@ def _request_indexing():
     st.session_state[INDEX_REQUESTED_KEY] = True
     st.session_state.pop(INDEX_ERROR_KEY, None)
     st.session_state.pop(SEARCH_RESULT_KEY, None)
+
+
+def _request_cancellation():
+    if cancel_indexing():
+        st.session_state[CANCEL_REQUESTED_KEY] = True
+        st.session_state.pop(INDEX_ERROR_KEY, None)
+    else:
+        st.session_state[INDEX_ERROR_KEY] = (
+            "This indexing process cannot be cancelled from the current UI."
+        )
 
 
 def _run_indexing(uploaded_video, status):
@@ -262,6 +278,8 @@ def run():
     st.caption("Index and search video by dialogue, scene, and actor.")
 
     active = indexing_in_progress()
+    if not active:
+        st.session_state.pop(CANCEL_REQUESTED_KEY, None)
     requested = st.session_state.get(INDEX_REQUESTED_KEY, False)
     busy = active or requested
     status = read_index_status()
@@ -288,6 +306,17 @@ def run():
             ),
             on_click=_request_indexing,
         )
+        if active and can_cancel_indexing():
+            st.button(
+                "Cancel indexing",
+                on_click=_request_cancellation,
+                disabled=st.session_state.get(CANCEL_REQUESTED_KEY, False),
+            )
+            if st.session_state.get(CANCEL_REQUESTED_KEY, False):
+                st.caption(
+                    "Cancellation requested. The current batch will finish "
+                    "before indexing stops."
+                )
 
         if requested:
             st.markdown("⏳ Starting indexing...")

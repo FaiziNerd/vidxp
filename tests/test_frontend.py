@@ -215,6 +215,16 @@ class FrontendSearchTests(unittest.TestCase):
         self.assertNotIn(frontend.SEARCH_RESULT_KEY, state)
         self.assertNotIn(frontend.INDEX_ERROR_KEY, state)
 
+    def test_cancellation_request_uses_the_worker_token(self):
+        state = {}
+        with (
+            patch.object(frontend.st, "session_state", state),
+            patch.object(frontend, "cancel_indexing", return_value=True),
+        ):
+            frontend._request_cancellation()
+
+        self.assertTrue(state[frontend.CANCEL_REQUESTED_KEY])
+
     def test_search_results_render_and_survive_widget_reruns(self):
         with TemporaryDirectory() as directory:
             video_path = Path(directory) / "video.mp4"

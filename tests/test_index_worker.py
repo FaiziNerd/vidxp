@@ -87,6 +87,7 @@ class IndexWorkerTests(unittest.TestCase):
 
         self.assertTrue(index_worker.cancel_indexing())
         self.assertTrue(context.event.set_called)
+        self.assertTrue(index_worker.can_cancel_indexing())
 
 
 if __name__ == "__main__":

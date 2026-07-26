@@ -12,7 +12,12 @@ from vidxp.core.contracts import (
 )
 from vidxp.core.manifest import COMPLETION_FILE
 from vidxp.core.indexing_visual import VisualIndexResult
-from vidxp.core.runner import _RunLock, index_video, run_index
+from vidxp.core.runner import (
+    _RunLock,
+    index_video,
+    indexing_in_progress,
+    run_index,
+)
 from vidxp.index_state import IndexingInProgressError
 
 
@@ -510,6 +515,13 @@ class RunnerTests(unittest.TestCase):
                 with self.assertRaises(IndexingInProgressError):
                     with _RunLock(run_directory):
                         pass
+
+    def test_run_lock_is_visible_outside_the_worker_process(self):
+        with TemporaryDirectory() as directory:
+            config = IndexConfig.local(storage_directory=directory)
+            with _RunLock(config.run_directory):
+                self.assertTrue(indexing_in_progress(config))
+            self.assertFalse(indexing_in_progress(config))
 
     def test_local_index_hash_is_reused_by_run_index(self):
         with TemporaryDirectory() as directory:

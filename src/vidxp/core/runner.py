@@ -54,8 +54,24 @@ class _RunLock:
         self.lock.release()
 
 
-def indexing_in_progress() -> bool:
-    return _INDEXING_LOCK.locked()
+def _run_lock_held(run_directory: Path) -> bool:
+    if not run_directory.is_dir():
+        return False
+    lock = FileLock(run_directory / ".indexing.lock")
+    try:
+        lock.acquire(timeout=0)
+    except Timeout:
+        return True
+    else:
+        lock.release()
+        return False
+
+
+def indexing_in_progress(config: IndexConfig | None = None) -> bool:
+    if _INDEXING_LOCK.locked():
+        return True
+    active_config = config or IndexConfig.local()
+    return _run_lock_held(active_config.run_directory)
 
 
 def local_config_from_status(status: dict[str, Any]) -> IndexConfig:
