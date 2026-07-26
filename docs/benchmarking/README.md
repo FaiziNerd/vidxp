@@ -27,6 +27,9 @@ evaluator.
 6. [Paper-by-paper validation ledger](paper_validation.md) records the experimental
    datasets, protocols, metrics, artifact checks, and corrections verified from
    each primary paper rather than inferred from its title or abstract.
+7. [Runtime validation ledger](runtime_validation.md) records actual source,
+   packaged, modality, worker, and rendering smoke checks separately from unit
+   tests and paper results.
 
 ## Current conclusion
 

@@ -61,6 +61,16 @@ class ContractTests(unittest.TestCase):
             )
             self.assertEqual(first.fingerprint(), relocated.fingerprint())
 
+    def test_path_objects_are_normalized_for_manifest_serialization(self):
+        config = IndexConfig(
+            output_root=Path("benchmark-output"),
+            storage_directory=Path("benchmark-index"),
+        )
+
+        self.assertEqual(config.output_root, "benchmark-output")
+        self.assertEqual(config.storage_directory, "benchmark-index")
+        self.assertEqual(config.to_dict()["run_directory"], "benchmark-index")
+
     def test_invalid_config_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "At least one"):
             IndexConfig(enabled_modalities=())

@@ -26,14 +26,6 @@ def indexing_in_progress() -> bool:
     return (_process is not None and _process.is_alive()) or in_process_indexing()
 
 
-def can_cancel_indexing() -> bool:
-    return (
-        _process is not None
-        and _process.is_alive()
-        and _cancel_event is not None
-    )
-
-
 def start_indexing(path: str, source_name: str) -> None:
     global _cancel_event, _process
 
@@ -53,7 +45,7 @@ def start_indexing(path: str, source_name: str) -> None:
 
 
 def cancel_indexing() -> bool:
-    if not can_cancel_indexing():
+    if _process is None or not _process.is_alive() or _cancel_event is None:
         return False
     _cancel_event.set()
     return True

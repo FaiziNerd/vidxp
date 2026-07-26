@@ -141,21 +141,50 @@ def render_actor_video(
 ) -> None:
     import cv2
 
-    source = cv2.VideoCapture(str(input_path))
+    source_path = Path(input_path)
+    destination = Path(output_path)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Video not found: {source_path}")
+    if source_path.resolve() == destination.resolve():
+        raise ValueError("Actor result output must differ from the input video.")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
+    source = cv2.VideoCapture(str(source_path))
+    if not source.isOpened():
+        source.release()
+        raise RuntimeError(f"Could not open actor source video: {source_path}")
     fps = float(source.get(cv2.CAP_PROP_FPS))
     width = int(source.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(source.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    writer = cv2.VideoWriter(
-        str(output_path),
-        cv2.VideoWriter_fourcc(*"avc1"),
-        fps,
-        (width, height),
-    )
+    if fps <= 0 or width <= 0 or height <= 0:
+        source.release()
+        raise RuntimeError(
+            "Actor source video has invalid FPS or frame dimensions."
+        )
+
+    writer = None
+    for codec in ("avc1", "mp4v"):
+        candidate = cv2.VideoWriter(
+            str(destination),
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            (width, height),
+        )
+        if candidate.isOpened():
+            writer = candidate
+            break
+        candidate.release()
+    if writer is None:
+        source.release()
+        raise RuntimeError(f"Could not open actor result video: {destination}")
+
     frame_targets = {
         int(item["frame_index"]): tuple(item["bbox"])
         for item in detections
     }
 
+    frames_written = 0
     try:
         frame_index = 0
         while True:
@@ -185,6 +214,15 @@ def render_actor_video(
                 )
             writer.write(frame)
             frame_index += 1
+            frames_written += 1
     finally:
         source.release()
         writer.release()
+
+    if (
+        frames_written == 0
+        or not destination.is_file()
+        or destination.stat().st_size == 0
+    ):
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"Actor result video was not created: {destination}")

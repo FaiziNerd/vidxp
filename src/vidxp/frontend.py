@@ -12,7 +12,6 @@ from vidxp.index_state import (
     read_index_status,
 )
 from vidxp.index_worker import (
-    can_cancel_indexing,
     cancel_indexing,
     indexing_in_progress,
     start_indexing,
@@ -306,7 +305,7 @@ def run():
             ),
             on_click=_request_indexing,
         )
-        if active and can_cancel_indexing():
+        if active:
             st.button(
                 "Cancel indexing",
                 on_click=_request_cancellation,

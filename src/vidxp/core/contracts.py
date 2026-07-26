@@ -90,8 +90,8 @@ class IndexConfig:
     sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     whisper_model: str = "large-v2"
     clip_model: str = "ViT-B/32"
-    output_root: str = "benchmark_runs"
-    storage_directory: str | None = None
+    output_root: str | Path = "benchmark_runs"
+    storage_directory: str | Path | None = None
     collection_names: tuple[str, str, str] = (
         "dialogue",
         "scene",
@@ -99,6 +99,13 @@ class IndexConfig:
     )
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "output_root", str(self.output_root))
+        if self.storage_directory is not None:
+            object.__setattr__(
+                self,
+                "storage_directory",
+                str(self.storage_directory),
+            )
         for label in ("dataset", "split", "run_id"):
             _require_identifier(label, getattr(self, label))
         if self.video_id is not None:
