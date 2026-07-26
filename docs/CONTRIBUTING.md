@@ -10,7 +10,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | `src/vidxp/frontend.py` | Streamlit UI that calls those same functions |
 | `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Design notes and guides (including this file) |
-| `chroma_data/` | Local ChromaDB index (generated; do not commit) |
+| `chroma_data/` | Local ChromaDB index and `index_status.json` readiness record (generated; do not commit) |
 | Model caches | Managed by WhisperX, SentenceTransformer, and CLIP outside the repository |
 
 Indexing writes three collections: `voiceEmbeddings`, `sceneEmbeddings`, and `actorCollection`.
@@ -44,7 +44,9 @@ Prefer small, focused PRs. If you change how embeddings or metadata are stored, 
 
 1. Index a short sample video, then try dialogue, scene, and (if touched) actor search.
 2. If you changed the Streamlit app, smoke-test upload, index, and search.
-3. Do not commit: model weights, `chroma_data/`, sample videos, `audio.wav`, `video.mp4`, or `output.mp4`.
+3. Reload the Streamlit page during indexing and confirm that the saved video and current stage remain visible while index/search controls stay disabled.
+4. Stop an indexing run, restart it, and confirm that the incomplete index is replaced rather than appended to.
+5. Do not commit: model weights, `chroma_data/`, sample videos, `audio.wav`, `video.mp4`, or `output.mp4`.
 
 ## Pull requests
 

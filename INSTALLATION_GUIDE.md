@@ -90,6 +90,19 @@ VidXP downloads model weights on first use instead of expecting repository-local
 | Scene search | CLIP `ViT-B/32` |
 | Word alignment | WhisperX default for the detected language |
 
-SentenceTransformer and WhisperX use the Hugging Face cache. CLIP uses its standard user cache. These downloads are not part of `pip install`, so the first indexing or search operation requires network access.
+SentenceTransformer and WhisperX use the Hugging Face cache. CLIP uses its
+standard user cache. These downloads are not part of `pip install`. A successful
+installation only confirms that VidXP and its Python dependencies are present.
+The first `vidxp videoindex` run requires network access for any missing weights
+and prepares all four model paths before it processes the video.
+
+Keep that first indexing command, or the terminal running `vidxp-ui`, open until
+VidXP reports that the index is ready. Search commands are unavailable until
+then. VidXP records indexing progress and the final ready/failed state in
+`chroma_data/index_status.json`. The browser interface reloads that status and
+the saved `video.mp4` after a page refresh; it does not start a second indexing
+run. If the process itself stops before completion, start indexing again. The
+restart clears the incomplete single-video index before rebuilding it.
+
 Model caches require additional disk space beyond the Python installation, and
 the first use of each capability takes longer while its weights are downloaded.

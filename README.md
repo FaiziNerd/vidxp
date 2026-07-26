@@ -80,7 +80,13 @@ Model weights are not stored in this repository. VidXP uses the model identifier
 - scene search: CLIP `ViT-B/32`;
 - language-specific alignment: the default model selected by WhisperX.
 
-The first indexing or search run therefore requires an internet connection and can take longer. Running `vidxp --help` does not load or download models.
+Finishing `pip install` means the commands and Python dependencies are installed;
+it does not mean these model weights are already present. The first
+`vidxp videoindex` run prepares every model needed by the pipeline and downloads
+missing weights before processing the video. Keep the terminal and internet
+connection open until VidXP reports that indexing is complete. Search commands
+reject requests until a completed index exists. Running `vidxp --help` does not
+load or download models.
 
 ## Usage
 
@@ -91,6 +97,12 @@ vidxp dialogue "your dialogue query"
 vidxp scene "scene description"
 vidxp actor 1 samplevideo.mp4
 ```
+
+VidXP maintains one local searchable video index at a time in `chroma_data/`.
+Starting indexing replaces the previous or incomplete index. Progress and the
+final ready/failed state are saved there, so the browser interface can show the
+current stage after a page reload. While indexing is active, the interface
+disables another indexing run and all search controls.
 
 Start the frontend with:
 
