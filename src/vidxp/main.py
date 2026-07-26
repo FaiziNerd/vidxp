@@ -1,29 +1,57 @@
-import cv2
-import clip
+from ast import literal_eval
+from functools import lru_cache
+
 import typer
-import torch
-import chromadb
-import whisperx
-import numpy as np
-from PIL import Image
 from rich import print
-import face_recognition
-from moviepy.editor import VideoFileClip
-from sentence_transformers import SentenceTransformer
 
 app = typer.Typer()
 
-device = "cpu"
-embedder = SentenceTransformer(r"./models--sentence-transformers--all-MiniLM-L6-v2/snapshots/c9745ed1d9f207416be6d2e6f8de32d1f16199bf")
-clip_model, preprocess = clip.load("ViT-B/32", device=device)
-chroma_client = chromadb.PersistentClient(path="./chroma_data")
-voice_collection = chroma_client.get_or_create_collection(name="voiceEmbeddings")
-scene_collection = chroma_client.get_or_create_collection(name="sceneEmbeddings")
-actor_collection = chroma_client.get_or_create_collection(name="actorCollection")
+DEVICE = "cpu"
+SENTENCE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+WHISPER_MODEL = "large-v2"
+CLIP_MODEL = "ViT-B/32"
+
+
+@lru_cache
+def get_embedder():
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(SENTENCE_MODEL, device=DEVICE)
+
+
+@lru_cache
+def get_clip_model():
+    import clip
+
+    return clip.load(CLIP_MODEL, device=DEVICE)
+
+
+@lru_cache
+def get_collections():
+    import chromadb
+
+    chroma_client = chromadb.PersistentClient(path="./chroma_data")
+    return (
+        chroma_client.get_or_create_collection(name="voiceEmbeddings"),
+        chroma_client.get_or_create_collection(name="sceneEmbeddings"),
+        chroma_client.get_or_create_collection(name="actorCollection"),
+    )
 
 
 @app.command()
 def videoindex(path: str):
+    import cv2
+    import face_recognition
+    import numpy as np
+    import torch
+    import whisperx
+    from moviepy.editor import VideoFileClip
+    from PIL import Image
+
+    embedder = get_embedder()
+    clip_model, preprocess = get_clip_model()
+    voice_collection, scene_collection, actor_collection = get_collections()
+
     video = VideoFileClip(path)
     video_audio = video.audio
     audio = "audio.wav"
@@ -35,7 +63,7 @@ def videoindex(path: str):
     batch_size = 16
     compute_type = "float32"
 
-    whisper_model = whisperx.load_model(r"./models/models--Systran--faster-whisper-large-v2/snapshots/f0fe81560cb8b68660e564f55dd99207059c092e", device, compute_type=compute_type)
+    whisper_model = whisperx.load_model(WHISPER_MODEL, DEVICE, compute_type=compute_type)
     audio = whisperx.load_audio(audio)
 
     result = whisper_model.transcribe(audio, batch_size=batch_size)
@@ -44,10 +72,9 @@ def videoindex(path: str):
 
     model_a, metadata = whisperx.load_align_model(
         language_code=detected_language,
-        device=device,
-        model_dir="./torch",
+        device=DEVICE,
     )
-    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+    result = whisperx.align(result["segments"], model_a, metadata, audio, DEVICE, return_char_alignments=False)
 
     segments = result["segments"]
 
@@ -83,7 +110,7 @@ def videoindex(path: str):
         if not ret:
             break
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        image = preprocess(image).unsqueeze(0).to(device)
+        image = preprocess(image).unsqueeze(0).to(DEVICE)
 
         with torch.no_grad():
             image_features = clip_model.encode_image(image)
@@ -200,6 +227,9 @@ def videoindex(path: str):
 
 @app.command()
 def dialogue(dialogue: str):
+    embedder = get_embedder()
+    voice_collection, _, _ = get_collections()
+
     print("[green]Searching dialogue...[/green]")
 
     query = dialogue
@@ -214,10 +244,16 @@ def dialogue(dialogue: str):
 
 @app.command()
 def scene(scene: str):
+    import clip
+    import torch
+
+    clip_model, _ = get_clip_model()
+    _, scene_collection, _ = get_collections()
+
     print("[green]Searching scene...[/green]")
 
     query = scene
-    query = clip.tokenize([query]).to(device)
+    query = clip.tokenize([query]).to(DEVICE)
 
     with torch.no_grad():
         query_features = clip_model.encode_text(query)
@@ -235,9 +271,16 @@ def scene(scene: str):
 
 @app.command()
 def actor(id: str, input_path: str, output_path: str = "output.mp4"):
+    import cv2
+
+    _, _, actor_collection = get_collections()
+
     metadata = actor_collection.get(ids=[id], include=["metadatas"])["metadatas"][0]
     times = [float(t) for t in metadata["time"].split(",")]
-    face_locs = [eval(loc + ")") if not loc.endswith(")") else eval(loc) for loc in metadata["face_location"].split("),")]
+    face_locs = [
+        literal_eval(loc + ")") if not loc.endswith(")") else literal_eval(loc)
+        for loc in metadata["face_location"].split("),")
+    ]
 
     video = cv2.VideoCapture(input_path)
     fps = video.get(cv2.CAP_PROP_FPS)

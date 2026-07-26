@@ -1,6 +1,9 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
 
-from .main import actor, dialogue, scene, videoindex
+from vidxp.main import actor, dialogue, scene, videoindex
 
 
 def run():
@@ -26,10 +29,13 @@ def run():
         search_button = st.button("Search")
 
     if index_button:
-        with st.spinner("Indexing video"):
-            with open("video.mp4", "wb") as f:
-                f.write(uploaded_video.read())
-            videoindex("video.mp4")
+        if uploaded_video is None:
+            st.error("Upload a video before indexing.")
+        else:
+            with st.spinner("Indexing video"):
+                with open("video.mp4", "wb") as f:
+                    f.write(uploaded_video.read())
+                videoindex("video.mp4")
 
     if search_button:
         if option == "dialogue":
@@ -41,6 +47,13 @@ def run():
         elif option == "actor":
             actor(query, "video.mp4")
             st.video("./output.mp4", format="video/mp4", start_time=0)
+
+
+def main():
+    from streamlit.web import cli as streamlit_cli
+
+    sys.argv = ["streamlit", "run", str(Path(__file__).resolve()), *sys.argv[1:]]
+    raise SystemExit(streamlit_cli.main())
 
 
 if __name__ == "__main__":

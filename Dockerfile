@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-COPY pyproject.toml setup.py README.md LICENSE MANIFEST.in ./
+COPY pyproject.toml README.md LICENSE MANIFEST.in ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip setuptools wheel \
@@ -30,4 +30,4 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "src/vidxp/frontend.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["vidxp-ui", "--server.address=0.0.0.0", "--server.port=8501"]

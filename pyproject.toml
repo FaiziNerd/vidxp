@@ -15,7 +15,7 @@ authors = [
 ]
 description = "VidXP - Video indexing and search by dialogue, scene, and actor"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["video", "search", "indexing", "cli", "streamlit"]
@@ -26,10 +26,10 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Multimedia :: Video",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -37,14 +37,15 @@ dependencies = [
   "chromadb",
   "face_recognition",
   "moviepy==1.0.3",
-  "numpy==1.26.4",
+  "numpy>=2.1,<3",
   "opencv-python",
   "Pillow>=7.0.0",
   "rich",
-  "sentence-transformers",
+  "sentence-transformers>=3.4,<4",
+  "setuptools>=68,<81",
   "torch",
   "typer",
-  "whisperx",
+  "whisperx>=3.8.6,<3.9",
   "clip @ git+https://github.com/openai/CLIP.git",
 ]
 
@@ -55,6 +56,7 @@ frontend = [
 
 [project.scripts]
 vidxp = "vidxp.main:main"
+vidxp-ui = "vidxp.frontend:main"
 
 [project.urls]
 Repository = "https://github.com/grayhatdevelopers/vidxp"
