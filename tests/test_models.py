@@ -8,7 +8,7 @@ from vidxp.core import models
 
 class ModelTests(unittest.TestCase):
     def tearDown(self):
-        models.get_embedder.cache_clear()
+        models.clear_model_cache()
 
     def test_dialogue_model_is_reused_across_videos(self):
         constructor = Mock(return_value=object())
@@ -54,6 +54,14 @@ class ModelTests(unittest.TestCase):
         self.assertNotIn("whisperx", imported)
         self.assertNotIn("moviepy.editor", imported)
         self.assertNotIn("cv2", imported)
+
+    def test_runtime_distributions_come_from_dependency_registry(self):
+        distributions = models.runtime_distributions()
+
+        self.assertIn("clip-anytorch", distributions)
+        self.assertIn("face-recognition", distributions)
+        self.assertIn("filelock", distributions)
+        self.assertEqual(len(distributions), len(set(distributions)))
 
 
 if __name__ == "__main__":

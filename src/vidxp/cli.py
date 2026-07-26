@@ -5,6 +5,10 @@ from typing import Annotated
 import typer
 from rich import print
 
+from vidxp.core.actor_results import (
+    ActorClusterNotFoundError,
+    render_actor_result,
+)
 from vidxp.core.contracts import IndexConfig, IndexSchemaError
 from vidxp.core.models import (
     INDEXING_DEPENDENCIES,
@@ -19,8 +23,7 @@ from vidxp.core.runner import (
     local_config_from_status,
 )
 from vidxp.core.search import search_dialogue, search_scene
-from vidxp.core.storage import IndexStorage
-from vidxp.core.video import ffmpeg_binary, render_actor_video
+from vidxp.core.video import ffmpeg_binary
 from vidxp.index_state import (
     IndexingInProgressError,
     IndexNotReadyError,
@@ -136,13 +139,13 @@ def doctor(
     )
     checked_labels = []
     for modality in selected:
-        for label, _ in INDEXING_DEPENDENCIES[modality]:
-            if label not in checked_labels:
-                checked_labels.append(label)
+        for dependency in INDEXING_DEPENDENCIES[modality]:
+            if dependency.label not in checked_labels:
+                checked_labels.append(dependency.label)
     if "dialogue" in selected:
-        for label, _ in INDEXING_DEPENDENCIES["transcription"]:
-            if label not in checked_labels:
-                checked_labels.append(label)
+        for dependency in INDEXING_DEPENDENCIES["transcription"]:
+            if dependency.label not in checked_labels:
+                checked_labels.append(dependency.label)
 
     for label in checked_labels:
         if label in failures:
@@ -265,31 +268,17 @@ def scene(query: str):
 def actor(cluster_id: str, input_path: str, output_path: str = "output.mp4"):
     config, _ = _active_config()
     _require_modality(config, "actor")
-    storage = IndexStorage(config)
     try:
-        records = storage.actor_detections(
-            video_id=str(config.video_id),
-            cluster_id=cluster_id,
+        render_actor_result(
+            config,
+            cluster_id,
+            input_path,
+            output_path,
         )
-    finally:
-        storage.close()
-    if not records:
+    except ActorClusterNotFoundError as exc:
         raise IndexNotReadyError(
-            f"Actor cluster {cluster_id} was not found in the completed index."
-        )
-    detections = [
-        {
-            **record,
-            "bbox": (
-                int(record["bbox_top"]),
-                int(record["bbox_right"]),
-                int(record["bbox_bottom"]),
-                int(record["bbox_left"]),
-            ),
-        }
-        for record in records
-    ]
-    render_actor_video(input_path, output_path, cluster_id, detections)
+            str(exc)
+        ) from exc
     print(f"[green]Video saved as {output_path}[/green]")
 
 

@@ -17,6 +17,7 @@ from vidxp.core.contracts import (
     IndexConfig,
     VideoSource,
 )
+from vidxp.core.models import runtime_distributions
 
 
 MANIFEST_FILE = "manifest.json"
@@ -143,23 +144,8 @@ def implementation_digest() -> str:
 
 
 def dependency_versions() -> dict[str, str | None]:
-    packages = (
-        "chromadb",
-        "clip-anytorch",
-        "dlib",
-        "face-recognition",
-        "face-recognition-models",
-        "filelock",
-        "moviepy",
-        "numpy",
-        "opencv-python",
-        "Pillow",
-        "sentence-transformers",
-        "torch",
-        "whisperx",
-    )
     versions: dict[str, str | None] = {}
-    for package in packages:
+    for package in runtime_distributions():
         try:
             versions[package] = version(package)
         except PackageNotFoundError:

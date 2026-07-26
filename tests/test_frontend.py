@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
@@ -47,7 +47,7 @@ def result_for(modality, timestamp):
 def frontend_harness(video_path, actor_output_path):
     from pathlib import Path
     from shutil import copyfile
-    from unittest.mock import Mock, patch
+    from unittest.mock import patch
 
     from vidxp import frontend
     from vidxp.core.contracts import IndexConfig, SearchHit, SearchResult
@@ -86,18 +86,6 @@ def frontend_harness(video_path, actor_output_path):
             ),
         )
 
-    actor_storage = Mock()
-    actor_storage.actor_detections.return_value = [
-        {
-            "frame_index": 1,
-            "detection_id": "d1",
-            "bbox_top": 0,
-            "bbox_right": 1,
-            "bbox_bottom": 1,
-            "bbox_left": 0,
-        }
-    ]
-
     def generate_actor_result(*_):
         copyfile(video_path, actor_output_path)
 
@@ -117,10 +105,9 @@ def frontend_harness(video_path, actor_output_path):
             "search_dialogue",
             return_value=search_result("dialogue", 17.25),
         ),
-        patch.object(frontend, "IndexStorage", return_value=actor_storage),
         patch.object(
             frontend,
-            "render_actor_video",
+            "render_actor_result",
             side_effect=generate_actor_result,
         ),
     ):
@@ -176,17 +163,6 @@ class FrontendSearchTests(unittest.TestCase):
     def test_actor_search_uses_structured_detections(self):
         with TemporaryDirectory() as directory:
             output_path = Path(directory) / "actor.mp4"
-            storage = Mock()
-            storage.actor_detections.return_value = [
-                {
-                    "frame_index": 1,
-                    "detection_id": "d1",
-                    "bbox_top": 0,
-                    "bbox_right": 2,
-                    "bbox_bottom": 2,
-                    "bbox_left": 0,
-                }
-            ]
 
             def generate_result(*_):
                 output_path.write_bytes(b"video")
@@ -203,10 +179,9 @@ class FrontendSearchTests(unittest.TestCase):
                     "local_config_from_status",
                     return_value=self.config,
                 ),
-                patch.object(frontend, "IndexStorage", return_value=storage),
                 patch.object(
                     frontend,
-                    "render_actor_video",
+                    "render_actor_result",
                     side_effect=generate_result,
                 ) as renderer,
             ):

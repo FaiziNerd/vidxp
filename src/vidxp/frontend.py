@@ -4,10 +4,9 @@ from pathlib import Path
 
 import streamlit as st
 
+from vidxp.core.actor_results import render_actor_result
 from vidxp.core.runner import local_config_from_status
 from vidxp.core.search import search_dialogue, search_scene
-from vidxp.core.storage import IndexStorage
-from vidxp.core.video import render_actor_video
 from vidxp.index_state import (
     IndexNotReadyError,
     read_index_status,
@@ -130,33 +129,11 @@ def _run_search(search_type, query):
         config = local_config_from_status(status)
         if search_type == "actor":
             ACTOR_OUTPUT_PATH.unlink(missing_ok=True)
-            storage = IndexStorage(config)
-            try:
-                records = storage.actor_detections(
-                    video_id=str(config.video_id),
-                    cluster_id=query,
-                )
-            finally:
-                storage.close()
-            if not records:
-                raise IndexNotReadyError(f"Actor cluster {query} was not found.")
-            detections = [
-                {
-                    **record,
-                    "bbox": (
-                        int(record["bbox_top"]),
-                        int(record["bbox_right"]),
-                        int(record["bbox_bottom"]),
-                        int(record["bbox_left"]),
-                    ),
-                }
-                for record in records
-            ]
-            render_actor_video(
+            render_actor_result(
+                config,
+                query,
                 SAVED_VIDEO_PATH,
                 ACTOR_OUTPUT_PATH,
-                query,
-                detections,
             )
             if (
                 not ACTOR_OUTPUT_PATH.is_file()
