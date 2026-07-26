@@ -46,7 +46,7 @@ dependencies = [
   "torch",
   "typer",
   "whisperx>=3.8.6,<3.9",
-  "clip @ git+https://github.com/openai/CLIP.git",
+  "clip-anytorch==2.6.0",
 ]
 
 [project.optional-dependencies]
