@@ -8,7 +8,8 @@ from vidxp.index_state import (
     IndexNotReadyError,
     read_index_status,
 )
-from vidxp.main import actor, dialogue, index_video, indexing_in_progress, scene
+from vidxp.index_worker import indexing_in_progress, start_indexing
+from vidxp.main import actor, dialogue, scene
 
 SAVED_VIDEO_PATH = Path("video.mp4")
 INDEX_REQUESTED_KEY = "_vidxp_index_requested"
@@ -44,26 +45,14 @@ def _render_summary(summary):
     )
 
 
-def _update_progress(message, progress, event):
-    state = {
-        "ready": "complete",
-        "failed": "error",
-    }.get(event.get("state"), "running")
-    if state == "complete":
-        message.success(event["message"])
-    elif state == "error":
-        message.error(event["message"])
-    else:
-        message.markdown(f"⏳ {event['message']}")
-
+def _render_progress(event):
+    st.markdown(f"⏳ {event['message']}")
     current, total = event.get("current"), event.get("total")
     if current is not None and total:
-        progress.progress(
+        st.progress(
             min(current / total, 1.0),
             text=f"{current:,} of {total:,}",
         )
-    else:
-        progress.empty()
 
 
 def _render_index_status(status, active, uploaded_video, request_error=None):
@@ -77,7 +66,7 @@ def _render_index_status(status, active, uploaded_video, request_error=None):
             "stage": "initializing",
             "message": "Indexing is running.",
         }
-        _update_progress(st.empty(), st.empty(), event)
+        _render_progress(event)
     elif not status:
         st.caption("First indexing may download missing runtime model weights.")
     elif status["state"] == "ready":
@@ -104,7 +93,7 @@ def _request_indexing():
     st.session_state.pop(INDEX_ERROR_KEY, None)
 
 
-def _run_indexing(uploaded_video, status, task, progress):
+def _run_indexing(uploaded_video, status):
     try:
         if uploaded_video is not None:
             SAVED_VIDEO_PATH.write_bytes(uploaded_video.getvalue())
@@ -115,11 +104,7 @@ def _run_indexing(uploaded_video, status, task, progress):
                 if status
                 else SAVED_VIDEO_PATH.name
             )
-        index_video(
-            str(SAVED_VIDEO_PATH),
-            progress_callback=lambda event: _update_progress(task, progress, event),
-            source_name=source_name,
-        )
+        start_indexing(str(SAVED_VIDEO_PATH), source_name)
     except Exception as exc:
         st.session_state[INDEX_ERROR_KEY] = f"{type(exc).__name__}: {exc}"
     else:
@@ -241,16 +226,7 @@ def run():
         )
 
         if requested:
-            task = st.empty()
-            progress = st.empty()
-            _update_progress(
-                task,
-                progress,
-                {
-                    "state": "indexing",
-                    "message": "Preparing indexing...",
-                },
-            )
+            st.markdown("⏳ Starting indexing...")
         elif active:
 
             @st.fragment(run_every="1s")
@@ -281,7 +257,7 @@ def run():
         )
 
     if requested:
-        _run_indexing(uploaded_video, status, task, progress)
+        _run_indexing(uploaded_video, status)
     if search_clicked:
         _run_search(search_type, query)
 
