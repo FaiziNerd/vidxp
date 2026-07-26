@@ -109,6 +109,7 @@ vidxp --help
 vidxp doctor
 vidxp prepare
 vidxp videoindex samplevideo.mp4
+vidxp videoindex samplevideo.mp4 --modalities scene --frame-stride 5
 vidxp dialogue "your dialogue query"
 vidxp scene "scene description"
 vidxp actor 1 samplevideo.mp4
@@ -119,6 +120,14 @@ Starting indexing replaces the previous or incomplete index. Progress and the
 final ready/failed state are saved there, so the browser interface can show the
 current stage after a page reload. While indexing is active, the interface
 disables another indexing run and all search controls.
+
+`--modalities` can select any combination of `dialogue`, `scene`, and `actor`.
+Scene-only indexing does not load WhisperX or face recognition. `--frame-stride N`
+indexes every Nth frame for scene and actor work; the default remains every frame.
+
+The Python API also supports isolated multi-video runs, released timestamped
+transcripts, resumable per-video checkpoints, and metadata-rich top-k results.
+See [the benchmark-ready core contract](docs/benchmarking/core_contract.md).
 
 Start the frontend with:
 

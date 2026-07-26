@@ -45,6 +45,11 @@ top-k results, scores, intervals, metadata, aggregation, and serializers are nor
 benchmark plumbing. DiDeMo and transcript-backed HiREST are ready to begin after
 that shared adapter; TVR and BCL remain desirable but media-gated.
 
+The implemented shared indexing, run-manifest, checkpoint, cancellation, and
+metadata-rich retrieval contract is documented in
+[Benchmark-ready core contract](core_contract.md). Benchmark-specific aggregation,
+prediction formats, and official evaluator calls remain separate adapter work.
+
 ## Historical material
 
 [Legacy benchmarking methodology](../benchmarking_research.md) is retained at its

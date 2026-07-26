@@ -1,0 +1,138 @@
+# Benchmark-ready core contract
+
+This document describes the shared VidXP indexing and retrieval layer used before
+benchmark-specific adapters are added. It does not define or replace any official
+benchmark evaluator.
+
+## Run configuration
+
+`vidxp.core.IndexConfig` records the dataset, split, run ID, optional video ID,
+enabled modalities, frame sampling, inference/write batch sizes, model
+identifiers, and device. Normal benchmark runs are isolated at:
+
+```text
+benchmark_runs/<dataset>/<run_id>/
+  manifest.json
+  timings.jsonl
+  failures.jsonl
+  checkpoints/
+  index/
+  run.complete.json
+```
+
+`run.complete.json` is only written when every declared video has a valid
+checkpoint and no video failed. A resumed run compares the input checksum and
+configuration fingerprint, skips matching completed videos, and rebuilds an
+interrupted video with deterministic upserts.
+
+The existing CLI and Streamlit interface use `chroma_data/` as their single local
+run for compatibility. Indexes created before schema version 2 must be rebuilt;
+VidXP does not invent missing end timestamps, video IDs, or source IDs.
+
+## Indexing API
+
+```python
+from vidxp.core import IndexConfig, VideoSource
+from vidxp.core.runner import run_index
+
+config = IndexConfig(
+    dataset="example",
+    split="test",
+    run_id="clip-stride-5",
+    enabled_modalities=("scene",),
+    frame_stride=5,
+    scene_batch_size=32,
+    storage_batch_size=256,
+)
+
+manifest = run_index(
+    [
+        VideoSource(video_id="video-001", path="videos/001.mp4"),
+        VideoSource(video_id="video-002", path="videos/002.mp4"),
+    ],
+    config,
+)
+```
+
+Released timestamped ASR can be indexed without WhisperX or video decoding:
+
+```python
+source = VideoSource(
+    video_id="video-001",
+    transcript=(
+        {"text": "first timestamped span", "start": 0.0, "end": 2.4},
+        {"text": "second timestamped span", "start": 2.4, "end": 5.0},
+    ),
+)
+
+config = IndexConfig(
+    dataset="example",
+    split="test",
+    run_id="released-asr",
+    enabled_modalities=("dialogue",),
+)
+
+run_index([source], config)
+```
+
+Scene-only runs do not load WhisperX or face recognition. Supplied-transcript
+dialogue runs load the dialogue encoder but do not decode video. Actor-only runs
+do not load CLIP or WhisperX. CLIP inference, dialogue encoding, and Chroma writes
+use their configured batch sizes. Cancellation is cooperative and is checked
+between batches.
+
+## Stored identity and metadata
+
+Every record has a deterministic escaped source ID:
+
+```text
+run_id:video_id:modality:local_id
+```
+
+Each component is encoded before joining, so a colon or Unicode character inside
+an official ID cannot collide with the separator.
+
+- Dialogue records store text, start/end, phrase ID, video ID, modality, source
+  ID, dataset, split, and run ID.
+- Scene records store frame index, timestamp, start/end, FPS, duration, video ID,
+  modality, source ID, dataset, split, and run ID.
+- Actor records store detection ID, cluster ID, frame index, timestamp, bounding
+  box coordinates, video ID, modality, source ID, dataset, split, and run ID.
+
+## Retrieval API
+
+```python
+from vidxp.core.search import search_scene
+
+result = search_scene(
+    "a person cuts bread",
+    config=config,
+    top_k=10,
+)
+
+for hit in result.hits:
+    print(
+        hit.rank,
+        hit.video_id,
+        hit.start,
+        hit.end,
+        hit.raw_distance,
+        hit.score,
+        hit.source_id,
+    )
+```
+
+Passing `video_id="video-001"` restricts retrieval to one video; omitting it
+searches the run corpus. Results are deterministically ordered by raw distance and
+then source ID. Scene vectors and, by default, dialogue vectors are normalized
+before the explicitly configured Chroma distance (`vector_distance`, default
+`l2`), making the default ordering cosine-equivalent. The distance is stored in
+the run configuration and Chroma collection rather than relying on Chroma's
+implicit default.
+`raw_distance` is still the unmodified value returned by Chroma. `score` is
+exactly `-raw_distance`, so higher is better; it is deliberately not described
+as a probability or calibrated relevance value.
+
+`serialize_predictions()` writes the generic query-to-ranked-hits contract while
+preserving queries with zero hits. Official DiDeMo and HiREST serializers remain
+part of their own adapters and must not alter official evaluator logic.
