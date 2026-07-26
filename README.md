@@ -35,8 +35,6 @@
 VidXP supports Python 3.10 through 3.13 and requires FFmpeg.
 
 ```bash
-git clone https://github.com/grayhatdevelopers/vidxp
-cd vidxp
 python -m venv venv
 ```
 
@@ -50,13 +48,28 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-Install VidXP with the Streamlit frontend:
+Install the CLI from PyPI:
 
 ```bash
-python -m pip install ".[frontend]"
+python -m pip install vidxp
 ```
 
-See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for platform notes.
+To include the browser-based Streamlit interface:
+
+```bash
+python -m pip install "vidxp[frontend]"
+```
+
+`vidxp` is the package name. `frontend` is an optional dependency group that
+adds Streamlit; it is not part of the package name.
+
+To install from a source checkout instead, use `python -m pip install .` for the
+CLI or `python -m pip install ".[frontend]"` for the CLI and browser interface.
+
+The machine-learning dependencies make the first installation comparatively
+large and may require local build tools. See
+[INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for platform requirements and
+first-run model downloads.
 
 ### Model downloads
 
