@@ -44,12 +44,17 @@ def _render_summary(summary):
     )
 
 
-def _update_progress(container, progress, event):
+def _update_progress(message, progress, event):
     state = {
         "ready": "complete",
         "failed": "error",
     }.get(event.get("state"), "running")
-    container.update(label=event["message"], expanded=False, state=state)
+    if state == "complete":
+        message.success(event["message"])
+    elif state == "error":
+        message.error(event["message"])
+    else:
+        message.markdown(f"⏳ {event['message']}")
 
     current, total = event.get("current"), event.get("total")
     if current is not None and total:
@@ -72,13 +77,7 @@ def _render_index_status(status, active, uploaded_video, request_error=None):
             "stage": "initializing",
             "message": "Indexing is running.",
         }
-        container = st.status(
-            event["message"],
-            expanded=False,
-            state="running",
-            type="compact",
-        )
-        _update_progress(container, st.empty(), event)
+        _update_progress(st.empty(), st.empty(), event)
     elif not status:
         st.caption("First indexing may download missing runtime model weights.")
     elif status["state"] == "ready":
@@ -150,17 +149,19 @@ def _run_search(search_type, query):
 
 def _select_video(busy):
     st.subheader("Video")
+    upload_slot = st.empty()
     has_session_upload = st.session_state.get("video_upload") is not None
     if busy and not has_session_upload and SAVED_VIDEO_PATH.is_file():
         uploaded_video = None
         st.caption("Indexing the saved video.")
     else:
-        uploaded_video = st.file_uploader(
-            "Upload an MP4, MOV, or AVI video",
-            type=["mp4", "mov", "avi"],
-            disabled=busy,
-            key="video_upload",
-        )
+        with upload_slot:
+            uploaded_video = st.file_uploader(
+                "Upload an MP4, MOV, or AVI video",
+                type=["mp4", "mov", "avi"],
+                disabled=busy,
+                key="video_upload",
+            )
 
     if uploaded_video is not None:
         st.video(uploaded_video, width=560)
@@ -240,13 +241,16 @@ def run():
         )
 
         if requested:
-            task = st.status(
-                "Preparing indexing...",
-                expanded=False,
-                state="running",
-                type="compact",
-            )
+            task = st.empty()
             progress = st.empty()
+            _update_progress(
+                task,
+                progress,
+                {
+                    "state": "indexing",
+                    "message": "Preparing indexing...",
+                },
+            )
         elif active:
 
             @st.fragment(run_every="1s")
