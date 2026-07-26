@@ -25,6 +25,14 @@ checkpoint and no video failed. A resumed run compares the input checksum and
 configuration fingerprint, skips matching completed videos, and rebuilds an
 interrupted video with deterministic upserts.
 
+If a source contains both video and a supplied transcript, the run identity
+includes both checksums. A caller-provided video checksum avoids re-reading the
+video but does not suppress transcript hashing. The configuration fingerprint
+captures inference, indexing, collection, dataset, split, and run semantics; it
+does not change merely because the same run is relocated to another output or
+storage directory. Checkpoint filenames are hashes of video IDs, so official IDs
+cannot accidentally become platform-specific paths.
+
 The existing CLI and Streamlit interface use `chroma_data/` as their single local
 run for compatibility. Indexes created before schema version 2 must be rebuilt;
 VidXP does not invent missing end timestamps, video IDs, or source IDs.
@@ -79,7 +87,10 @@ Scene-only runs do not load WhisperX or face recognition. Supplied-transcript
 dialogue runs load the dialogue encoder but do not decode video. Actor-only runs
 do not load CLIP or WhisperX. CLIP inference, dialogue encoding, and Chroma writes
 use their configured batch sizes. Cancellation is cooperative and is checked
-between batches.
+between batches. The Streamlit process exposes cancellation for indexing workers
+it started and reports that the current batch must finish first. The shared file
+lock also lets the UI detect an active CLI or separate-process run, although one
+process cannot cancel a run owned by another process.
 
 Scene and actor indexing share one video probe and one sampled-frame stream when
 both are enabled. Each materialized frame is converted to RGB once and then fed
@@ -146,6 +157,25 @@ implicit default.
 exactly `-raw_distance`, so higher is better; it is deliberately not described
 as a probability or calibrated relevance value.
 
+Generated query IDs are deterministic over dataset, split, run ID, modality, and
+query text. The same text in two benchmark runs therefore cannot silently collide.
+Search rejects records that lack dataset, split, run ID, video ID, modality, and
+source ID provenance, in addition to the modality-specific interval metadata.
+
 `serialize_predictions()` writes the generic query-to-ranked-hits contract while
 preserving queries with zero hits. Official DiDeMo and HiREST serializers remain
 part of their own adapters and must not alter official evaluator logic.
+
+## Deliberate remaining boundaries
+
+This core does not yet provide benchmark-specific dataset loaders, interval
+aggregation, prediction serializers, or evaluator invocations. Those belong to
+the next adapter chunk and must follow each benchmark's official protocol.
+
+Resume is currently per video, not from the middle of a partially indexed video.
+Frame timestamps are derived from frame index and reported FPS, so a
+variable-frame-rate benchmark needs a timestamp-aware decoder adapter before its
+localization result can be claimed as exact. Chroma returns the requested
+approximate-nearest-neighbour candidate set; deterministic sorting stabilizes
+those returned candidates but does not turn approximate retrieval into an exact
+full-corpus ranking.
