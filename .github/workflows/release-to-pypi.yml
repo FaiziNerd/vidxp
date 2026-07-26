@@ -49,6 +49,7 @@ jobs:
           semantic-release version --commit --tag --push
 
       - name: Publish to PyPI
+        if: steps.release.outputs.released == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
