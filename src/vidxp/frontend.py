@@ -12,8 +12,10 @@ from vidxp.index_worker import indexing_in_progress, start_indexing
 from vidxp.main import actor, dialogue, scene
 
 SAVED_VIDEO_PATH = Path("video.mp4")
+ACTOR_OUTPUT_PATH = Path("output.mp4")
 INDEX_REQUESTED_KEY = "_vidxp_index_requested"
 INDEX_ERROR_KEY = "_vidxp_index_error"
+SEARCH_RESULT_KEY = "_vidxp_search_result"
 
 
 def _video_hash(uploaded_video) -> str | None:
@@ -91,6 +93,7 @@ def _render_index_status(status, active, uploaded_video, request_error=None):
 def _request_indexing():
     st.session_state[INDEX_REQUESTED_KEY] = True
     st.session_state.pop(INDEX_ERROR_KEY, None)
+    st.session_state.pop(SEARCH_RESULT_KEY, None)
 
 
 def _run_indexing(uploaded_video, status):
@@ -117,19 +120,62 @@ def _run_indexing(uploaded_video, status):
 def _run_search(search_type, query):
     try:
         if search_type == "actor":
-            actor(query, str(SAVED_VIDEO_PATH))
-            st.success(f"Generated actor result for cluster {query}.")
-            st.video("output.mp4", format="video/mp4")
-            return
+            ACTOR_OUTPUT_PATH.unlink(missing_ok=True)
+            actor(
+                query,
+                str(SAVED_VIDEO_PATH),
+                str(ACTOR_OUTPUT_PATH),
+            )
+            if (
+                not ACTOR_OUTPUT_PATH.is_file()
+                or ACTOR_OUTPUT_PATH.stat().st_size == 0
+            ):
+                return {"error": "Actor result video could not be generated."}
+            return {
+                "type": search_type,
+                "query": query,
+                "video_path": str(ACTOR_OUTPUT_PATH),
+            }
 
         finder = dialogue if search_type == "dialogue" else scene
         timestamp = float(finder(query))
-        st.success(f"Best {search_type} match: {timestamp:.3f} seconds")
-        st.video(str(SAVED_VIDEO_PATH), start_time=timestamp)
+        return {
+            "type": search_type,
+            "query": query,
+            "timestamp": timestamp,
+            "video_path": str(SAVED_VIDEO_PATH),
+        }
     except IndexNotReadyError as exc:
-        st.error(str(exc))
+        return {"error": str(exc)}
     except Exception as exc:
-        st.error(f"{type(exc).__name__}: {exc}")
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _render_search_result(result):
+    if not result:
+        return
+    if error := result.get("error"):
+        st.error(error)
+        return
+
+    video_path = Path(result["video_path"])
+    if not video_path.is_file():
+        st.error("The search result video is no longer available.")
+        return
+
+    search_type = result["type"]
+    if search_type == "actor":
+        st.success(f"Actor cluster {result['query']}")
+        st.video(str(video_path), format="video/mp4", width="stretch")
+        return
+
+    timestamp = result["timestamp"]
+    st.success(f"Best {search_type} match: {timestamp:.3f} seconds")
+    st.video(
+        str(video_path),
+        start_time=timestamp,
+        width="stretch",
+    )
 
 
 def _select_video(busy):
@@ -255,11 +301,12 @@ def run():
             ready,
             uploaded_video,
         )
+        if search_clicked:
+            st.session_state[SEARCH_RESULT_KEY] = _run_search(search_type, query)
+        _render_search_result(st.session_state.get(SEARCH_RESULT_KEY))
 
     if requested:
         _run_indexing(uploaded_video, status)
-    if search_clicked:
-        _run_search(search_type, query)
 
 
 def main():
