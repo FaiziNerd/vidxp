@@ -163,6 +163,24 @@ class IndexConfig:
     def for_video(self, video_id: str) -> "IndexConfig":
         return replace(self, video_id=_require_identifier("video_id", video_id))
 
+    def record_identity(
+        self,
+        modality: str,
+        source_id: str,
+    ) -> dict[str, str]:
+        if self.video_id is None:
+            raise ValueError("IndexConfig.video_id is required for record metadata.")
+        if modality not in SUPPORTED_MODALITIES:
+            raise ValueError(f"Unsupported indexing modality: {modality}")
+        return {
+            "dataset": self.dataset,
+            "split": self.split,
+            "run_id": self.run_id,
+            "video_id": self.video_id,
+            "modality": modality,
+            "source_id": source_id,
+        }
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["enabled_modalities"] = list(self.enabled_modalities)

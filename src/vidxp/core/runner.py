@@ -15,7 +15,8 @@ from vidxp.core.contracts import (
     IndexSchemaError,
     VideoSource,
 )
-from vidxp.core.indexing import INDEXERS
+from vidxp.core.indexing_dialogue import index_dialogue
+from vidxp.core.indexing_visual import index_visuals
 from vidxp.core.manifest import (
     ManifestStore,
     combined_checksum,
@@ -145,7 +146,9 @@ def _run_modality(
         )
 
     try:
-        stats = INDEXERS[modality](
+        if modality != "dialogue":
+            raise ValueError(f"Unsupported non-visual modality: {modality}")
+        stats = index_dialogue(
             source,
             config=config,
             storage=storage,
@@ -194,22 +197,15 @@ def _run_visual_modalities(
             {**event, "video_id": config.video_id},
         )
 
-    indexer = INDEXERS.get("visual")
-    if indexer is None and len(modalities) == 1:
-        indexer = INDEXERS[modalities[0]]
-    if indexer is None:
-        raise RuntimeError("The shared visual indexer is unavailable.")
-
     try:
-        options: dict[str, Any] = {
-            "config": config,
-            "storage": storage,
-            "cancellation": cancellation,
-            "progress": report,
-        }
-        if indexer is INDEXERS.get("visual"):
-            options["modalities"] = modalities
-        stats = indexer(source, **options)
+        result = index_visuals(
+            source,
+            config=config,
+            storage=storage,
+            cancellation=cancellation,
+            progress=report,
+            modalities=modalities,
+        )
     except BaseException:
         manifest.record_stage(
             str(config.video_id),
@@ -219,7 +215,8 @@ def _run_visual_modalities(
         )
         raise
 
-    timings = dict(stats.pop("_timings", {}))
+    stats = dict(result.summary)
+    timings = dict(result.timings)
     for stage_name in ("frame_stream", "scene", "actor"):
         if stage_name in timings and (
             stage_name == "frame_stream" or stage_name in modalities

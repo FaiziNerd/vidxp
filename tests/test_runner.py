@@ -11,6 +11,7 @@ from vidxp.core.contracts import (
     VideoSource,
 )
 from vidxp.core.manifest import COMPLETION_FILE
+from vidxp.core.indexing_visual import VisualIndexResult
 from vidxp.core.runner import _RunLock, index_video, run_index
 from vidxp.index_state import IndexingInProgressError
 
@@ -23,6 +24,10 @@ EXECUTION_STATE = {
     "platform": "test",
     "dependencies": {"chromadb": "1.0"},
 }
+
+
+def visual_result(summary, timings=None):
+    return VisualIndexResult(summary=summary, timings=timings or {})
 
 
 class FakeStorage:
@@ -70,19 +75,20 @@ class RunnerTests(unittest.TestCase):
 
             def scene_indexer(source, *, config, **_):
                 calls.append(config.video_id)
-                return {
-                    "scene_frames": 2,
-                    "decoded_frames": 4,
-                    "duration": 1.0,
-                    "fps": 4.0,
-                }
+                return visual_result(
+                    {
+                        "scene_frames": 2,
+                        "decoded_frames": 4,
+                        "duration": 1.0,
+                        "fps": 4.0,
+                    }
+                )
 
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": scene_indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    side_effect=scene_indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -114,29 +120,30 @@ class RunnerTests(unittest.TestCase):
             config = self._config(directory, ("scene", "actor"))
             source = VideoSource(video_id="video-1", path=path)
             visual = Mock(
-                return_value={
-                    "source_frames_advanced": 10,
-                    "sampled_frames": 5,
-                    "processed_frames": 5,
-                    "frame_operations": 10,
-                    "scene_frames": 5,
-                    "actor_frames": 5,
-                    "actor_detections": 2,
-                    "actor_clusters": 1,
-                    "_timings": {
+                return_value=visual_result(
+                    {
+                        "source_frames_advanced": 10,
+                        "sampled_frames": 5,
+                        "processed_frames": 5,
+                        "frame_operations": 10,
+                        "scene_frames": 5,
+                        "actor_frames": 5,
+                        "actor_detections": 2,
+                        "actor_clusters": 1,
+                    },
+                    {
                         "frame_stream": 1.0,
                         "scene": 2.0,
                         "actor": 3.0,
                         "visual_total": 6.0,
                     },
-                }
+                )
             )
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"visual": visual},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    visual,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -178,14 +185,13 @@ class RunnerTests(unittest.TestCase):
                 first_attempt.append(config.video_id)
                 if config.video_id == "video-2":
                     raise IndexCancelledError("stop")
-                return {"scene_frames": 1}
+                return visual_result({"scene_frames": 1})
 
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": cancelling_indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    side_effect=cancelling_indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -200,14 +206,13 @@ class RunnerTests(unittest.TestCase):
 
             def successful_indexer(source, *, config, **_):
                 resumed_calls.append(config.video_id)
-                return {"scene_frames": 1}
+                return visual_result({"scene_frames": 1})
 
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": successful_indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    side_effect=successful_indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -236,10 +241,9 @@ class RunnerTests(unittest.TestCase):
                     "vidxp.core.runner.require_dependencies",
                     dependency_check,
                 ),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"dialogue": lambda *_, **__: {"dialogue_phrases": 1}},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_dialogue",
+                    return_value={"dialogue_phrases": 1},
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -267,14 +271,9 @@ class RunnerTests(unittest.TestCase):
             video = VideoSource(video_id="video-2", path=path)
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {
-                        "dialogue": (
-                            lambda *_, **__: {"dialogue_phrases": 1}
-                        )
-                    },
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_dialogue",
+                    return_value={"dialogue_phrases": 1},
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -304,13 +303,14 @@ class RunnerTests(unittest.TestCase):
             path.write_bytes(b"first")
             config = self._config(directory)
             source = VideoSource(video_id="video-1", path=path)
-            indexer = Mock(return_value={"scene_frames": 1})
+            indexer = Mock(
+                return_value=visual_result({"scene_frames": 1})
+            )
             common = (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -351,14 +351,9 @@ class RunnerTests(unittest.TestCase):
             )
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {
-                        "dialogue": (
-                            lambda *_, **__: {"dialogue_phrases": 1}
-                        )
-                    },
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_dialogue",
+                    return_value={"dialogue_phrases": 1},
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -384,14 +379,9 @@ class RunnerTests(unittest.TestCase):
             storage = FakeStorage()
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {
-                        "dialogue": (
-                            lambda *_, **__: {"dialogue_phrases": 1}
-                        )
-                    },
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_dialogue",
+                    return_value={"dialogue_phrases": 1},
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -419,14 +409,13 @@ class RunnerTests(unittest.TestCase):
                 calls.append(len(calls) + 1)
                 if len(calls) == 2:
                     raise RuntimeError("forced failure")
-                return {"scene_frames": 1}
+                return visual_result({"scene_frames": 1})
 
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    side_effect=indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -458,10 +447,9 @@ class RunnerTests(unittest.TestCase):
             config = self._config(directory)
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": lambda *_, **__: {"scene_frames": 1}},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    return_value=visual_result({"scene_frames": 1}),
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -496,13 +484,14 @@ class RunnerTests(unittest.TestCase):
                 **EXECUTION_STATE,
                 "git": {"commit": "abc123", "dirty": True},
             }
-            indexer = Mock(return_value={"scene_frames": 1})
+            indexer = Mock(
+                return_value=visual_result({"scene_frames": 1})
+            )
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": indexer},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    indexer,
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",
@@ -561,10 +550,9 @@ class RunnerTests(unittest.TestCase):
             config = self._config(directory)
             with (
                 patch("vidxp.core.runner.require_dependencies"),
-                patch.dict(
-                    "vidxp.core.runner.INDEXERS",
-                    {"scene": lambda *_, **__: {"scene_frames": 1}},
-                    clear=True,
+                patch(
+                    "vidxp.core.runner.index_visuals",
+                    return_value=visual_result({"scene_frames": 1}),
                 ),
                 patch(
                     "vidxp.core.manifest.execution_state",

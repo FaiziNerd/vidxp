@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from vidxp.core import indexing as indexing_module
+from vidxp.core import indexing_visual as indexing_visual_module
 from vidxp.core.contracts import CancellationToken, IndexConfig, VideoSource
 from vidxp.core.indexing import (
     build_dialogue_phrases,
@@ -96,11 +96,11 @@ class IndexingTests(unittest.TestCase):
         encoder = FakeEncoder()
         with (
             patch(
-                "vidxp.core.indexing.get_embedder",
+                "vidxp.core.indexing_dialogue.get_embedder",
                 return_value=encoder,
             ),
             patch(
-                "vidxp.core.indexing.transcribe_video",
+                "vidxp.core.indexing_dialogue.transcribe_video",
                 side_effect=AssertionError("video/Whisper path was used"),
             ),
         ):
@@ -167,13 +167,13 @@ class IndexingTests(unittest.TestCase):
         )
 
         with (
-            patch("vidxp.core.indexing.probe_video", return_value=info),
+            patch("vidxp.core.indexing_visual.probe_video", return_value=info),
             patch(
-                "vidxp.core.indexing.iter_frame_batches",
+                "vidxp.core.indexing_visual.iter_frame_batches",
                 return_value=iter(batches),
             ),
             patch(
-                "vidxp.core.indexing.get_clip_model",
+                "vidxp.core.indexing_visual.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
@@ -236,9 +236,9 @@ class IndexingTests(unittest.TestCase):
             ),
         )
         with (
-            patch("vidxp.core.indexing.probe_video", return_value=info),
+            patch("vidxp.core.indexing_visual.probe_video", return_value=info),
             patch(
-                "vidxp.core.indexing.iter_frame_batches",
+                "vidxp.core.indexing_visual.iter_frame_batches",
                 return_value=iter(batches),
             ),
             patch.dict(sys.modules, {"face_recognition": fake_faces}),
@@ -327,28 +327,31 @@ class IndexingTests(unittest.TestCase):
             state.processed_frames += len(samples)
 
         with (
-            patch("vidxp.core.indexing.probe_video", return_value=info) as probe,
             patch(
-                "vidxp.core.indexing.iter_frame_batches",
+                "vidxp.core.indexing_visual.probe_video",
+                return_value=info,
+            ) as probe,
+            patch(
+                "vidxp.core.indexing_visual.iter_frame_batches",
                 frame_stream,
             ),
             patch(
-                "vidxp.core.indexing.get_clip_model",
+                "vidxp.core.indexing_visual.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
                 ),
             ),
             patch(
-                "vidxp.core.indexing._process_actor_samples",
+                "vidxp.core.indexing_visual.process_actor_samples",
                 side_effect=consume_actor,
             ) as actor_consumer,
             patch(
-                "vidxp.core.indexing._rgb_samples",
-                wraps=indexing_module._rgb_samples,
+                "vidxp.core.indexing_visual._rgb_samples",
+                wraps=indexing_visual_module._rgb_samples,
             ) as rgb_conversion,
         ):
-            stats = index_visuals(
+            result = index_visuals(
                 source,
                 config=config,
                 storage=storage,
@@ -361,9 +364,9 @@ class IndexingTests(unittest.TestCase):
         self.assertEqual(model.batch_sizes, [2, 1])
         self.assertEqual(actor_consumer.call_count, 2)
         self.assertEqual(rgb_conversion.call_count, 2)
-        self.assertEqual(stats["source_frames_advanced"], 5)
-        self.assertEqual(stats["sampled_frames"], 3)
-        self.assertEqual(stats["frame_operations"], 6)
+        self.assertEqual(result.summary["source_frames_advanced"], 5)
+        self.assertEqual(result.summary["sampled_frames"], 3)
+        self.assertEqual(result.summary["frame_operations"], 6)
 
 
 if __name__ == "__main__":
