@@ -1,0 +1,541 @@
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import Mock, patch
+
+from vidxp.core.contracts import (
+    CancellationToken,
+    IndexCancelledError,
+    IndexConfig,
+    VideoSource,
+)
+from vidxp.core.manifest import COMPLETION_FILE
+from vidxp.core.runner import _RunLock, index_video, run_index
+from vidxp.index_state import IndexingInProgressError
+
+
+EXECUTION_STATE = {
+    "git": {"commit": "abc123", "dirty": False},
+    "implementation_sha256": "implementation",
+    "package_version": "0.1.0",
+    "python": "test",
+    "platform": "test",
+    "dependencies": {"chromadb": "1.0"},
+}
+
+
+class FakeStorage:
+    def __init__(self, size=321):
+        self.cleared = []
+        self.deleted = []
+        self.size = size
+
+    def clear(self, modalities=None):
+        self.cleared.append(
+            None if modalities is None else tuple(modalities)
+        )
+
+    def delete_video(self, modality, video_id):
+        self.deleted.append((modality, video_id))
+
+    def size_bytes(self):
+        return self.size
+
+
+class RunnerTests(unittest.TestCase):
+    def _config(self, root, modalities=("scene",)):
+        return IndexConfig(
+            dataset="sample",
+            split="test",
+            run_id="run-1",
+            enabled_modalities=modalities,
+            output_root=root,
+        )
+
+    def test_two_videos_complete_one_isolated_resumable_run(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.mp4"
+            second = root / "second.mp4"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            config = self._config(directory)
+            sources = [
+                VideoSource(video_id="video-1", path=first),
+                VideoSource(video_id="video-2", path=second),
+            ]
+            storage = FakeStorage()
+            calls = []
+
+            def scene_indexer(source, *, config, **_):
+                calls.append(config.video_id)
+                return {
+                    "scene_frames": 2,
+                    "decoded_frames": 4,
+                    "duration": 1.0,
+                    "fps": 4.0,
+                }
+
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": scene_indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                manifest = run_index(sources, config, storage=storage)
+                resumed = run_index(sources, config, storage=storage)
+
+            self.assertEqual(calls, ["video-1", "video-2"])
+            self.assertEqual(
+                manifest["completed_videos"],
+                ["video-1", "video-2"],
+            )
+            self.assertEqual(resumed["state"], "complete")
+            self.assertEqual(manifest["git"]["commit"], "abc123")
+            self.assertEqual(manifest["index_size_bytes"], 321)
+            self.assertEqual(manifest["processed_frames"], 4)
+            self.assertTrue((config.run_directory / COMPLETION_FILE).is_file())
+            self.assertEqual(
+                storage.deleted,
+                [("scene", "video-1"), ("scene", "video-2")],
+            )
+
+    def test_interrupted_run_skips_completed_video_on_resume(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.mp4"
+            second = root / "second.mp4"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            config = self._config(directory)
+            sources = [
+                VideoSource(video_id="video-1", path=first),
+                VideoSource(video_id="video-2", path=second),
+            ]
+            storage = FakeStorage()
+            first_attempt = []
+
+            def cancelling_indexer(source, *, config, **_):
+                first_attempt.append(config.video_id)
+                if config.video_id == "video-2":
+                    raise IndexCancelledError("stop")
+                return {"scene_frames": 1}
+
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": cancelling_indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+                self.assertRaises(IndexCancelledError),
+            ):
+                run_index(sources, config, storage=storage)
+
+            self.assertFalse((config.run_directory / COMPLETION_FILE).exists())
+            resumed_calls = []
+
+            def successful_indexer(source, *, config, **_):
+                resumed_calls.append(config.video_id)
+                return {"scene_frames": 1}
+
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": successful_indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                manifest = run_index(sources, config, storage=storage)
+
+            self.assertEqual(first_attempt, ["video-1", "video-2"])
+            self.assertEqual(resumed_calls, ["video-2"])
+            self.assertEqual(manifest["state"], "complete")
+
+    def test_transcript_only_run_does_not_request_transcription_dependencies(self):
+        with TemporaryDirectory() as directory:
+            config = self._config(directory, ("dialogue",))
+            source = VideoSource(
+                video_id="video-1",
+                transcript=(
+                    {"text": "hello", "start": 0.0, "end": 1.0},
+                ),
+            )
+            dependency_check = Mock()
+
+            with (
+                patch(
+                    "vidxp.core.runner.require_dependencies",
+                    dependency_check,
+                ),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"dialogue": lambda *_, **__: {"dialogue_phrases": 1}},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index([source], config, storage=FakeStorage())
+
+            dependency_check.assert_called_once_with(
+                ("dialogue",),
+                needs_transcription=False,
+            )
+
+    def test_manifest_adds_transcription_model_when_run_later_needs_it(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "second.mp4"
+            path.write_bytes(b"video")
+            config = self._config(directory, ("dialogue",))
+            supplied = VideoSource(
+                video_id="video-1",
+                transcript=(
+                    {"text": "hello", "start": 0.0, "end": 1.0},
+                ),
+            )
+            video = VideoSource(video_id="video-2", path=path)
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {
+                        "dialogue": (
+                            lambda *_, **__: {"dialogue_phrases": 1}
+                        )
+                    },
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                first = run_index(
+                    [supplied],
+                    config,
+                    storage=FakeStorage(),
+                )
+                second = run_index(
+                    [supplied, video],
+                    config,
+                    storage=FakeStorage(),
+                )
+
+            self.assertNotIn("transcription", first["models"])
+            self.assertEqual(
+                second["models"]["transcription"],
+                config.whisper_model,
+            )
+
+    def test_changed_input_is_not_silently_accepted_by_checkpoint(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"first")
+            config = self._config(directory)
+            source = VideoSource(video_id="video-1", path=path)
+            indexer = Mock(return_value={"scene_frames": 1})
+            common = (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            )
+            with common[0], common[1], common[2]:
+                run_index([source], config, storage=FakeStorage())
+
+            path.write_bytes(b"changed")
+            with (
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+                self.assertRaisesRegex(ValueError, "different input bytes"),
+            ):
+                run_index([source], config, storage=FakeStorage())
+
+    def test_changed_supplied_transcript_invalidates_same_video_input(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"same-video")
+            config = self._config(directory, ("dialogue",))
+            first = VideoSource(
+                video_id="video-1",
+                path=path,
+                transcript=(
+                    {"text": "first", "start": 0.0, "end": 1.0},
+                ),
+            )
+            second = VideoSource(
+                video_id="video-1",
+                path=path,
+                transcript=(
+                    {"text": "changed", "start": 0.0, "end": 1.0},
+                ),
+            )
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {
+                        "dialogue": (
+                            lambda *_, **__: {"dialogue_phrases": 1}
+                        )
+                    },
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index([first], config, storage=FakeStorage())
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "different input bytes",
+                ):
+                    run_index([second], config, storage=FakeStorage())
+
+    def test_reset_clears_every_collection_not_only_enabled_modalities(self):
+        with TemporaryDirectory() as directory:
+            source = VideoSource(
+                video_id="video-1",
+                transcript=(
+                    {"text": "hello", "start": 0.0, "end": 1.0},
+                ),
+            )
+            config = self._config(directory, ("dialogue",))
+            storage = FakeStorage()
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {
+                        "dialogue": (
+                            lambda *_, **__: {"dialogue_phrases": 1}
+                        )
+                    },
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index(
+                    [source],
+                    config,
+                    storage=storage,
+                    reset=True,
+                )
+
+            self.assertEqual(storage.cleared, [None])
+
+    def test_failed_forced_rebuild_does_not_leave_stale_checkpoint(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            source = VideoSource(video_id="video-1", path=path)
+            config = self._config(directory)
+            calls = []
+
+            def indexer(*_, **__):
+                calls.append(len(calls) + 1)
+                if len(calls) == 2:
+                    raise RuntimeError("forced failure")
+                return {"scene_frames": 1}
+
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index([source], config, storage=FakeStorage())
+                with self.assertRaisesRegex(RuntimeError, "forced failure"):
+                    run_index(
+                        [source],
+                        config,
+                        storage=FakeStorage(),
+                        resume=False,
+                    )
+                manifest = run_index(
+                    [source],
+                    config,
+                    storage=FakeStorage(),
+                )
+
+            self.assertEqual(calls, [1, 2, 3])
+            self.assertEqual(manifest["state"], "complete")
+
+    def test_resume_rejects_execution_environment_drift(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            source = VideoSource(video_id="video-1", path=path)
+            config = self._config(directory)
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": lambda *_, **__: {"scene_frames": 1}},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index([source], config, storage=FakeStorage())
+
+            changed = {
+                **EXECUTION_STATE,
+                "implementation_sha256": "different",
+            }
+            with (
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=changed,
+                ),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "implementation or dependency environment changed",
+                ),
+            ):
+                run_index([source], config, storage=FakeStorage())
+
+    def test_generated_run_files_do_not_invalidate_execution_fingerprint(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            source = VideoSource(video_id="video-1", path=path)
+            config = self._config(directory)
+            dirty_state = {
+                **EXECUTION_STATE,
+                "git": {"commit": "abc123", "dirty": True},
+            }
+            indexer = Mock(return_value={"scene_frames": 1})
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": indexer},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    side_effect=[EXECUTION_STATE, dirty_state],
+                ),
+            ):
+                run_index([source], config, storage=FakeStorage())
+                run_index([source], config, storage=FakeStorage())
+
+            indexer.assert_called_once()
+
+    def test_run_lock_rejects_a_second_process_owner(self):
+        with TemporaryDirectory() as directory:
+            run_directory = Path(directory) / "run"
+            with _RunLock(run_directory):
+                with self.assertRaises(IndexingInProgressError):
+                    with _RunLock(run_directory):
+                        pass
+
+    def test_local_index_hash_is_reused_by_run_index(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            checksum = "a" * 64
+            config = IndexConfig.local(
+                storage_directory=str(Path(directory) / "index"),
+            )
+            manifest = {
+                "videos": {
+                    checksum: {
+                        "summary": {"scene_frames": 1},
+                    }
+                }
+            }
+            with (
+                patch(
+                    "vidxp.core.runner.source_checksum",
+                    return_value=checksum,
+                ) as hash_source,
+                patch(
+                    "vidxp.core.runner.run_index",
+                    return_value=manifest,
+                ) as run,
+                patch("vidxp.core.runner.write_index_status"),
+            ):
+                index_video(str(path), config=config)
+
+            hash_source.assert_called_once()
+            indexed_source = run.call_args.args[0][0]
+            self.assertEqual(indexed_source.checksum, checksum)
+
+    def test_manifest_and_timing_files_are_valid_json(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            config = self._config(directory)
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"scene": lambda *_, **__: {"scene_frames": 1}},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                run_index(
+                    [VideoSource(video_id="video-1", path=path)],
+                    config,
+                    storage=FakeStorage(),
+                )
+
+            manifest = json.loads(
+                (config.run_directory / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            timing_lines = (
+                config.run_directory / "timings.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(manifest["configuration"]["frame_stride"], 1)
+            self.assertTrue(all(json.loads(line) for line in timing_lines))
+
+
+if __name__ == "__main__":
+    unittest.main()

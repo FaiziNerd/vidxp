@@ -2,17 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 from vidxp.index_state import (
-    IndexingInProgressError,
     IndexNotReadyError,
     fingerprint_file,
     read_index_status,
     require_ready_index,
     write_index_status,
 )
-from vidxp import main
 
 
 class IndexStateTests(unittest.TestCase):
@@ -92,150 +89,6 @@ class IndexStateTests(unittest.TestCase):
             payload = json.loads(status_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["state"], "ready")
             self.assertNotIn("error", payload)
-
-    def test_second_index_run_is_rejected(self):
-        main._INDEXING_LOCK.acquire()
-        try:
-            with self.assertRaises(IndexingInProgressError):
-                main.index_video("unused.mp4")
-        finally:
-            main._INDEXING_LOCK.release()
-
-    def test_pipeline_orchestrates_scoped_stages(self):
-        with tempfile.TemporaryDirectory() as directory:
-            video = Path(directory) / "sample.mp4"
-            video.write_bytes(b"video")
-            callback = Mock()
-            calls = []
-
-            def record(name, result=None):
-                calls.append(name)
-                return result
-
-            with (
-                patch.object(
-                    main,
-                    "_require_indexing_dependencies",
-                    side_effect=lambda: record("dependencies"),
-                ),
-                patch.object(
-                    main,
-                    "_prepare_models",
-                    side_effect=lambda report: record(
-                        "models",
-                        ("embedder", "clip", "preprocess"),
-                    ),
-                ),
-                patch.object(
-                    main,
-                    "_transcribe_audio",
-                    side_effect=lambda path, report: record(
-                        "transcription",
-                        (["segment"], "en"),
-                    ),
-                ),
-                patch.object(
-                    main,
-                    "reset_collections",
-                    side_effect=lambda: record("reset", (1, 2, 3)),
-                ),
-                patch.object(main, "_index_dialogue", return_value=4),
-                patch.object(main, "_index_scenes", return_value=5),
-                patch.object(main, "_index_actors", return_value=(6, 2)),
-                patch.object(main, "write_index_status") as write_status,
-                patch.object(main, "print"),
-            ):
-                summary = main._index_video(str(video), callback, "sample.mp4")
-
-            self.assertEqual(
-                summary,
-                {
-                    "language": "en",
-                    "dialogue_phrases": 4,
-                    "scene_frames": 5,
-                    "actor_frames": 6,
-                    "actor_clusters": 2,
-                },
-            )
-            self.assertEqual(
-                calls,
-                ["dependencies", "models", "transcription", "reset"],
-            )
-            self.assertEqual(write_status.call_args.kwargs["state"], "ready")
-            self.assertEqual(callback.call_args.args[0]["summary"], summary)
-
-    def test_pipeline_records_stage_failure(self):
-        with tempfile.TemporaryDirectory() as directory:
-            video = Path(directory) / "sample.mp4"
-            video.write_bytes(b"video")
-
-            with (
-                patch.object(main, "_require_indexing_dependencies"),
-                patch.object(
-                    main,
-                    "_prepare_models",
-                    side_effect=RuntimeError("model failed"),
-                ),
-                patch.object(main, "write_index_status") as write_status,
-                patch.object(main, "print"),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "model failed"):
-                    main._index_video(str(video), None, None)
-
-            failure = write_status.call_args.kwargs
-            self.assertEqual(failure["state"], "failed")
-            self.assertEqual(failure["stage"], "initializing")
-            self.assertEqual(failure["error"], "RuntimeError: model failed")
-
-    def test_dependency_failures_identify_the_broken_import(self):
-        def import_dependency(module_name):
-            if module_name == "cv2":
-                raise ImportError("missing binary")
-            return Mock()
-
-        with patch.object(main, "import_module", side_effect=import_dependency):
-            failures = main._dependency_failures()
-
-        self.assertEqual(
-            failures,
-            [("OpenCV", "ImportError: missing binary")],
-        )
-
-    def test_doctor_checks_dependencies_and_ffmpeg_without_models(self):
-        with (
-            patch.object(main, "_dependency_failures", return_value=[]),
-            patch.object(main, "_ffmpeg_binary", return_value="ffmpeg"),
-            patch.object(main, "get_embedder") as get_embedder,
-            patch.object(main, "get_clip_model") as get_clip_model,
-            patch.object(main, "print"),
-        ):
-            main.doctor()
-
-        get_embedder.assert_not_called()
-        get_clip_model.assert_not_called()
-
-    def test_prepare_caches_fixed_and_requested_language_models(self):
-        whisperx = Mock()
-        with (
-            patch.object(main, "_require_indexing_dependencies"),
-            patch.object(main, "get_embedder") as get_embedder,
-            patch.object(main, "get_clip_model") as get_clip_model,
-            patch.object(main, "import_module", return_value=whisperx),
-            patch.object(main, "print"),
-        ):
-            main.prepare(language="en")
-
-        get_embedder.assert_called_once_with()
-        get_clip_model.assert_called_once_with()
-        whisperx.load_model.assert_called_once_with(
-            main.WHISPER_MODEL,
-            main.DEVICE,
-            compute_type="float32",
-        )
-        whisperx.load_align_model.assert_called_once_with(
-            language_code="en",
-            device=main.DEVICE,
-        )
 
 
 if __name__ == "__main__":
