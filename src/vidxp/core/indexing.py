@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable, Mapping, Sequence
 
 from vidxp.core.contracts import (
@@ -10,6 +11,7 @@ from vidxp.core.contracts import (
     IndexConfig,
     StorageRecord,
     VideoSource,
+    batched,
     stable_source_id,
 )
 from vidxp.core.models import (
@@ -20,6 +22,8 @@ from vidxp.core.models import (
 )
 from vidxp.core.storage import IndexStorage
 from vidxp.core.video import (
+    FrameSample,
+    FrameStreamStats,
     extract_audio,
     iter_frame_batches,
     probe_video,
@@ -289,19 +293,11 @@ def _dialogue_records(phrases, vectors, config: IndexConfig):
 
 
 def _encode_scene_batch(samples, model, preprocess, device):
-    import cv2
     import torch
     from PIL import Image
 
     images = torch.stack(
-        [
-            preprocess(
-                Image.fromarray(
-                    cv2.cvtColor(sample.frame, cv2.COLOR_BGR2RGB)
-                )
-            )
-            for sample in samples
-        ]
+        [preprocess(Image.fromarray(sample.frame)) for sample in samples]
     ).to(device)
     with torch.no_grad():
         features = model.encode_image(images)
@@ -347,64 +343,6 @@ def _scene_records(samples, vectors, info, config: IndexConfig):
     return records
 
 
-def index_scenes(
-    source: VideoSource,
-    *,
-    config: IndexConfig,
-    storage: IndexStorage,
-    cancellation: CancellationToken,
-    progress: ProgressCallback | None = None,
-) -> dict[str, Any]:
-    if config.video_id is None:
-        raise ValueError("IndexConfig.video_id is required for indexing.")
-    if source.path is None:
-        raise ValueError("Scene indexing requires a video path.")
-
-    info = probe_video(source.path)
-    _progress(
-        progress,
-        "preparing_scene_model",
-        f"Preparing scene model: CLIP {config.clip_model}.",
-    )
-    model, preprocess = get_clip_model(config.clip_model, config.device)
-    expected = (info.frame_count + config.frame_stride - 1) // config.frame_stride
-    _progress(progress, "scene_indexing", "Indexing sampled video frames.", 0, expected)
-    stored = 0
-    for samples in iter_frame_batches(
-        source.path,
-        frame_stride=config.frame_stride,
-        batch_size=config.scene_batch_size,
-        cancellation=cancellation,
-    ):
-        cancellation.raise_if_cancelled()
-        vectors = _encode_scene_batch(
-            samples,
-            model,
-            preprocess,
-            config.device,
-        )
-        records = _scene_records(samples, vectors, info, config)
-        stored += storage.upsert(
-            "scene",
-            records,
-            batch_size=config.storage_batch_size,
-            cancellation=cancellation,
-        )
-        _progress(
-            progress,
-            "scene_indexing",
-            "Indexing sampled video frames.",
-            stored,
-            expected,
-        )
-    return {
-        "scene_frames": stored,
-        "decoded_frames": info.frame_count,
-        "duration": info.duration,
-        "fps": info.fps,
-    }
-
-
 def _best_face_match(
     face_recognition,
     known_encodings,
@@ -418,103 +356,25 @@ def _best_face_match(
     return match if distances[match] < threshold else None
 
 
-def _cluster_actor_detections(
-    source: VideoSource,
-    *,
-    config: IndexConfig,
-    cancellation: CancellationToken,
-    progress: ProgressCallback | None,
-):
-    import cv2
-    import face_recognition
-    import numpy as np
+@dataclass
+class ActorIndexState:
+    known_encodings: list[Any] = field(default_factory=list)
+    known_ids: list[str] = field(default_factory=list)
+    histories: dict[str, list[Any]] = field(default_factory=dict)
+    cluster_sizes: dict[str, int] = field(default_factory=dict)
+    processed_frames: int = 0
 
-    info = probe_video(source.path)
-    expected = (info.frame_count + config.frame_stride - 1) // config.frame_stride
-    _progress(
-        progress,
-        "actor_indexing",
-        "Detecting and clustering actors.",
-        0,
-        expected,
-    )
-    known_encodings = []
-    known_ids: list[str] = []
-    histories: dict[str, list[Any]] = {}
-    detections: list[dict[str, Any]] = []
-    processed = 0
 
-    for samples in iter_frame_batches(
-        source.path,
-        frame_stride=config.frame_stride,
-        batch_size=config.actor_batch_size,
-        cancellation=cancellation,
-    ):
-        cancellation.raise_if_cancelled()
-        for sample in samples:
-            rgb_frame = cv2.cvtColor(sample.frame, cv2.COLOR_BGR2RGB)
-            locations = face_recognition.face_locations(rgb_frame)
-            encodings = face_recognition.face_encodings(
-                rgb_frame,
-                locations,
-                num_jitters=config.face_num_jitters,
-            )
-            for ordinal, (encoding, location) in enumerate(
-                zip(encodings, locations)
-            ):
-                match = _best_face_match(
-                    face_recognition,
-                    known_encodings,
-                    encoding,
-                    config.face_match_threshold,
-                )
-                if match is None:
-                    cluster_id = str(len(known_ids) + 1)
-                    known_ids.append(cluster_id)
-                    known_encodings.append(encoding)
-                    histories[cluster_id] = [encoding]
-                else:
-                    cluster_id = known_ids[match]
-                    history = histories[cluster_id]
-                    history.append(encoding)
-                    if len(history) > 5:
-                        history.pop(0)
-                    known_encodings[match] = np.mean(history, axis=0)
-                detections.append(
-                    {
-                        "detection_id": (
-                            f"d{sample.frame_index:012d}-{ordinal:04d}"
-                        ),
-                        "cluster_id": cluster_id,
-                        "frame_index": sample.frame_index,
-                        "timestamp": sample.timestamp,
-                        "bbox": tuple(int(value) for value in location),
-                    }
-                )
-            processed += 1
-        _progress(
-            progress,
-            "actor_indexing",
-            "Detecting and clustering actors.",
-            processed,
-            expected,
-        )
-    return info, processed, detections
+@dataclass
+class SceneIndexState:
+    model: Any
+    preprocess: Any
+    stored_frames: int = 0
 
 
 def _actor_records(detections, config: IndexConfig):
-    cluster_sizes: dict[str, int] = {}
-    for detection in detections:
-        cluster_id = detection["cluster_id"]
-        cluster_sizes[cluster_id] = cluster_sizes.get(cluster_id, 0) + 1
-    retained = [
-        detection
-        for detection in detections
-        if cluster_sizes[detection["cluster_id"]]
-        >= config.actor_min_detections
-    ]
     records = []
-    for detection in retained:
+    for detection in detections:
         source_id = stable_source_id(
             config.run_id,
             str(config.video_id),
@@ -544,47 +404,341 @@ def _actor_records(detections, config: IndexConfig):
                 },
             )
         )
-    return records, retained
+    return records
 
 
-def index_actors(
+def _process_actor_samples(
+    samples,
+    *,
+    state: ActorIndexState,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+) -> None:
+    import face_recognition
+    import numpy as np
+
+    for group in batched(samples, config.actor_batch_size):
+        cancellation.raise_if_cancelled()
+        detections = []
+        for sample in group:
+            cancellation.raise_if_cancelled()
+            locations = face_recognition.face_locations(sample.frame)
+            encodings = face_recognition.face_encodings(
+                sample.frame,
+                locations,
+                num_jitters=config.face_num_jitters,
+            )
+            for ordinal, (encoding, location) in enumerate(
+                zip(encodings, locations)
+            ):
+                match = _best_face_match(
+                    face_recognition,
+                    state.known_encodings,
+                    encoding,
+                    config.face_match_threshold,
+                )
+                if match is None:
+                    cluster_id = str(len(state.known_ids) + 1)
+                    state.known_ids.append(cluster_id)
+                    state.known_encodings.append(encoding)
+                    state.histories[cluster_id] = [encoding]
+                else:
+                    cluster_id = state.known_ids[match]
+                    history = state.histories[cluster_id]
+                    history.append(encoding)
+                    if len(history) > 5:
+                        history.pop(0)
+                    state.known_encodings[match] = np.mean(history, axis=0)
+                state.cluster_sizes[cluster_id] = (
+                    state.cluster_sizes.get(cluster_id, 0) + 1
+                )
+                detections.append(
+                    {
+                        "detection_id": (
+                            f"d{sample.frame_index:012d}-{ordinal:04d}"
+                        ),
+                        "cluster_id": cluster_id,
+                        "frame_index": sample.frame_index,
+                        "timestamp": sample.timestamp,
+                        "bbox": tuple(int(value) for value in location),
+                    }
+                )
+            state.processed_frames += 1
+        storage.upsert(
+            "actor",
+            _actor_records(detections, config),
+            batch_size=config.storage_batch_size,
+            cancellation=cancellation,
+        )
+
+
+def _finalize_actor_index(
+    state: ActorIndexState,
+    *,
+    config: IndexConfig,
+    storage: IndexStorage,
+) -> tuple[int, int]:
+    rejected = [
+        cluster_id
+        for cluster_id, size in state.cluster_sizes.items()
+        if size < config.actor_min_detections
+    ]
+    for cluster_id in rejected:
+        storage.delete_actor_cluster(str(config.video_id), cluster_id)
+    retained = {
+        cluster_id: size
+        for cluster_id, size in state.cluster_sizes.items()
+        if size >= config.actor_min_detections
+    }
+    return sum(retained.values()), len(retained)
+
+
+def _rgb_samples(samples) -> list[FrameSample]:
+    import cv2
+
+    return [
+        FrameSample(
+            frame_index=sample.frame_index,
+            timestamp=sample.timestamp,
+            frame=cv2.cvtColor(sample.frame, cv2.COLOR_BGR2RGB),
+        )
+        for sample in samples
+    ]
+
+
+def _process_scene_samples(
+    samples,
+    *,
+    state: SceneIndexState,
+    info,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+) -> None:
+    for group in batched(samples, config.scene_batch_size):
+        cancellation.raise_if_cancelled()
+        vectors = _encode_scene_batch(
+            group,
+            state.model,
+            state.preprocess,
+            config.device,
+        )
+        state.stored_frames += storage.upsert(
+            "scene",
+            _scene_records(group, vectors, info, config),
+            batch_size=config.storage_batch_size,
+            cancellation=cancellation,
+        )
+
+
+def _consume_visual_stream(
+    source: VideoSource,
+    *,
+    selected: tuple[str, ...],
+    expected: int,
+    info,
+    scene_state: SceneIndexState | None,
+    actor_state: ActorIndexState | None,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+    progress: ProgressCallback | None,
+    timings: dict[str, float],
+) -> FrameStreamStats:
+    stream_stats = FrameStreamStats()
+    decode_batch_size = max(
+        config.scene_batch_size if "scene" in selected else 0,
+        config.actor_batch_size if "actor" in selected else 0,
+    )
+    stream = iter(
+        iter_frame_batches(
+            source.path,
+            frame_stride=config.frame_stride,
+            batch_size=decode_batch_size,
+            cancellation=cancellation,
+            stats=stream_stats,
+        )
+    )
+    while True:
+        stream_started = perf_counter()
+        try:
+            samples = next(stream)
+        except StopIteration:
+            timings["frame_stream"] += perf_counter() - stream_started
+            break
+        rgb_samples = _rgb_samples(samples)
+        timings["frame_stream"] += perf_counter() - stream_started
+
+        if scene_state is not None:
+            scene_started = perf_counter()
+            _process_scene_samples(
+                rgb_samples,
+                state=scene_state,
+                info=info,
+                config=config,
+                storage=storage,
+                cancellation=cancellation,
+            )
+            timings["scene"] += perf_counter() - scene_started
+
+        if actor_state is not None:
+            actor_started = perf_counter()
+            _process_actor_samples(
+                rgb_samples,
+                state=actor_state,
+                config=config,
+                storage=storage,
+                cancellation=cancellation,
+            )
+            timings["actor"] += perf_counter() - actor_started
+
+        _progress(
+            progress,
+            "visual_indexing",
+            "Indexing the shared sampled-frame stream.",
+            stream_stats.frames_materialized,
+            expected,
+        )
+    return stream_stats
+
+
+def _visual_summary(
+    *,
+    scene_state: SceneIndexState | None,
+    actor_state: ActorIndexState | None,
+    stream_stats: FrameStreamStats,
+    actor_detections: int,
+    actor_clusters: int,
+    info,
+    timings: Mapping[str, float],
+    started: float,
+) -> dict[str, Any]:
+    scene_frames = scene_state.stored_frames if scene_state is not None else 0
+    actor_frames = (
+        actor_state.processed_frames if actor_state is not None else 0
+    )
+    sampled_frames = (
+        stream_stats.frames_materialized
+        or max(scene_frames, actor_frames)
+    )
+    return {
+        "source_frames_advanced": stream_stats.frames_advanced,
+        "sampled_frames": sampled_frames,
+        "processed_frames": sampled_frames,
+        "frame_operations": scene_frames + actor_frames,
+        "scene_frames": scene_frames,
+        "actor_frames": actor_frames,
+        "actor_detections": actor_detections,
+        "actor_clusters": actor_clusters,
+        "duration": info.duration,
+        "fps": info.fps,
+        "_timings": {
+            **timings,
+            "visual_total": perf_counter() - started,
+        },
+    }
+
+
+def index_visuals(
     source: VideoSource,
     *,
     config: IndexConfig,
     storage: IndexStorage,
     cancellation: CancellationToken,
     progress: ProgressCallback | None = None,
+    modalities: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     if config.video_id is None:
         raise ValueError("IndexConfig.video_id is required for indexing.")
     if source.path is None:
-        raise ValueError("Actor indexing requires a video path.")
+        raise ValueError("Scene and actor indexing require a video path.")
 
-    info, processed, detections = _cluster_actor_detections(
+    selected = tuple(
+        modality
+        for modality in (modalities or config.enabled_modalities)
+        if modality in {"scene", "actor"}
+    )
+    if not selected:
+        raise ValueError("At least one visual modality must be selected.")
+
+    started = perf_counter()
+    info = probe_video(source.path)
+    expected = (info.frame_count + config.frame_stride - 1) // config.frame_stride
+    scene_state = None
+    actor_state = ActorIndexState() if "actor" in selected else None
+    timings = {"frame_stream": 0.0, "scene": 0.0, "actor": 0.0}
+
+    if "scene" in selected:
+        scene_started = perf_counter()
+        _progress(
+            progress,
+            "preparing_scene_model",
+            f"Preparing scene model: CLIP {config.clip_model}.",
+        )
+        scene_model, scene_preprocess = get_clip_model(
+            config.clip_model,
+            config.device,
+        )
+        scene_state = SceneIndexState(scene_model, scene_preprocess)
+        timings["scene"] += perf_counter() - scene_started
+
+    _progress(
+        progress,
+        "visual_indexing",
+        "Decoding sampled frames for "
+        + " and ".join(selected)
+        + " indexing.",
+        0,
+        expected,
+    )
+    stream_stats = _consume_visual_stream(
         source,
+        selected=selected,
+        expected=expected,
+        info=info,
+        scene_state=scene_state,
+        actor_state=actor_state,
         config=config,
+        storage=storage,
         cancellation=cancellation,
         progress=progress,
+        timings=timings,
     )
-    records, retained = _actor_records(detections, config)
-    stored = storage.upsert(
-        "actor",
-        records,
-        batch_size=config.storage_batch_size,
-        cancellation=cancellation,
+
+    actor_detections = actor_clusters = 0
+    if actor_state is not None:
+        actor_started = perf_counter()
+        actor_detections, actor_clusters = _finalize_actor_index(
+            actor_state,
+            config=config,
+            storage=storage,
+        )
+        timings["actor"] += perf_counter() - actor_started
+
+    return _visual_summary(
+        scene_state=scene_state,
+        actor_state=actor_state,
+        stream_stats=stream_stats,
+        actor_detections=actor_detections,
+        actor_clusters=actor_clusters,
+        info=info,
+        timings=timings,
+        started=started,
     )
-    return {
-        "actor_frames": processed,
-        "actor_decoded_frames": info.frame_count,
-        "actor_detections": stored,
-        "actor_clusters": len(
-            {detection["cluster_id"] for detection in retained}
-        ),
-    }
+
+
+def index_scenes(source: VideoSource, **options: Any) -> dict[str, Any]:
+    return index_visuals(source, modalities=("scene",), **options)
+
+
+def index_actors(source: VideoSource, **options: Any) -> dict[str, Any]:
+    return index_visuals(source, modalities=("actor",), **options)
 
 
 INDEXERS = {
     "dialogue": index_dialogue,
     "scene": index_scenes,
     "actor": index_actors,
+    "visual": index_visuals,
 }

@@ -107,6 +107,58 @@ class RunnerTests(unittest.TestCase):
                 [("scene", "video-1"), ("scene", "video-2")],
             )
 
+    def test_scene_and_actor_are_dispatched_as_one_visual_pipeline(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.mp4"
+            path.write_bytes(b"video")
+            config = self._config(directory, ("scene", "actor"))
+            source = VideoSource(video_id="video-1", path=path)
+            visual = Mock(
+                return_value={
+                    "source_frames_advanced": 10,
+                    "sampled_frames": 5,
+                    "processed_frames": 5,
+                    "frame_operations": 10,
+                    "scene_frames": 5,
+                    "actor_frames": 5,
+                    "actor_detections": 2,
+                    "actor_clusters": 1,
+                    "_timings": {
+                        "frame_stream": 1.0,
+                        "scene": 2.0,
+                        "actor": 3.0,
+                        "visual_total": 6.0,
+                    },
+                }
+            )
+            with (
+                patch("vidxp.core.runner.require_dependencies"),
+                patch.dict(
+                    "vidxp.core.runner.INDEXERS",
+                    {"visual": visual},
+                    clear=True,
+                ),
+                patch(
+                    "vidxp.core.manifest.execution_state",
+                    return_value=EXECUTION_STATE,
+                ),
+            ):
+                manifest = run_index(
+                    [source],
+                    config,
+                    storage=FakeStorage(),
+                )
+
+            visual.assert_called_once()
+            self.assertEqual(
+                visual.call_args.kwargs["modalities"],
+                ("scene", "actor"),
+            )
+            summary = manifest["videos"]["video-1"]["summary"]
+            self.assertEqual(summary["source_frames_advanced"], 10)
+            self.assertEqual(summary["sampled_frames"], 5)
+            self.assertEqual(summary["frame_operations"], 10)
+
     def test_interrupted_run_skips_completed_video_on_resume(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

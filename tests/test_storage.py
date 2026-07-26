@@ -13,11 +13,15 @@ from vidxp.core.storage import IndexStorage, directory_size, metadata_filter
 class FakeCollection:
     def __init__(self):
         self.upserts = []
+        self.deletes = []
         self.query_options = None
         self.get_options = None
 
     def upsert(self, **options):
         self.upserts.append(options)
+
+    def delete(self, **options):
+        self.deletes.append(options)
 
     def query(self, **options):
         self.query_options = options
@@ -49,8 +53,10 @@ class FakeClient:
     def __init__(self, collection):
         self.value = collection
         self.collection_options = None
+        self.collection_calls = 0
 
     def get_or_create_collection(self, **options):
+        self.collection_calls += 1
         self.collection_options = options
         return self.value
 
@@ -60,6 +66,7 @@ def fake_storage(config, collection):
     storage.config = config
     storage.path = config.index_directory
     storage.client = FakeClient(collection)
+    storage._collections = {}
     storage._names = {
         "dialogue": "dialogue",
         "scene": "scene",
@@ -106,6 +113,14 @@ class StorageTests(unittest.TestCase):
             {"hnsw:space": "l2"},
         )
 
+        storage.upsert(
+            "scene",
+            records[:1],
+            batch_size=1,
+            cancellation=CancellationToken(),
+        )
+        self.assertEqual(storage.client.collection_calls, 1)
+
     def test_query_requests_distances_and_applies_run_and_video_filter(self):
         collection = FakeCollection()
         storage = fake_storage(self.config, collection)
@@ -140,6 +155,17 @@ class StorageTests(unittest.TestCase):
             [item["detection_id"] for item in detections],
             ["d1", "d3"],
         )
+
+    def test_actor_cluster_cleanup_remains_scoped_to_video_and_run(self):
+        collection = FakeCollection()
+        storage = fake_storage(self.config, collection)
+
+        storage.delete_actor_cluster("video-1", "3")
+
+        clauses = collection.deletes[0]["where"]["$and"]
+        self.assertIn({"run_id": "run-1"}, clauses)
+        self.assertIn({"video_id": "video-1"}, clauses)
+        self.assertIn({"cluster_id": "3"}, clauses)
 
     def test_directory_size_only_counts_files_under_requested_path(self):
         with TemporaryDirectory() as directory:

@@ -49,8 +49,10 @@ class IndexStorage:
         self.path.mkdir(parents=True, exist_ok=True)
         self.client = _client_for_path(str(self.path.resolve()))
         self._names = dict(zip(("dialogue", "scene", "actor"), config.collection_names))
+        self._collections: dict[str, Any] = {}
 
     def close(self) -> None:
+        self._collections.clear()
         close = getattr(self.client, "close", None)
         if close is not None:
             close()
@@ -62,6 +64,8 @@ class IndexStorage:
         self.close()
 
     def collection(self, modality: str):
+        if modality in self._collections:
+            return self._collections[modality]
         try:
             name = self._names[modality]
         except KeyError as exc:
@@ -80,6 +84,7 @@ class IndexStorage:
                 f"Collection {name!r} uses {actual_distance!r} distance, "
                 f"not configured {self.config.vector_distance!r} distance."
             )
+        self._collections[modality] = collection
         return collection
 
     def clear(self, modalities: Iterable[str] | None = None) -> None:
@@ -92,10 +97,20 @@ class IndexStorage:
             name = self._names[modality]
             if name in existing:
                 self.client.delete_collection(name)
+            self._collections.pop(modality, None)
 
     def delete_video(self, modality: str, video_id: str) -> None:
         self.collection(modality).delete(
             where=metadata_filter(self.config, video_id=video_id),
+        )
+
+    def delete_actor_cluster(self, video_id: str, cluster_id: str) -> None:
+        self.collection("actor").delete(
+            where=metadata_filter(
+                self.config,
+                video_id=video_id,
+                extra={"cluster_id": cluster_id},
+            ),
         )
 
     def upsert(

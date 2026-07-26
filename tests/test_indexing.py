@@ -1,14 +1,18 @@
+import sys
+import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
+from vidxp.core import indexing as indexing_module
 from vidxp.core.contracts import CancellationToken, IndexConfig, VideoSource
 from vidxp.core.indexing import (
     build_dialogue_phrases,
     index_actors,
     index_dialogue,
     index_scenes,
+    index_visuals,
 )
 from vidxp.core.video import FrameSample, VideoInfo
 
@@ -16,10 +20,14 @@ from vidxp.core.video import FrameSample, VideoInfo
 class CapturingStorage:
     def __init__(self):
         self.calls = []
+        self.deleted_actor_clusters = []
 
     def upsert(self, modality, records, **options):
         self.calls.append((modality, list(records), options))
         return len(records)
+
+    def delete_actor_cluster(self, video_id, cluster_id):
+        self.deleted_actor_clusters.append((video_id, cluster_id))
 
 
 class FakeEncoder:
@@ -213,25 +221,27 @@ class IndexingTests(unittest.TestCase):
             width=2,
             height=2,
         )
-        detections = [
-            {
-                "detection_id": "d000000000000-0000",
-                "cluster_id": "1",
-                "frame_index": 0,
-                "timestamp": 0.0,
-                "bbox": (1, 2, 3, 0),
-            },
-            {
-                "detection_id": "d000000000002-0000",
-                "cluster_id": "1",
-                "frame_index": 2,
-                "timestamp": 0.2,
-                "bbox": (1, 2, 3, 0),
-            },
-        ]
-        with patch(
-            "vidxp.core.indexing._cluster_actor_detections",
-            return_value=(info, 2, detections),
+        frame = np.zeros((2, 2, 3), dtype=np.uint8)
+        batches = [[
+            FrameSample(0, 0.0, frame),
+            FrameSample(2, 0.2, frame),
+        ]]
+        fake_faces = types.SimpleNamespace(
+            face_locations=lambda _: [(1, 2, 3, 0)],
+            face_encodings=lambda *_args, **_kwargs: [
+                np.asarray([1.0, 0.0])
+            ],
+            face_distance=lambda known, _: np.asarray(
+                [0.0 for _ in known]
+            ),
+        )
+        with (
+            patch("vidxp.core.indexing.probe_video", return_value=info),
+            patch(
+                "vidxp.core.indexing.iter_frame_batches",
+                return_value=iter(batches),
+            ),
+            patch.dict(sys.modules, {"face_recognition": fake_faces}),
         ):
             stats = index_actors(
                 source,
@@ -271,6 +281,89 @@ class IndexingTests(unittest.TestCase):
                 "bbox_left",
             },
         )
+
+    def test_scene_and_actor_share_one_probe_and_frame_stream(self):
+        import torch
+
+        config = IndexConfig(
+            dataset="sample",
+            split="test",
+            run_id="shared",
+            video_id="video-1",
+            enabled_modalities=("scene", "actor"),
+            frame_stride=2,
+            scene_batch_size=2,
+            actor_batch_size=1,
+            actor_min_detections=1,
+        )
+        source = VideoSource(video_id="video-1", path="unused.mp4")
+        storage = CapturingStorage()
+        model = FakeClipModel()
+        frame = np.zeros((2, 2, 3), dtype=np.uint8)
+        batches = [
+            [
+                FrameSample(0, 0.0, frame),
+                FrameSample(2, 0.2, frame),
+            ],
+            [FrameSample(4, 0.4, frame)],
+        ]
+        info = VideoInfo(
+            fps=10.0,
+            frame_count=5,
+            duration=0.5,
+            width=2,
+            height=2,
+        )
+        frame_stream = Mock()
+
+        def stream(*_, **options):
+            options["stats"].frames_advanced = 5
+            options["stats"].frames_materialized = 3
+            return iter(batches)
+
+        frame_stream.side_effect = stream
+
+        def consume_actor(samples, *, state, **_):
+            state.processed_frames += len(samples)
+
+        with (
+            patch("vidxp.core.indexing.probe_video", return_value=info) as probe,
+            patch(
+                "vidxp.core.indexing.iter_frame_batches",
+                frame_stream,
+            ),
+            patch(
+                "vidxp.core.indexing.get_clip_model",
+                return_value=(
+                    model,
+                    lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
+                ),
+            ),
+            patch(
+                "vidxp.core.indexing._process_actor_samples",
+                side_effect=consume_actor,
+            ) as actor_consumer,
+            patch(
+                "vidxp.core.indexing._rgb_samples",
+                wraps=indexing_module._rgb_samples,
+            ) as rgb_conversion,
+        ):
+            stats = index_visuals(
+                source,
+                config=config,
+                storage=storage,
+                cancellation=CancellationToken(),
+            )
+
+        probe.assert_called_once_with("unused.mp4")
+        frame_stream.assert_called_once()
+        self.assertEqual(frame_stream.call_args.kwargs["batch_size"], 2)
+        self.assertEqual(model.batch_sizes, [2, 1])
+        self.assertEqual(actor_consumer.call_count, 2)
+        self.assertEqual(rgb_conversion.call_count, 2)
+        self.assertEqual(stats["source_frames_advanced"], 5)
+        self.assertEqual(stats["sampled_frames"], 3)
+        self.assertEqual(stats["frame_operations"], 6)
 
 
 if __name__ == "__main__":

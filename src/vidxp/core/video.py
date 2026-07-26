@@ -17,6 +17,12 @@ class VideoInfo:
     height: int
 
 
+@dataclass
+class FrameStreamStats:
+    frames_advanced: int = 0
+    frames_materialized: int = 0
+
+
 @dataclass(frozen=True)
 class FrameSample:
     frame_index: int
@@ -65,6 +71,7 @@ def iter_frame_batches(
     frame_stride: int,
     batch_size: int,
     cancellation: CancellationToken,
+    stats: FrameStreamStats | None = None,
 ) -> Iterator[list[FrameSample]]:
     import cv2
 
@@ -79,14 +86,22 @@ def iter_frame_batches(
         video.release()
         raise ValueError("The selected video has an invalid frame rate.")
 
+    stream_stats = stats or FrameStreamStats()
     batch: list[FrameSample] = []
     frame_index = 0
     try:
         while True:
-            retrieved, frame = video.read()
+            sampled = frame_index % frame_stride == 0
+            if sampled:
+                retrieved, frame = video.read()
+            else:
+                retrieved = video.grab()
+                frame = None
             if not retrieved:
                 break
-            if frame_index % frame_stride == 0:
+            stream_stats.frames_advanced += 1
+            if sampled:
+                stream_stats.frames_materialized += 1
                 batch.append(
                     FrameSample(
                         frame_index=frame_index,

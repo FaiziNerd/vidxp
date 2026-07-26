@@ -75,7 +75,9 @@ def videoindex(
         typer.Option(
             "--frame-stride",
             min=1,
-            help="Index every Nth frame for scene and actor modalities.",
+            help=(
+                "Materialize every Nth frame for scene and actor modalities."
+            ),
         ),
     ] = 1,
 ):

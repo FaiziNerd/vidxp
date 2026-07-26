@@ -177,6 +177,132 @@ def _run_modality(
     return stats
 
 
+def _run_visual_modalities(
+    modalities: tuple[str, ...],
+    source: VideoSource,
+    config: IndexConfig,
+    storage: IndexStorage,
+    manifest: ManifestStore,
+    cancellation: CancellationToken,
+    progress_callback: ProgressCallback | None,
+) -> dict[str, Any]:
+    started = perf_counter()
+
+    def report(event: dict[str, Any]) -> None:
+        _report(
+            progress_callback,
+            {**event, "video_id": config.video_id},
+        )
+
+    indexer = INDEXERS.get("visual")
+    if indexer is None and len(modalities) == 1:
+        indexer = INDEXERS[modalities[0]]
+    if indexer is None:
+        raise RuntimeError("The shared visual indexer is unavailable.")
+
+    try:
+        options: dict[str, Any] = {
+            "config": config,
+            "storage": storage,
+            "cancellation": cancellation,
+            "progress": report,
+        }
+        if indexer is INDEXERS.get("visual"):
+            options["modalities"] = modalities
+        stats = indexer(source, **options)
+    except BaseException:
+        manifest.record_stage(
+            str(config.video_id),
+            "visual_indexing",
+            perf_counter() - started,
+            {"state": "incomplete", "modalities": list(modalities)},
+        )
+        raise
+
+    timings = dict(stats.pop("_timings", {}))
+    for stage_name in ("frame_stream", "scene", "actor"):
+        if stage_name in timings and (
+            stage_name == "frame_stream" or stage_name in modalities
+        ):
+            manifest.record_stage(
+                str(config.video_id),
+                stage_name,
+                float(timings[stage_name]),
+                {},
+            )
+    manifest.record_stage(
+        str(config.video_id),
+        "visual_indexing",
+        float(timings.get("visual_total", perf_counter() - started)),
+        stats,
+    )
+    return stats
+
+
+def _run_enabled_modalities(
+    source: VideoSource,
+    config: IndexConfig,
+    storage: IndexStorage,
+    manifest: ManifestStore,
+    cancellation: CancellationToken,
+    progress_callback: ProgressCallback | None,
+    set_stage: Callable[[str], None],
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    visual_modalities = tuple(
+        modality
+        for modality in config.enabled_modalities
+        if modality in {"scene", "actor"}
+    )
+    visual_complete = False
+    for modality in config.enabled_modalities:
+        cancellation.raise_if_cancelled()
+        if modality in visual_modalities:
+            if visual_complete:
+                continue
+            set_stage("visual_indexing")
+            summary.update(
+                _run_visual_modalities(
+                    visual_modalities,
+                    source,
+                    config,
+                    storage,
+                    manifest,
+                    cancellation,
+                    progress_callback,
+                )
+            )
+            visual_complete = True
+            continue
+
+        set_stage(f"{modality}_indexing")
+        summary.update(
+            _run_modality(
+                modality,
+                source,
+                config,
+                storage,
+                manifest,
+                cancellation,
+                progress_callback,
+            )
+        )
+    return summary
+
+
+def _normalize_frame_summary(summary: dict[str, Any]) -> None:
+    scene_frames = int(summary.get("scene_frames", 0))
+    actor_frames = int(summary.get("actor_frames", 0))
+    summary.setdefault("sampled_frames", max(scene_frames, actor_frames))
+    summary.setdefault("processed_frames", int(summary["sampled_frames"]))
+    summary.setdefault("frame_operations", scene_frames + actor_frames)
+    summary.setdefault(
+        "source_frames_advanced",
+        int(summary.get("decoded_frames", 0))
+        + int(summary.get("actor_decoded_frames", 0)),
+    )
+
+
 def _process_video(
     video_id: str,
     source: VideoSource,
@@ -196,6 +322,11 @@ def _process_video(
         "modalities": list(config.enabled_modalities),
     }
     stage = "preparing_dependencies"
+
+    def set_stage(value: str) -> None:
+        nonlocal stage
+        stage = value
+
     try:
         cancellation.raise_if_cancelled()
         require_dependencies(
@@ -209,29 +340,18 @@ def _process_video(
         for modality in config.enabled_modalities:
             storage.delete_video(modality, video_id)
 
-        for modality in config.enabled_modalities:
-            cancellation.raise_if_cancelled()
-            stage = f"{modality}_indexing"
-            summary.update(
-                _run_modality(
-                    modality,
-                    source,
-                    video_config,
-                    storage,
-                    manifest,
-                    cancellation,
-                    progress_callback,
-                )
+        summary.update(
+            _run_enabled_modalities(
+                source,
+                video_config,
+                storage,
+                manifest,
+                cancellation,
+                progress_callback,
+                set_stage,
             )
-
-        scene_frames = int(summary.get("scene_frames", 0))
-        actor_frames = int(summary.get("actor_frames", 0))
-        summary["processed_frames"] = max(scene_frames, actor_frames)
-        summary["frame_operations"] = scene_frames + actor_frames
-        summary["decoded_frame_operations"] = (
-            int(summary.get("decoded_frames", 0))
-            + int(summary.get("actor_decoded_frames", 0))
         )
+        _normalize_frame_summary(summary)
         manifest.complete_video(
             video_id,
             checksum=checksum,
