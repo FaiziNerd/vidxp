@@ -4,12 +4,15 @@ from pathlib import Path
 
 import streamlit as st
 
+from vidxp.core.runner import local_config_from_status
+from vidxp.core.search import search_dialogue, search_scene
+from vidxp.core.storage import IndexStorage
+from vidxp.core.video import render_actor_video
 from vidxp.index_state import (
     IndexNotReadyError,
     read_index_status,
 )
 from vidxp.index_worker import indexing_in_progress, start_indexing
-from vidxp.main import actor, dialogue, scene
 
 SAVED_VIDEO_PATH = Path("video.mp4")
 ACTOR_OUTPUT_PATH = Path("output.mp4")
@@ -88,6 +91,8 @@ def _render_index_status(status, active, uploaded_video, request_error=None):
             f"{status.get('stage', 'indexing').replace('_', ' ')}. "
             "Restart indexing before searching."
         )
+    elif status["state"] == "interrupted":
+        st.warning("Indexing was cancelled. Restart it before searching.")
 
 
 def _request_indexing():
@@ -119,12 +124,39 @@ def _run_indexing(uploaded_video, status):
 
 def _run_search(search_type, query):
     try:
+        status = read_index_status()
+        if not status or status.get("state") != "ready":
+            raise IndexNotReadyError("The video index is not ready.")
+        config = local_config_from_status(status)
         if search_type == "actor":
             ACTOR_OUTPUT_PATH.unlink(missing_ok=True)
-            actor(
+            storage = IndexStorage(config)
+            try:
+                records = storage.actor_detections(
+                    video_id=str(config.video_id),
+                    cluster_id=query,
+                )
+            finally:
+                storage.close()
+            if not records:
+                raise IndexNotReadyError(f"Actor cluster {query} was not found.")
+            detections = [
+                {
+                    **record,
+                    "bbox": (
+                        int(record["bbox_top"]),
+                        int(record["bbox_right"]),
+                        int(record["bbox_bottom"]),
+                        int(record["bbox_left"]),
+                    ),
+                }
+                for record in records
+            ]
+            render_actor_video(
+                SAVED_VIDEO_PATH,
+                ACTOR_OUTPUT_PATH,
                 query,
-                str(SAVED_VIDEO_PATH),
-                str(ACTOR_OUTPUT_PATH),
+                detections,
             )
             if (
                 not ACTOR_OUTPUT_PATH.is_file()
@@ -137,12 +169,21 @@ def _run_search(search_type, query):
                 "video_path": str(ACTOR_OUTPUT_PATH),
             }
 
-        finder = dialogue if search_type == "dialogue" else scene
-        timestamp = float(finder(query))
+        finder = search_dialogue if search_type == "dialogue" else search_scene
+        result = finder(
+            query,
+            config=config,
+            top_k=1,
+            video_id=config.video_id,
+        )
+        if not result.hits:
+            return {"error": f"No {search_type} match was found."}
+        hit = result.hits[0]
         return {
             "type": search_type,
             "query": query,
-            "timestamp": timestamp,
+            "timestamp": hit.start,
+            "hit": hit.to_dict(),
             "video_path": str(SAVED_VIDEO_PATH),
         }
     except IndexNotReadyError as exc:
@@ -203,7 +244,7 @@ def _select_video(busy):
     return uploaded_video
 
 
-def _search_controls(ready, uploaded_video):
+def _search_controls(ready, uploaded_video, available_modalities):
     st.subheader("Search")
     if not ready:
         message = (
@@ -221,7 +262,7 @@ def _search_controls(ready, uploaded_video):
     with type_column:
         search_type = st.selectbox(
             "Search type",
-            ["scene", "dialogue", "actor"],
+            list(available_modalities),
             disabled=not ready,
         )
     with query_column:
@@ -297,9 +338,23 @@ def run():
             )
 
         ready = not busy and _is_search_ready(status, uploaded_video)
+        configured_modalities = (
+            (status.get("summary", {}).get("configuration") or {}).get(
+                "enabled_modalities",
+                ("scene", "dialogue", "actor"),
+            )
+            if ready
+            else ("scene", "dialogue", "actor")
+        )
+        available_modalities = tuple(
+            modality
+            for modality in ("scene", "dialogue", "actor")
+            if modality in configured_modalities
+        )
         search_clicked, search_type, query = _search_controls(
             ready,
             uploaded_video,
+            available_modalities,
         )
         if search_clicked:
             st.session_state[SEARCH_RESULT_KEY] = _run_search(search_type, query)
