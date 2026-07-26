@@ -2,6 +2,7 @@ from ast import literal_eval
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
+from shutil import which
 from threading import Lock
 from typing import Any, Callable
 
@@ -100,6 +101,20 @@ def _require_indexing_dependencies():
     if failures:
         details = "; ".join(f"{label}: {error}" for label, error in failures)
         raise RuntimeError(f"Indexing dependencies are unavailable: {details}")
+
+
+def _ffmpeg_binary() -> str:
+    from moviepy.config import get_setting
+
+    configured = get_setting("FFMPEG_BINARY")
+    resolved = (
+        str(Path(configured).resolve())
+        if Path(configured).is_file()
+        else which(configured)
+    )
+    if not resolved:
+        raise RuntimeError(f"FFmpeg executable was not found: {configured}")
+    return resolved
 
 
 class _IndexProgress:
@@ -507,6 +522,61 @@ def _index_video(
 def videoindex(path: str):
     """Index one video. Missing runtime models are downloaded on first use."""
     return index_video(path)
+
+
+@app.command()
+def doctor():
+    """Validate indexing dependencies without downloading model weights."""
+    failures = dict(_dependency_failures())
+    for label, _ in INDEXING_DEPENDENCIES:
+        if label in failures:
+            print(f"[bold red]FAILED[/bold red] {label}: {failures[label]}")
+        else:
+            print(f"[green]OK[/green] {label}")
+
+    try:
+        ffmpeg = _ffmpeg_binary()
+        print(f"[green]OK[/green] FFmpeg: {ffmpeg}")
+    except Exception as exc:
+        failures["FFmpeg"] = f"{type(exc).__name__}: {exc}"
+        print(f"[bold red]FAILED[/bold red] FFmpeg: {failures['FFmpeg']}")
+
+    if failures:
+        raise typer.Exit(1)
+    print("[bold green]VidXP indexing dependencies are available.[/bold green]")
+
+
+@app.command()
+def prepare(
+    language: str | None = typer.Option(
+        None,
+        "--language",
+        "-l",
+        help="Also cache the WhisperX alignment model for this language code.",
+    ),
+):
+    """Download and cache runtime models before indexing a video."""
+    try:
+        _require_indexing_dependencies()
+        print(f"[cyan]Preparing dialogue model: {SENTENCE_MODEL}[/cyan]")
+        get_embedder()
+        print(f"[cyan]Preparing scene model: CLIP {CLIP_MODEL}[/cyan]")
+        get_clip_model()
+
+        print(f"[cyan]Preparing transcription model: WhisperX {WHISPER_MODEL}[/cyan]")
+        whisperx = import_module("whisperx")
+        whisperx.load_model(WHISPER_MODEL, DEVICE, compute_type="float32")
+        if language:
+            print(f"[cyan]Preparing the {language} alignment model.[/cyan]")
+            whisperx.load_align_model(language_code=language, device=DEVICE)
+    except Exception as exc:
+        print(
+            f"[bold red]Model preparation failed: "
+            f"{type(exc).__name__}: {exc}[/bold red]"
+        )
+        raise typer.Exit(1) from exc
+
+    print("[bold green]VidXP runtime models are prepared.[/bold green]")
 
 
 @app.command()

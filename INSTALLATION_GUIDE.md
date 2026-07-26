@@ -76,8 +76,12 @@ Confirm that both installed entry points start:
 
 ```bash
 vidxp --help
+vidxp doctor
 vidxp-ui
 ```
+
+`vidxp doctor` imports every indexing dependency and checks FFmpeg. It reports
+installation problems but does not download model weights.
 
 ## Models
 
@@ -94,7 +98,20 @@ SentenceTransformer and WhisperX use the Hugging Face cache. CLIP uses its
 standard user cache. These downloads are not part of `pip install`. A successful
 installation only confirms that VidXP and its Python dependencies are present.
 The first `vidxp videoindex` run requires network access for any missing weights
-and prepares all four model paths before it processes the video.
+and prepares its models before replacing the previous index.
+
+To download the fixed dialogue, scene, and transcription models ahead of time:
+
+```bash
+vidxp prepare
+```
+
+WhisperX selects alignment weights after detecting the video's language. Cache a
+known alignment language explicitly when needed:
+
+```bash
+vidxp prepare --language en
+```
 
 Keep that first indexing command, or the terminal running `vidxp-ui`, open until
 VidXP reports that the index is ready. Search commands are unavailable until

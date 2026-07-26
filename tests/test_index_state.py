@@ -201,6 +201,42 @@ class IndexStateTests(unittest.TestCase):
             [("OpenCV", "ImportError: missing binary")],
         )
 
+    def test_doctor_checks_dependencies_and_ffmpeg_without_models(self):
+        with (
+            patch.object(main, "_dependency_failures", return_value=[]),
+            patch.object(main, "_ffmpeg_binary", return_value="ffmpeg"),
+            patch.object(main, "get_embedder") as get_embedder,
+            patch.object(main, "get_clip_model") as get_clip_model,
+            patch.object(main, "print"),
+        ):
+            main.doctor()
+
+        get_embedder.assert_not_called()
+        get_clip_model.assert_not_called()
+
+    def test_prepare_caches_fixed_and_requested_language_models(self):
+        whisperx = Mock()
+        with (
+            patch.object(main, "_require_indexing_dependencies"),
+            patch.object(main, "get_embedder") as get_embedder,
+            patch.object(main, "get_clip_model") as get_clip_model,
+            patch.object(main, "import_module", return_value=whisperx),
+            patch.object(main, "print"),
+        ):
+            main.prepare(language="en")
+
+        get_embedder.assert_called_once_with()
+        get_clip_model.assert_called_once_with()
+        whisperx.load_model.assert_called_once_with(
+            main.WHISPER_MODEL,
+            main.DEVICE,
+            compute_type="float32",
+        )
+        whisperx.load_align_model.assert_called_once_with(
+            language_code="en",
+            device=main.DEVICE,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

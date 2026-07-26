@@ -88,10 +88,26 @@ connection open until VidXP reports that indexing is complete. Search commands
 reject requests until a completed index exists. Running `vidxp --help` does not
 load or download models.
 
+Validate the indexing dependencies and FFmpeg without downloading models:
+
+```bash
+vidxp doctor
+```
+
+Download and cache the fixed dialogue, scene, and transcription models before
+indexing. Add a language code to also cache that WhisperX alignment model:
+
+```bash
+vidxp prepare
+vidxp prepare --language en
+```
+
 ## Usage
 
 ```bash
 vidxp --help
+vidxp doctor
+vidxp prepare
 vidxp videoindex samplevideo.mp4
 vidxp dialogue "your dialogue query"
 vidxp scene "scene description"
