@@ -4,7 +4,9 @@ This directory is the entry point for evaluating VidXP against published
 benchmarks. It records what was selected, what has actually been run, how the
 results compare, and which claims the evidence supports.
 
-Benchmark work is separate from writing or tuning the paper itself.
+Benchmark work is separate from writing or tuning the paper itself. For
+installation and product usage, start with the main
+[VidXP README](../../README.md).
 
 ## Current status
 

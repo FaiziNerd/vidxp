@@ -1,8 +1,8 @@
 # Installation guide
 
-The main [README](README.md) contains the shortest install-and-run path. This
-guide covers platform prerequisites, source installation, model preparation,
-and common first-run issues.
+The main [README](README.md) introduces the product and contains the shortest
+install-and-run path. This guide covers platform prerequisites, source
+installation, model preparation, and common first-run issues.
 
 ## Prerequisites
 
