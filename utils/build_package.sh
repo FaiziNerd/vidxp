@@ -4,6 +4,16 @@ set -euo pipefail
 BASE_URL="https://github.com/grayhatdevelopers/vidxp/blob/main"
 README="README.md"
 README_BAK="$README.bak"
+BUILD_DIR="build"
+DIST_DIR="dist"
+
+restore_readme() {
+  if [[ -f "$README_BAK" ]]; then
+    mv "$README_BAK" "$README"
+  fi
+}
+
+trap restore_readme EXIT
 
 echo "📝 Backing up original README..."
 cp "$README" "$README_BAK"
@@ -11,10 +21,13 @@ cp "$README" "$README_BAK"
 echo "🔧 Processing README.md for PyPI rendering..."
 python utils/fix_readme_links.py "$BASE_URL" "$README" --inplace
 
+echo "🧹 Removing stale package artifacts..."
+rm -rf -- "$BUILD_DIR" "$DIST_DIR"
+
 echo "📦 Building package..."
 python -m build
 
 echo "♻️ Restoring original README..."
-mv "$README_BAK" "$README"
+restore_readme
 
 echo "✅ Build finished. Original README restored."
