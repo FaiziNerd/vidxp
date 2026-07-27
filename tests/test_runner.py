@@ -11,6 +11,7 @@ from vidxp.core.contracts import (
 )
 from vidxp.core.manifest import COMPLETION_FILE
 from vidxp.capabilities.contracts import CapabilityIndexResult
+from vidxp.capabilities.dialogue.config import dialogue_config
 from vidxp.core.runner import (
     _RunLock,
     index_video,
@@ -309,7 +310,7 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("transcription", first["models"])
             self.assertEqual(
                 second["models"]["transcription"],
-                config.whisper_model,
+                dialogue_config(config).whisper_model,
             )
 
     def test_changed_input_is_not_silently_accepted_by_checkpoint(self):

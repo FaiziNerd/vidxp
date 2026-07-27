@@ -211,6 +211,10 @@ class CliTests(unittest.TestCase):
                     "scene",
                     "--frame-stride",
                     "5",
+                    "--option",
+                    "scene.batch_size=4",
+                    "--option",
+                    "scene.model=test-model",
                 ]
             )
 
@@ -220,6 +224,10 @@ class CliTests(unittest.TestCase):
         call = self.service.create_index.call_args
         self.assertEqual(call.kwargs["modalities"], ("scene",))
         self.assertEqual(call.kwargs["frame_stride"], 5)
+        self.assertEqual(
+            call.kwargs["capability_options"],
+            {"scene": {"batch_size": 4, "model": "test-model"}},
+        )
 
     def test_index_status_reports_missing_index_as_json(self):
         self.service.index_status.return_value = {

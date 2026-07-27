@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 from vidxp.capabilities.actor.definition import DEFINITION as ACTOR
 from vidxp.capabilities.contracts import (
@@ -54,11 +54,38 @@ def validate_capability_names(names: Iterable[str]) -> tuple[str, ...]:
     return selected
 
 
-def collection_names() -> dict[str, str]:
+def collection_names(
+    names: Iterable[str] | None = None,
+) -> dict[str, str]:
+    selected = (
+        index_capability_names()
+        if names is None
+        else validate_capability_names(names)
+    )
     return {
-        name: capability.collection_name
-        for name, capability in CAPABILITIES.items()
-        if capability.indexer is not None
+        name: get_capability(name).collection_name
+        for name in selected
+        if get_capability(name).indexer is not None
+    }
+
+
+def validate_capability_options(
+    names: Iterable[str],
+    options: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    selected = validate_capability_names(names)
+    supplied = dict(options or {})
+    unknown = sorted(set(supplied) - set(selected))
+    if unknown:
+        raise ValueError(
+            "Options were supplied for disabled capabilities: "
+            + ", ".join(unknown)
+        )
+    return {
+        name: get_capability(name)
+        .config_model.model_validate(supplied.get(name, {}))
+        .model_dump(mode="python")
+        for name in selected
     }
 
 

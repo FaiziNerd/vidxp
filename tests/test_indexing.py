@@ -103,7 +103,9 @@ class IndexingTests(unittest.TestCase):
             run_id="asr",
             video_id="video-1",
             enabled_modalities=("dialogue",),
-            dialogue_batch_size=2,
+            capability_options={
+                "dialogue": {"embedding_batch_size": 2},
+            },
         )
         source = VideoSource(
             video_id="video-1",
@@ -166,7 +168,7 @@ class IndexingTests(unittest.TestCase):
             video_id="video-1",
             enabled_modalities=("scene",),
             frame_stride=2,
-            scene_batch_size=2,
+            capability_options={"scene": {"batch_size": 2}},
         )
         source = VideoSource(video_id="video-1", path="unused.mp4")
         storage = CapturingStorage()
@@ -231,7 +233,7 @@ class IndexingTests(unittest.TestCase):
             run_id="actors",
             video_id="video-1",
             enabled_modalities=("actor",),
-            actor_min_detections=2,
+            capability_options={"actor": {"minimum_detections": 2}},
             storage_batch_size=2,
         )
         source = VideoSource(video_id="video-1", path="unused.mp4")
@@ -315,9 +317,13 @@ class IndexingTests(unittest.TestCase):
             video_id="video-1",
             enabled_modalities=("scene", "actor"),
             frame_stride=2,
-            scene_batch_size=2,
-            actor_batch_size=1,
-            actor_min_detections=1,
+            capability_options={
+                "scene": {"batch_size": 2},
+                "actor": {
+                    "batch_size": 1,
+                    "minimum_detections": 1,
+                },
+            },
         )
         source = VideoSource(video_id="video-1", path="unused.mp4")
         storage = CapturingStorage()

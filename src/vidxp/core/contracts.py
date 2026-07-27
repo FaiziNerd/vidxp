@@ -72,27 +72,11 @@ class IndexConfig:
     split: str = "local"
     run_id: str = "default"
     video_id: str | None = None
-    enabled_modalities: tuple[str, ...] = (
-        "dialogue",
-        "scene",
-        "actor",
-    )
+    enabled_modalities: tuple[str, ...] = ()
     frame_stride: int = 1
-    dialogue_words_per_phrase: int = 5
-    scene_batch_size: int = 32
-    dialogue_batch_size: int = 128
-    transcription_batch_size: int = 16
-    actor_batch_size: int = 16
     storage_batch_size: int = 256
-    normalize_dialogue_embeddings: bool = True
     vector_distance: str = "l2"
-    face_match_threshold: float = 0.55
-    face_num_jitters: int = 2
-    actor_min_detections: int = 4
     device: str = "cpu"
-    sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    whisper_model: str = "large-v2"
-    clip_model: str = "ViT-B/32"
     capability_options: Mapping[str, Mapping[str, Any]] = field(
         default_factory=dict
     )
@@ -157,19 +141,10 @@ class IndexConfig:
 
         for label in (
             "frame_stride",
-            "dialogue_words_per_phrase",
-            "scene_batch_size",
-            "dialogue_batch_size",
-            "transcription_batch_size",
-            "actor_batch_size",
             "storage_batch_size",
-            "face_num_jitters",
-            "actor_min_detections",
         ):
             if getattr(self, label) <= 0:
                 raise ValueError(f"{label} must be greater than zero.")
-        if not 0 < self.face_match_threshold < 1:
-            raise ValueError("face_match_threshold must be between zero and one.")
         if self.vector_distance not in {"l2", "cosine", "ip"}:
             raise ValueError(
                 "vector_distance must be one of: l2, cosine, ip."
@@ -200,6 +175,10 @@ class IndexConfig:
         defaults = {
             "storage_directory": "chroma_data",
         }
+        if "enabled_modalities" not in changes:
+            from vidxp.capabilities.registry import index_capability_names
+
+            defaults["enabled_modalities"] = index_capability_names()
         defaults.update(changes)
         return cls(**defaults)
 

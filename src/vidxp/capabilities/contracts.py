@@ -29,6 +29,12 @@ class CapabilityOutput(BaseModel):
     model_config = {"extra": "forbid", "frozen": True}
 
 
+class CapabilityConfig(BaseModel):
+    """Base model for settings owned and validated by one capability."""
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+
 @dataclass(frozen=True)
 class RuntimeDependency:
     """One import or executable required by a capability."""
@@ -124,6 +130,7 @@ class CapabilityDefinition:
     name: str
     description: str
     extra: str
+    config_model: type[CapabilityConfig] = CapabilityConfig
     dependencies: tuple[RuntimeDependency, ...] = ()
     collection_name: str | None = None
     indexer: IndexHandler | None = None

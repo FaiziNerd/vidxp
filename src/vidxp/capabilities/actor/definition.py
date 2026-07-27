@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from vidxp.capabilities.actor.config import ActorConfig, actor_config
 from vidxp.capabilities.actor.operations import (
     clusters_operation,
     detections_operation,
@@ -46,12 +47,13 @@ def model_manifest(
     config: IndexConfig,
     _sources: tuple[VideoSource, ...],
 ) -> Mapping[str, Any]:
+    settings = actor_config(config)
     return {
         "actor": {
             "library": "face_recognition",
-            "match_threshold": config.face_match_threshold,
-            "num_jitters": config.face_num_jitters,
-            "minimum_detections": config.actor_min_detections,
+            "match_threshold": settings.match_threshold,
+            "num_jitters": settings.num_jitters,
+            "minimum_detections": settings.minimum_detections,
         }
     }
 
@@ -66,6 +68,7 @@ DEFINITION = CapabilityDefinition(
     name="actor",
     description="Index, inspect, and render actor clusters.",
     extra="actor",
+    config_model=ActorConfig,
     collection_name="actor",
     indexer=index_capabilities,
     index_stage="visual_indexing",

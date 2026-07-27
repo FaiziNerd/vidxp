@@ -6,6 +6,7 @@ from vidxp.capabilities.contracts import (
     CapabilityContext,
     CapabilityIndexResult,
 )
+from vidxp.capabilities.dialogue.config import dialogue_config
 from vidxp.capabilities.dialogue.indexing import index_dialogue
 from vidxp.capabilities.dialogue.models import get_embedder
 from vidxp.capabilities.schemas import SearchInput, SearchResult
@@ -58,11 +59,12 @@ def index_capability(
 
 
 def dialogue_embedding(query: str, config: IndexConfig) -> list[float]:
-    encoder = get_embedder(config.sentence_model, config.device)
+    settings = dialogue_config(config)
+    encoder = get_embedder(settings.sentence_model, config.device)
     encoded = encoder.encode(
         [query],
         convert_to_numpy=True,
-        normalize_embeddings=config.normalize_dialogue_embeddings,
+        normalize_embeddings=settings.normalize_embeddings,
     )
     return encoded[0].tolist()
 

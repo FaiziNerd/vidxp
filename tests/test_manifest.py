@@ -53,6 +53,7 @@ class ManifestIdentityTests(unittest.TestCase):
                 split="test",
                 run_id="run-1",
                 output_root=directory,
+                enabled_modalities=("scene",),
             )
             store = ManifestStore(config)
             video_id = "folder/name:video"

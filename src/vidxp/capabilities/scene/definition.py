@@ -7,6 +7,7 @@ from vidxp.capabilities.contracts import (
     OperationDefinition,
     RuntimeDependency,
 )
+from vidxp.capabilities.scene.config import SceneConfig, scene_config
 from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.capabilities.scene.operations import search_operation
 from vidxp.capabilities.schemas import SearchInput, SearchResult
@@ -30,31 +31,33 @@ def prepare_models(
     _language: str | None,
     progress: ProgressCallback | None,
 ) -> tuple[str, ...]:
+    settings = scene_config(config)
     if progress is not None:
         progress(
             {
                 "state": "preparing",
                 "stage": "scene_model",
                 "message": (
-                    f"Preparing scene model: CLIP {config.clip_model}"
+                    f"Preparing scene model: CLIP {settings.model}"
                 ),
             }
         )
-    get_clip_model(config.clip_model, config.device)
-    return (config.clip_model,)
+    get_clip_model(settings.model, config.device)
+    return (settings.model,)
 
 
 def model_manifest(
     config: IndexConfig,
     _sources: tuple[VideoSource, ...],
 ) -> Mapping[str, Any]:
-    return {"scene": config.clip_model}
+    return {"scene": scene_config(config).model}
 
 
 DEFINITION = CapabilityDefinition(
     name="scene",
     description="Index and search visual scenes.",
     extra="scene",
+    config_model=SceneConfig,
     collection_name="scene",
     indexer=index_capabilities,
     index_stage="visual_indexing",

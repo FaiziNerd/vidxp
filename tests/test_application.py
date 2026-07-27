@@ -158,7 +158,7 @@ class ApplicationServiceTests(unittest.TestCase):
                         "message": "Preparing scene model",
                     }
                 ),
-                (config.clip_model,),
+                ("ViT-B/32",),
             )[1]
         )
         capability = Mock(prepare=prepare)

@@ -13,6 +13,7 @@ Create `src/vidxp/capabilities/<name>/` with only the files the feature needs:
 <name>/
 ├── __init__.py
 ├── definition.py
+├── config.py           # Pydantic settings owned by the capability
 ├── operations.py
 ├── schemas.py          # omit when shared schemas are sufficient
 ├── requirements.txt
@@ -42,8 +43,9 @@ and index stage. The generic runner groups capabilities that reference the same
 indexing handler, allowing related capabilities to share work without adding a
 name switch to the runner. Capability-specific settings belong in
 `IndexConfig.capability_options` and are read with
-`config.options_for("<name>")`; do not add feature-specific fields to the
-runner.
+`config.options_for("<name>")`. Validate them through the capability's
+Pydantic settings model; do not add feature-specific fields to `IndexConfig`
+or the runner.
 
 Operation-only capabilities leave the indexing fields unset. They do not need
 dummy collections or index handlers.

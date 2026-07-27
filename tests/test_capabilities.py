@@ -9,12 +9,16 @@ from vidxp.capabilities.contracts import (
     CapabilityOutput,
     OperationDefinition,
 )
+from vidxp.capabilities.actor.config import ActorConfig
+from vidxp.capabilities.dialogue.config import DialogueConfig
 from vidxp.capabilities.registry import (
     CAPABILITIES,
     capability_names,
     collection_names,
     index_capability_names,
+    validate_capability_options,
 )
+from vidxp.capabilities.scene.config import SceneConfig
 from vidxp.core.contracts import IndexConfig
 from vidxp.core.runner import _index_groups
 
@@ -45,6 +49,7 @@ class CapabilityTests(unittest.TestCase):
                 "actor": "actor",
             },
         )
+        self.assertEqual(collection_names(("scene",)), {"scene": "scene"})
 
     def test_registered_operations_use_pydantic_contracts(self):
         for capability in CAPABILITIES.values():
@@ -55,6 +60,39 @@ class CapabilityTests(unittest.TestCase):
                 self.assertTrue(
                     issubclass(operation.output_model, BaseModel)
                 )
+
+    def test_built_in_settings_are_capability_owned_and_validated(self):
+        self.assertIs(CAPABILITIES["dialogue"].config_model, DialogueConfig)
+        self.assertIs(CAPABILITIES["scene"].config_model, SceneConfig)
+        self.assertIs(CAPABILITIES["actor"].config_model, ActorConfig)
+
+        options = validate_capability_options(
+            ("scene",),
+            {"scene": {"batch_size": 4, "model": "test-model"}},
+        )
+
+        self.assertEqual(
+            options["scene"],
+            {"batch_size": 4, "model": "test-model"},
+        )
+        with self.assertRaises(ValidationError):
+            validate_capability_options(
+                ("actor",),
+                {"actor": {"match_threshold": 2}},
+            )
+
+    def test_core_config_has_no_built_in_capability_fields(self):
+        fields = IndexConfig.__dataclass_fields__
+        for name in (
+            "sentence_model",
+            "whisper_model",
+            "clip_model",
+            "dialogue_batch_size",
+            "scene_batch_size",
+            "actor_batch_size",
+            "face_match_threshold",
+        ):
+            self.assertNotIn(name, fields)
 
     def test_operation_validates_both_input_and_output(self):
         operation = OperationDefinition(

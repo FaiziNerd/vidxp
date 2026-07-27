@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from vidxp.capabilities.contracts import CapabilityContext
+from vidxp.capabilities.scene.config import scene_config
 from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.capabilities.schemas import SearchInput, SearchResult
 from vidxp.capabilities.search import search_embeddings
@@ -32,7 +33,8 @@ def scene_embedding(query: str, config: IndexConfig) -> list[float]:
     import clip
     import torch
 
-    model, _ = get_clip_model(config.clip_model, config.device)
+    settings = scene_config(config)
+    model, _ = get_clip_model(settings.model, config.device)
     tokens = clip.tokenize([query]).to(config.device)
     with torch.no_grad():
         features = model.encode_text(tokens)

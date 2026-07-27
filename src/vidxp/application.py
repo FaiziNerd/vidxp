@@ -16,6 +16,7 @@ from vidxp.capabilities.registry import (
     dependency_checks,
     get_capability,
     index_capability_names,
+    validate_capability_options,
     validate_capability_names,
 )
 from vidxp.capabilities.schemas import (
@@ -119,8 +120,11 @@ class VidXPService:
             "enabled_modalities": selected,
             "frame_stride": frame_stride,
             "storage_directory": self.index_directory,
-            "collection_names": collection_names(),
-            "capability_options": capability_options or {},
+            "collection_names": collection_names(selected),
+            "capability_options": validate_capability_options(
+                selected,
+                capability_options,
+            ),
         }
         if self.device is not None:
             options["device"] = self.device

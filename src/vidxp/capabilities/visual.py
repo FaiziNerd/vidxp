@@ -3,6 +3,7 @@ from __future__ import annotations
 from time import perf_counter
 from typing import Any, Sequence
 
+from vidxp.capabilities.actor.config import actor_config
 from vidxp.capabilities.contracts import CapabilityIndexResult
 from vidxp.core.contracts import (
     CancellationToken,
@@ -19,6 +20,7 @@ from vidxp.capabilities.scene.indexing import (
     SceneIndexState,
     process_scene_samples,
 )
+from vidxp.capabilities.scene.config import scene_config
 from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.core.storage import IndexStorage
 from vidxp.core.video import (
@@ -58,8 +60,8 @@ def _consume_visual_stream(
 ) -> FrameStreamStats:
     stream_stats = FrameStreamStats()
     decode_batch_size = max(
-        config.scene_batch_size if "scene" in selected else 0,
-        config.actor_batch_size if "actor" in selected else 0,
+        scene_config(config).batch_size if "scene" in selected else 0,
+        actor_config(config).batch_size if "actor" in selected else 0,
     )
     stream = iter(
         iter_frame_batches(
@@ -176,14 +178,15 @@ def index_visuals(
     timings = {"frame_stream": 0.0, "scene": 0.0, "actor": 0.0}
 
     if "scene" in selected:
+        settings = scene_config(config)
         scene_started = perf_counter()
         report_progress(
             progress,
             "preparing_scene_model",
-            f"Preparing scene model: CLIP {config.clip_model}.",
+            f"Preparing scene model: CLIP {settings.model}.",
         )
         scene_model, scene_preprocess = get_clip_model(
-            config.clip_model,
+            settings.model,
             config.device,
         )
         scene_state = SceneIndexState(scene_model, scene_preprocess)

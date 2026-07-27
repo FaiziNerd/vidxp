@@ -49,7 +49,7 @@ config = IndexConfig(
     run_id="clip-stride-5",
     enabled_modalities=("scene",),
     frame_stride=5,
-    scene_batch_size=32,
+    capability_options={"scene": {"batch_size": 32}},
     storage_batch_size=256,
 )
 

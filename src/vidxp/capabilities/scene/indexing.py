@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from vidxp.capabilities.scene.config import scene_config
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
@@ -80,7 +81,8 @@ def process_scene_samples(
     storage: IndexStorage,
     cancellation: CancellationToken,
 ) -> None:
-    for group in batched(samples, config.scene_batch_size):
+    settings = scene_config(config)
+    for group in batched(samples, settings.batch_size):
         cancellation.raise_if_cancelled()
         vectors = encode_scene_batch(
             group,

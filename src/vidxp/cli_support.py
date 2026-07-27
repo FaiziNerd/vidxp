@@ -185,3 +185,22 @@ def parse_modalities(value: str) -> tuple[str, ...]:
         return validate_capability_names(selected)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+def parse_capability_options(
+    values: Iterable[str] | None,
+) -> dict[str, dict[str, Any]]:
+    options: dict[str, dict[str, Any]] = {}
+    for value in values or ():
+        path, separator, raw = value.partition("=")
+        capability, dot, key = path.partition(".")
+        if not separator or not dot or not capability or not key:
+            raise typer.BadParameter(
+                "Capability options must use CAPABILITY.KEY=VALUE."
+            )
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = raw
+        options.setdefault(capability, {})[key] = parsed
+    return options
