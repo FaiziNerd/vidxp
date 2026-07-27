@@ -5,6 +5,7 @@ from typing import Annotated
 import typer
 from rich import print
 
+from vidxp.benchmarks.cli import app as benchmark_app
 from vidxp.core.actor_results import (
     ActorClusterNotFoundError,
     render_actor_result,
@@ -32,6 +33,7 @@ from vidxp.index_state import (
 
 
 app = typer.Typer()
+app.add_typer(benchmark_app, name="benchmark")
 
 
 def _modalities(value: str) -> tuple[str, ...]:

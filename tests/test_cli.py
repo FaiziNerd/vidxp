@@ -123,6 +123,13 @@ class CliCompatibilityTests(unittest.TestCase):
         self.assertIn("Indexing sampled video frames.", response.stdout)
         self.assertIn("completed successfully", response.stdout)
 
+    def test_benchmark_commands_are_exposed(self):
+        response = CliRunner().invoke(cli.app, ["benchmark", "--help"])
+
+        self.assertEqual(response.exit_code, 0)
+        self.assertIn("didemo", response.stdout)
+        self.assertIn("hirest", response.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
