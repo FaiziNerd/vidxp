@@ -2,16 +2,16 @@
 
 Collection index: [Benchmarking research](README.md)
 
-Status: Discovery and paper-validation pass complete; execution readiness reassessed
+Status: Candidate research complete; execution status updated
 
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 
-Scope: Current VidXP implementation in `main.py`
+Scope: Capabilities implemented in the current `src/vidxp` package
 
-This catalog is the working decision record for published benchmarks. It is not a
-claim that VidXP has been run on any of them. Published results become comparable
-baselines only after VidXP and the competing method use the same data, task,
-prediction unit, and evaluator.
+This catalog is the detailed decision record for published benchmarks. Current
+VidXP measurements are reported separately in [results](results.md). Published
+results become comparable baselines only when VidXP and the competing method use
+the same data, task, prediction unit, and evaluator.
 
 Exact published competitor scores and their table/page citations are maintained
 separately in [published comparison results](published_results.md).
@@ -21,16 +21,15 @@ separately in [published comparison results](published_results.md).
 There is no credible single benchmark that directly exercises the current dialogue
 retrieval, scene retrieval, and actor clustering paths together.
 
-The current top-1 point API is not a meaningful blocker. Stable IDs, top-k results,
-scores, start/end timestamps, extra metadata, deterministic interval aggregation,
-filters, and serializers are lightweight benchmark engineering. The repository is
-a small `main.py` application rather than a complex public API surface.
+The original top-1 point API was not a meaningful blocker. Stable IDs, top-k
+results, scores, start/end timestamps, metadata, filters, and serializers are now
+implemented in the shared benchmark-ready core.
 
-The smallest credible suite is therefore component-based:
+The selected suite remains component-based:
 
-1. **DiDeMo** as the first, inexpensive scene-retrieval smoke benchmark.
-2. **HiREST with released ASR** as the first executable speech-backed
-   instructional retrieval benchmark.
+1. **DiDeMo**, now completed as the first visual localization baseline.
+2. **HiREST with released ASR**, now completed as a validation-only
+   transcript-localization baseline.
 3. **QVHighlights** as the stronger variable-duration scene benchmark.
 4. **TVR `sub-only` queries** as the preferred subtitle-related semantic benchmark if lawful clips with
    audio are obtainable; otherwise use **HiREST** and **QuerYD** as speech-backed
@@ -74,7 +73,7 @@ protocol. It does not mean that a similar published score is already comparable.
 | Dialogue | [TVR `sub-only` queries](https://github.com/jayleicn/TVRetrieval) | Subtitle-related paraphrastic query to ranked video intervals, both known-video and corpus-wide | Whether WhisperX/MiniLM transcript evidence can identify and temporally localize relevant TV moments; a subtitle-only run isolates embedding and retrieval | Verbatim quote lookup, scene understanding, actor clustering, generic audio, or end-to-end ASR quality when supplied subtitles are used | Engineering A; raw TV media gated |
 | Visual | [TVR `video-only` queries](https://github.com/jayleicn/TVRetrieval) | Visual-language query to ranked video intervals | Whether frame/clip CLIP evidence can retrieve visual moments across a TV corpus | Dialogue retrieval, actor identity, or performance on non-TV domains | Engineering A; raw TV media gated |
 | Combined | [TVR `video+sub` queries](https://github.com/jayleicn/TVRetrieval) | Queries annotators judged to need both visual and subtitle evidence | Whether fixed late fusion improves corpus moment retrieval when both implemented paths contain useful evidence | Generic sound understanding, actor clustering, learned cross-modal reasoning, or intended `video+sub` coverage from a dialogue-only ablation | Engineering A with fixed fusion; raw TV media gated |
-| Speech-backed instructional | [HiREST](https://github.com/j-min/HiREST) | Instructional goal to ranked videos, one relevant interval, moment segmentation, and step captioning | Whether VidXP's chunking, MiniLM embeddings, vector index, and interval selection retrieve semantically relevant spoken procedural content | Verbatim dialogue search, entertainment-video generalization, actors, WhisperX accuracy in released-ASR mode, or full video retrieval when negative candidates lack ASR | Engineering A; released-ASR known-video moment task ready; full video retrieval gated |
+| Speech-backed instructional | [HiREST](https://github.com/j-min/HiREST) | Instructional goal to ranked videos, one relevant interval, moment segmentation, and step captioning | Whether VidXP's chunking, MiniLM embeddings, vector index, and interval selection retrieve semantically relevant spoken procedural content | Verbatim dialogue search, entertainment-video generalization, actors, WhisperX accuracy in released-ASR mode, or full video retrieval when negative candidates lack ASR | Known-video validation complete; released test predictions unscored because public bounds are placeholders; full video retrieval gated |
 | Narrated retrieval | [QuerYD](https://www.robots.ox.ac.uk/~vgg/data/queryd/) | Paragraph text↔video retrieval and narration text↔localized-clip ranking over supplied ground-truth proposals | Whether VidXP visual representations rank the correct narrated video or oracle segment proposal once source media are processed | In-scene conversational dialogue, overlapping speech, unrestricted boundary prediction, or VidXP quality from the released Collaborative Experts features | Protocol/reference artifacts ready; true VidXP run raw-media gated; narration audio unresolved |
 | Ranked search | [TVR-Ranking](https://huggingface.co/axgroup/TVR-Ranking) | Graded ranking of multiple relevant corpus moments for imprecise queries | Whether VidXP orders several partially relevant moments usefully, not merely whether its top result overlaps one answer | ASR quality when subtitles are supplied, actors, or generalization outside TVR | Engineering A after TVR; media/license gated |
 | Speech-backed whole-video | [How2R](https://aclanthology.org/2020.emnlp-main.161/) | Instructional-video retrieval using video plus aligned speech/subtitles, introduced with HERO | Whether VidXP can rank instructional clips from transcript and scene evidence under HERO's retrieval setup | Conversational dialogue, temporal boundary prediction, actors, or immediate executability before artifacts/licenses are rechecked | Relevant benchmark; current artifact/access status unresolved |
@@ -82,7 +81,7 @@ protocol. It does not mean that a similar published score is already comparable.
 | Spoken occurrence | [NIST OpenKWS](https://www.nist.gov/document/openkws13-evalplan-v4pdf) | Detection of every exact spoken keyword occurrence with calibrated accept/reject decisions | Miss, false-alarm, timing, threshold-calibration, indexing-time, and search-time behavior for exact terms | Semantic/paraphrase dialogue retrieval, scene search, or actor performance | Engineering A; Babel/LDC data gated |
 | Spoken/visual archive | [SAVA, MediaEval 2015](https://ceur-ws.org/Vol-1436/Paper11.pdf) | Spoken-plus-visual query to unrestricted BBC archive intervals | Whether combined evidence retrieves useful broadcast segments | Actor clustering or reproducibility on presently obtainable public media | Official task-overview paper verified; blocked/reference-only |
 | Multilingual temporal | [mTVR](https://aclanthology.org/2021.acl-short.92/) | English/Chinese multilingual TV moment retrieval | Whether a multilingual retrieval stack preserves temporal retrieval across those two languages | Urdu support, current MiniLM multilingual quality, or actor clustering | Reference; not an intentional current claim |
-| Visual moment | [DiDeMo](https://github.com/LisaAnne/LocalizingMoments) | Natural-language query to one of 21 fixed moments in a known video | Whether CLIP frame scores and deterministic five-second aggregation rank the human-selected moment | Corpus-wide search, variable boundary quality, dialogue, or actors | Engineering A; ready |
+| Visual moment | [DiDeMo](https://github.com/LisaAnne/LocalizingMoments) | Natural-language query to one of 21 fixed moments in a known video | Whether CLIP frame scores and deterministic five-second aggregation rank the human-selected moment | Corpus-wide search, variable boundary quality, dialogue, or actors | Adapter and full official test run complete |
 | Visual moment/highlight | [QVHighlights](https://github.com/jayleicn/moment_detr) | Query to ranked variable-duration moments and saliency on an official two-second clip grid | Whether zero-shot visual similarity finds relevant intervals and assigns useful clip-level saliency | Dialogue or actor performance; parity with supervised temporal models; validity of a point prediction under tIoU | Engineering A; storage/compute gated; exact test-label release must be named |
 | Visual moment | [Charades-STA](https://github.com/jiyanggao/TALL) | Query to ranked intervals in short indoor activity videos | Whether fixed-grid CLIP scoring localizes described actions in short videos | Corpus search, speech, actors, or broad-domain generalization | Engineering A; data agreement gated; original and filtered splits must not be mixed |
 | Whole-video visual | [MSR-VTT](https://www.microsoft.com/en-us/research/publication/msr-vtt-a-large-video-description-dataset-for-bridging-video-and-language/) | Text-to-whole-video ranking under a declared retrieval split | Whether pooled VidXP scene embeddings retrieve the correct short video from a corpus | Timestamp localization, dialogue retrieval, actors, or comparability across the 9k/1k and 7k/1k/2k conventions | Engineering A; media preparation and exact split required |
@@ -140,8 +139,8 @@ their published numbers alone do not answer a VidXP capability question:
 
 | Priority | Lane | Benchmark | Engineering | Operations | Main constraint |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Visual | DiDeMo | A, small adapter | Ready | Published five-second candidate aggregation |
-| 2 | Dialogue | HiREST known-video moment retrieval, released-ASR mode | A, small adapter | Ready | Full video retrieval is not covered because negative candidates lack released ASR |
+| 1 | Visual | DiDeMo | A, small adapter | Completed | Full official test result recorded |
+| 2 | Dialogue | HiREST known-video moment retrieval, released-ASR mode | A, small adapter | Validation completed | Released test predictions cannot be scored from placeholder bounds |
 | 3 | Visual | QVHighlights | A, medium adapter | Gated | 133.863 GiB all-splits raw archive and current CPU indexing cost |
 | 4 | Narrated visual retrieval | QuerYD | A, small/medium adapter | Protocol ready; VidXP media-gated | Raw YouTube gallery required; narration audio separately unresolved |
 | 5 | Dialogue | TVR, `t` subset | A, medium adapter | Gated | Lawful TV clips with original audio |
@@ -152,9 +151,9 @@ their published numbers alone do not answer a VidXP capability question:
 | 10 | Actor | Hannah | A, medium evaluator adapter | Gated | Research agreement and separately obtained movie |
 | 11 | Actor/system | MovieNet | A for component slices | Gated | Registration; movies excluded; actor labels are keyframe-oriented |
 
-## Common adapter contract
+## Implemented common adapter contract
 
-Before benchmark-specific work, VidXP needs one small prediction contract:
+VidXP now provides the shared prediction contract identified during discovery:
 
 ```text
 query_id -> [
@@ -163,13 +162,10 @@ query_id -> [
 ]
 ```
 
-It must support stable corpus-wide video IDs, top-k ranked results, similarity
-scores, and non-zero intervals. This is shared benchmark plumbing, not a generic
-evaluation framework.
-
-The scene-only slice is roughly one to two developer days. A reusable dialogue and
-scene contract with batching, namespaces, filters, tests, and serializers is roughly
-three to five developer days, excluding dataset downloads and indexing.
+It supports stable corpus-wide video IDs, top-k ranked results, similarity
+scores, and non-zero intervals. The implementation is described in the
+[core contract](core_contract.md). Benchmark-specific output rules remain in
+separate adapters.
 
 Actor evaluation needs a separate minimal contract:
 
@@ -675,46 +671,48 @@ diagnostic rather than VidXP's measured store behavior.
 - Speaker diarization and face/body/voice fusion are not implemented capabilities.
   They may appear as future-work comparisons, not current benchmarks.
 
-## Feasibility checks alongside adapter work
+## Remaining feasibility and operational checks
 
 1. Confirm legal and technical access to TVR clips with original audio.
-2. Probe a stratified sample of HiREST and QuerYD YouTube IDs for survival.
-3. Resolve the QuerYD and TVR-Ranking annotation license language.
-4. Decode/checksum a small DiDeMo test sample and preserve each source item's
-   Creative Commons record; all 1,037 test URLs were already confirmed reachable.
-5. Decide whether the QVHighlights 133.863 GiB raw download is acceptable. A
+2. Resolve the QuerYD and TVR-Ranking annotation license language and determine
+   current QuerYD raw-video availability.
+3. Decide whether the QVHighlights 133.863 GiB raw download is acceptable. A
    declared subset reduces preprocessing/runtime, not the monolithic download,
    unless its media are obtained independently.
-6. Download one LongVALE evaluation ZIP, measure extracted size and VidXP
+4. Download one LongVALE evaluation ZIP, measure extracted size and VidXP
    per-video preprocessing/index growth, and extrapolate CPU runtime over the
    official 75.6-hour evaluation split before the full run.
-7. Determine whether the team owns or can lawfully access BBT/Buffy episodes for an
+5. Determine whether the team owns or can lawfully access BBT/Buffy episodes for an
    end-to-end BCL run; otherwise separate a feature-level clustering experiment
    from a true VidXP actor result.
-8. Do not contact Hannah custodians or accept research agreements without explicit
+6. Do not contact Hannah custodians or accept research agreements without explicit
    user authorization.
-9. Freeze benchmark versions, splits, evaluator commits, and checksums before
+7. Freeze benchmark versions, splits, evaluator commits, and checksums before
    reporting any result.
 
-## Proposed execution order after review
+## Execution progress and next order
 
-1. Implement the shared stable-ID, top-k, score, interval, filter, and serializer
-   contract with tests.
-2. Run DiDeMo on a small verified sample and HiREST's released-ASR known-video
-   moment protocol in parallel, then run their full valid public evaluation paths.
-3. Audit and prepare QuerYD raw-video media; use released features only for a
-   clearly labelled Collaborative Experts protocol/reference check.
-4. Run QVHighlights validation, first on a declared subset for preprocessing
+Completed:
+
+- The shared stable-ID, top-k, score, interval, filter, and serializer contract.
+- DiDeMo smoke validation and the complete official test run.
+- HiREST smoke validation, the complete locally scoreable validation run, and
+  generation of the unscored released test predictions.
+
+Next:
+
+1. Implement the fixed LongVALE visual/speech adapter and validate one evaluation
+   archive before committing to the full 1,171-video run.
+2. Add fixed hardware-aware indexing and query measurements to each subsequent
+   full experiment.
+3. Run QVHighlights validation, first on a declared subset for preprocessing
    validation and then in full if storage permits; the subset does not reduce the
    monolithic archive download.
-5. Resolve TVR media access. If successful, run `t`, `v`, and `vt` separately.
-6. Reproduce BCL's released learned pipeline on its supplied reference features as
-   a protocol check. Treat a lawful raw-media VidXP run as a separate clustering
-   adapter scored against the same labels, not as input to BCL's inference script.
-7. Add fixed hardware-aware indexing and query measurements to every executed
-   experiment.
-8. Run LongVALE after freezing a simple visual/speech rank-fusion rule and
-   confirming its runtime/peak-working-space budget; use only the 1,171-video
-   evaluation split, not the training release.
-9. Consider Charades-STA, FLARE, and large-corpus MultiVENT/TRECVID experiments
+4. Resolve TVR media access. If successful, run `t`, `v`, and `vt` separately.
+5. Resolve lawful BBT/Buffy media access before implementing the VidXP actor
+   scoring adapter. Reproduce BCL's supplied-feature pipeline only as a separate
+   protocol check.
+6. Audit and prepare QuerYD raw-video media; use released features only for a
+   clearly labelled Collaborative Experts protocol/reference check.
+7. Consider Charades-STA, FLARE, and large-corpus MultiVENT/TRECVID experiments
    only after the core suite produces valid, archived predictions.

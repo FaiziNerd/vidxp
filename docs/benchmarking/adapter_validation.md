@@ -4,6 +4,10 @@ This ledger records the implementation and executable validation of the first
 two benchmark adapters. Subset runs are smoke tests of the complete data,
 indexing, serialization, and evaluator path. Their metrics are not paper scores.
 
+For the current scores, metric definitions, and plain-language interpretation,
+start with [current benchmark results](results.md). This ledger is the technical
+reproduction record.
+
 ## Pinned official artifacts
 
 | Benchmark | Artifact | Revision | SHA-256 |

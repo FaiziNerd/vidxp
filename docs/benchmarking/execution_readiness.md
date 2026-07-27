@@ -2,11 +2,17 @@
 
 Collection index: [Benchmarking research](README.md)
 
-Status: Protocol-, artifact-, and storage-validated implementation assessment
+Status: Historical pre-implementation assessment
 
 Established: 2026-07-26
 
 Baseline before this reassessment: commit `4607f9d`
+
+This assessment explains why the benchmark-ready refactor was feasible. Its
+repository limitations and execution sequence describe the code before that
+work was implemented. They are not the current task list. See
+[current results](results.md), the [core contract](core_contract.md), and the
+[benchmark index](README.md) for the live state.
 
 ## Corrected premise
 
@@ -284,7 +290,7 @@ TRECVID and MultiVENT are technically executable after adapters. Their present
 deferral is operational: agreements, terabyte-scale storage, resumable ingestion,
 and current CPU-only runtime. API shape is no longer listed as the blocker.
 
-## Immediate execution path
+## Planned execution path at the time of assessment
 
 1. Implement and test the shared stable-ID, interval, top-k, score, filter, and
    serializer contract.
