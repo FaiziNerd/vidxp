@@ -2,43 +2,47 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/ci.yml"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "MANIFEST.in"
+      - "README.md"
+      - "LICENSE"
+      - "utils/build_package.sh"
+      - "utils/build-requirements.txt"
+      - "utils/fix_readme_links.py"
   workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
       - name: Install test surface
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[scene,frontend,benchmarks]" ruff
+          python -m pip install ".[scene,frontend,benchmarks]" build ruff
       - name: Lint
         run: ruff check src tests
       - name: Test
         run: python -m unittest discover -s tests -q
         env:
           PYTHONPATH: src
-
-  package:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.11"
-          cache: pip
       - name: Build wheel and source distribution
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build
+        run: python -m build
       - name: Verify minimal wheel
         shell: bash
         run: |
