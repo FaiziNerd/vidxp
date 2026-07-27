@@ -14,28 +14,36 @@
   <p>
     VidXP is a local-first video indexing and search engine distributed as a Python
     package. 
-    <br/>You can use it:
   </p>
 
+</div>
+<hr/>
+  <br/>You can use it:
   <ul style="display:inline-block; text-align:left;">
     <li>From the command line</li>
     <li>Through its browser interface</li>
     <li>As a desktop app</li>
     <li>As an API</li>
+    <li>As an MCP, with your agents (coming soon ⚡️)
     <li>As an indexing and retrieval layer inside another application</li>
   </ul>
+
+
+<div align="center">
+
+<a href="https://grayhat.studio/discord">
+    <img src="https://img.shields.io/discord/867124708473700363?style=for-the-badge&logo=discord&logoColor=white" alt="discord">
+  </a>
+  
 </div>
 
 
 <p align="center">
-  <a href="https://github.com/grayhatdevelopers/vidxp/releases/latest" target="_blank">
+    <a href="https://github.com/grayhatdevelopers/vidxp/releases/latest" target="_blank">
     <img src="https://img.shields.io/badge/download-desktop%20app-black?style=for-the-badge" alt="download">
   </a>
-</p>
-
-<p align="center">
-  <a href="https://grayhat.studio/discord">
-    <img src="https://img.shields.io/discord/867124708473700363?style=for-the-badge&logo=discord&logoColor=white" alt="discord">
+  <a href="https://pypi.org/projects/vidxp" target="_blank">
+    <img src="https://img.shields.io/pypi/v/vidxp?style=for-the-badge" alt="download">
   </a>
 </p>
 
@@ -249,7 +257,7 @@ See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for guidelines, maintainers, and h
 
 ## Credits
 
-Built by Grayhat Developers PVT Ltd in 2025. Maintained by the community.
+Built by Grayhat Developers PVT Ltd. 2026. Maintained by the community.
 
 Email: info@grayhat.studio
 
