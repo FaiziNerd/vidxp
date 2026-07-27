@@ -58,7 +58,7 @@ jobs:
 
       - name: Install test surface
         if: steps.scope.outputs.run_suite == 'true'
-        run: python -m pip install ".[frontend]"
+        run: python -m pip install ".[frontend,benchmarks]"
 
       - name: Lint
         if: steps.scope.outputs.run_suite == 'true'
