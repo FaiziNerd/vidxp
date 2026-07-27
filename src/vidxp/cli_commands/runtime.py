@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -85,24 +88,17 @@ def prepare(
 
     selected = legacy_modalities(modalities)
     state = state_from_context(ctx)
-    try:
-        result = state.service.prepare_models(
-            selected,
-            language=language,
-            progress_callback=(
-                None
-                if state.quiet
-                or effective_output_format(state, json_output)
-                == OutputFormat.json
-                else lambda event: typer.echo(event["message"])
-            ),
-        )
-    except Exception as exc:
-        typer.secho(
-            f"Model preparation failed: {type(exc).__name__}: {exc}",
-            fg=typer.colors.RED,
-        )
-        raise typer.Exit(1) from exc
+    result = state.service.prepare_models(
+        selected,
+        language=language,
+        progress_callback=(
+            None
+            if state.quiet
+            or effective_output_format(state, json_output)
+            == OutputFormat.json
+            else lambda event: typer.echo(event["message"])
+        ),
+    )
     if effective_output_format(state, json_output) == OutputFormat.json:
         emit_json(result)
     else:
@@ -111,3 +107,36 @@ def prepare(
             fg=typer.colors.GREEN,
             bold=True,
         )
+
+
+def ui(ctx: typer.Context) -> None:
+    """Launch Streamlit with the selected repository configuration."""
+
+    state = state_from_context(ctx)
+    os.environ["VIDXP_CONFIG_FILE"] = str(state.registry.path)
+    os.environ["VIDXP_REPOSITORY"] = state.repository.name
+    os.environ["VIDXP_INDEX_DIR"] = str(state.service.index_directory)
+    if state.service.device is None:
+        os.environ.pop("VIDXP_DEVICE", None)
+    else:
+        os.environ["VIDXP_DEVICE"] = state.service.device
+
+    try:
+        from vidxp import frontend
+    except ModuleNotFoundError as exc:
+        if exc.name == "streamlit":
+            raise RuntimeError(
+                "The browser interface requires the frontend extra. "
+                "Install vidxp[frontend]."
+            ) from exc
+        raise
+
+    frontend.SERVICE = state.service
+    frontend.SAVED_VIDEO_PATH = (
+        state.service.index_directory / "source-video.mp4"
+    )
+    frontend.ACTOR_OUTPUT_PATH = (
+        state.service.index_directory / "actor-result.mp4"
+    )
+    sys.argv = [sys.argv[0]]
+    frontend.main()

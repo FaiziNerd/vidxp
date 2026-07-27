@@ -22,6 +22,7 @@ from vidxp.core.contracts import (
     IndexConfig,
     SearchResult,
 )
+from vidxp.repositories import RepositoryConfig, RepositoryRegistry
 
 
 class OutputFormat(str, Enum):
@@ -38,6 +39,8 @@ class Modality(str, Enum):
 @dataclass
 class CLIState:
     service: VidXPService
+    registry: RepositoryRegistry
+    repository: RepositoryConfig
     output_format: OutputFormat = OutputFormat.rich
     quiet: bool = False
 

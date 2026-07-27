@@ -13,6 +13,7 @@ from vidxp.core.actor_results import (
 )
 from vidxp.core.contracts import (
     SUPPORTED_MODALITIES,
+    CancellationToken,
     IndexConfig,
     SearchResult,
 )
@@ -92,6 +93,8 @@ class VidXPService:
         modalities: Iterable[str] = SUPPORTED_MODALITIES,
         frame_stride: int = 1,
         progress_callback: ProgressCallback | None = None,
+        cancellation: CancellationToken | None = None,
+        source_name: str | None = None,
     ) -> dict[str, Any]:
         selected = tuple(dict.fromkeys(str(item) for item in modalities))
         options: dict[str, Any] = {
@@ -105,8 +108,18 @@ class VidXPService:
         return index_video(
             str(video_path),
             progress_callback=progress_callback,
+            source_name=source_name,
             config=config,
+            cancellation=cancellation,
         )
+
+    def indexing_in_progress(self) -> bool:
+        options: dict[str, Any] = {
+            "storage_directory": self.index_directory,
+        }
+        if self.device is not None:
+            options["device"] = self.device
+        return indexing_in_progress(IndexConfig.local(**options))
 
     def check_dependencies(
         self,

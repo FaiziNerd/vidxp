@@ -1,12 +1,12 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from streamlit.testing.v1 import AppTest
 
 from vidxp import frontend
-from vidxp.core.contracts import IndexConfig, SearchHit, SearchResult
+from vidxp.core.contracts import SearchHit, SearchResult
 from vidxp.index_state import IndexNotReadyError
 
 
@@ -47,15 +47,15 @@ def result_for(modality, timestamp):
 def frontend_harness(video_path, actor_output_path):
     from pathlib import Path
     from shutil import copyfile
-    from unittest.mock import patch
+    from unittest.mock import Mock, patch
 
     from vidxp import frontend
-    from vidxp.core.contracts import IndexConfig, SearchHit, SearchResult
+    from vidxp.core.contracts import SearchHit, SearchResult
 
     video_path = Path(video_path)
     actor_output_path = Path(actor_output_path)
-    config = IndexConfig.local(video_id="video-1")
-    ready_status = {
+    service = Mock()
+    service.index_status.return_value = {
         "state": "ready",
         "message": "Video indexing completed successfully.",
         "summary": {
@@ -86,116 +86,74 @@ def frontend_harness(video_path, actor_output_path):
             ),
         )
 
+    def search(modality, *_args, **_kwargs):
+        return search_result(
+            modality,
+            17.25 if modality == "dialogue" else 42.5,
+        )
+
     def generate_actor_result(*_):
         copyfile(video_path, actor_output_path)
 
+    service.search.side_effect = search
+    service.render_actor.side_effect = generate_actor_result
     with (
+        patch.object(frontend, "SERVICE", service),
         patch.object(frontend, "SAVED_VIDEO_PATH", video_path),
         patch.object(frontend, "ACTOR_OUTPUT_PATH", actor_output_path),
         patch.object(frontend, "indexing_in_progress", return_value=False),
-        patch.object(frontend, "read_index_status", return_value=ready_status),
-        patch.object(frontend, "local_config_from_status", return_value=config),
-        patch.object(
-            frontend,
-            "search_scene",
-            return_value=search_result("scene", 42.5),
-        ),
-        patch.object(
-            frontend,
-            "search_dialogue",
-            return_value=search_result("dialogue", 17.25),
-        ),
-        patch.object(
-            frontend,
-            "render_actor_result",
-            side_effect=generate_actor_result,
-        ),
     ):
         frontend.run()
 
 
 class FrontendSearchTests(unittest.TestCase):
     def setUp(self):
-        self.config = IndexConfig.local(video_id="video-1")
-        self.status_patches = (
-            patch.object(frontend, "read_index_status", return_value=READY_STATUS),
-            patch.object(
-                frontend,
-                "local_config_from_status",
-                return_value=self.config,
-            ),
-        )
+        self.service = Mock()
+        self.service.index_status.return_value = READY_STATUS
 
-    def test_scene_search_returns_a_renderable_rich_result(self):
-        with (
-            self.status_patches[0],
-            self.status_patches[1],
-            patch.object(
-                frontend,
-                "search_scene",
-                return_value=result_for("scene", 12.5),
-            ),
-        ):
+    def test_scene_search_uses_shared_service(self):
+        self.service.search.return_value = result_for("scene", 12.5)
+        with patch.object(frontend, "SERVICE", self.service):
             result = frontend._run_search("scene", "yellow taxi")
 
         self.assertEqual(result["timestamp"], 12.5)
         self.assertEqual(result["hit"]["video_id"], "video-1")
+        self.service.search.assert_called_once_with(
+            "scene",
+            "yellow taxi",
+            top_k=1,
+        )
 
     def test_dialogue_search_returns_a_renderable_result(self):
-        with (
-            patch.object(frontend, "read_index_status", return_value=READY_STATUS),
-            patch.object(
-                frontend,
-                "local_config_from_status",
-                return_value=self.config,
-            ),
-            patch.object(
-                frontend,
-                "search_dialogue",
-                return_value=result_for("dialogue", 8),
-            ),
-        ):
+        self.service.search.return_value = result_for("dialogue", 8)
+        with patch.object(frontend, "SERVICE", self.service):
             result = frontend._run_search("dialogue", "fresh bread")
 
         self.assertEqual(result["type"], "dialogue")
         self.assertEqual(result["timestamp"], 8.0)
 
-    def test_actor_search_uses_structured_detections(self):
+    def test_actor_search_uses_shared_service(self):
         with TemporaryDirectory() as directory:
             output_path = Path(directory) / "actor.mp4"
 
             def generate_result(*_):
                 output_path.write_bytes(b"video")
 
+            self.service.render_actor.side_effect = generate_result
             with (
+                patch.object(frontend, "SERVICE", self.service),
                 patch.object(frontend, "ACTOR_OUTPUT_PATH", output_path),
-                patch.object(
-                    frontend,
-                    "read_index_status",
-                    return_value=READY_STATUS,
-                ),
-                patch.object(
-                    frontend,
-                    "local_config_from_status",
-                    return_value=self.config,
-                ),
-                patch.object(
-                    frontend,
-                    "render_actor_result",
-                    side_effect=generate_result,
-                ) as renderer,
             ):
                 result = frontend._run_search("actor", "3")
 
-        renderer.assert_called_once()
+        self.service.render_actor.assert_called_once()
         self.assertEqual(result["type"], "actor")
 
     def test_search_error_is_returned_for_persistent_rendering(self):
-        with patch.object(
-            frontend,
-            "read_index_status",
-            side_effect=IndexNotReadyError("Index is not ready."),
-        ):
+        self.service.index_status.side_effect = IndexNotReadyError(
+            "Index is not ready."
+        )
+        with patch.object(frontend, "SERVICE", self.service):
             result = frontend._run_search("scene", "yellow taxi")
 
         self.assertEqual(result, {"error": "Index is not ready."})

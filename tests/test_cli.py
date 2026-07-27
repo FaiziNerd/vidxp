@@ -1,5 +1,9 @@
 import json
+import os
+import sys
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -9,6 +13,7 @@ from typer.testing import CliRunner
 from vidxp import cli
 from vidxp.core.actor_results import ActorClusterSummary, ActorRenderResult
 from vidxp.core.contracts import SearchHit, SearchResult
+from vidxp.index_state import IndexNotReadyError
 
 
 def result(modality, starts):
@@ -35,6 +40,11 @@ def result(modality, starts):
 class CliTests(unittest.TestCase):
     def setUp(self):
         self.runner = CliRunner()
+        self.temporary_directory = TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.config_file = (
+            Path(self.temporary_directory.name) / "repositories.json"
+        )
         self.service = Mock()
         self.service.index_directory = Path("chroma_data")
         self.service.device = None
@@ -45,13 +55,23 @@ class CliTests(unittest.TestCase):
             "VidXPService",
             return_value=self.service,
         ):
-            return self.runner.invoke(cli.app, arguments)
+            return self.runner.invoke(
+                cli.app,
+                ["--config", str(self.config_file), *arguments],
+            )
 
     def test_grouped_commands_are_exposed_and_compatibility_aliases_are_hidden(self):
         response = self.invoke(["--help"])
 
         self.assertEqual(response.exit_code, 0)
-        for command in ("index", "search", "actors", "benchmark"):
+        for command in (
+            "index",
+            "search",
+            "actors",
+            "repositories",
+            "benchmark",
+            "ui",
+        ):
             self.assertIn(command, response.stdout)
         for alias in ("videoindex", "dialogue", "scene", "actor"):
             self.assertFalse(
@@ -98,6 +118,8 @@ class CliTests(unittest.TestCase):
             response = self.runner.invoke(
                 cli.app,
                 [
+                    "--config",
+                    str(self.config_file),
                     "--index-dir",
                     "custom-index",
                     "--device",
@@ -110,6 +132,62 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(response.exit_code, 0, response.output)
         service_type.assert_called_once_with(Path("custom-index"), device="cuda")
+
+    def test_repository_commands_persist_and_select_named_indexes(self):
+        index_directory = (
+            Path(self.temporary_directory.name) / "team-index"
+        )
+        added = self.invoke(
+            [
+                "repositories",
+                "add",
+                "team",
+                "--index-dir",
+                str(index_directory),
+                "--device",
+                "cuda",
+                "--use",
+                "--json",
+            ]
+        )
+        listed = self.invoke(["repositories", "list", "--json"])
+
+        self.assertEqual(added.exit_code, 0, added.output)
+        self.assertEqual(json.loads(added.stdout)["name"], "team")
+        payload = json.loads(listed.stdout)
+        self.assertEqual(payload["active_repository"], "team")
+        configured = {
+            item["name"]: item for item in payload["repositories"]
+        }
+        self.assertEqual(
+            configured["team"]["index_directory"],
+            str(index_directory.resolve()),
+        )
+
+    def test_repository_removal_leaves_index_data_untouched(self):
+        index_directory = (
+            Path(self.temporary_directory.name) / "team-index"
+        )
+        index_directory.mkdir()
+        marker = index_directory / "keep"
+        marker.write_text("data", encoding="utf-8")
+        self.invoke(
+            [
+                "repositories",
+                "add",
+                "team",
+                "--index-dir",
+                str(index_directory),
+            ]
+        )
+
+        removed = self.invoke(
+            ["repositories", "remove", "team", "--yes", "--json"]
+        )
+
+        self.assertEqual(removed.exit_code, 0, removed.output)
+        self.assertFalse(json.loads(removed.stdout)["index_deleted"])
+        self.assertTrue(marker.is_file())
 
     def test_index_create_uses_repeated_typed_modalities(self):
         self.service.create_index.return_value = {"scene_frames": 10}
@@ -185,6 +263,28 @@ class CliTests(unittest.TestCase):
         self.service.check_dependencies.assert_called_once_with(("scene",))
         self.service.prepare_models.assert_called_once()
 
+    def test_ui_receives_the_selected_service_configuration(self):
+        self.service.index_directory = Path("selected-index")
+        self.service.device = "cuda"
+        from vidxp import frontend
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.object(frontend, "SERVICE"),
+            patch.object(frontend, "SAVED_VIDEO_PATH"),
+            patch.object(frontend, "ACTOR_OUTPUT_PATH"),
+            patch.object(frontend, "main") as launch,
+        ):
+            response = self.invoke(["ui"])
+
+            self.assertEqual(response.exit_code, 0, response.output)
+            launch.assert_called_once_with()
+            self.assertEqual(os.environ["VIDXP_DEVICE"], "cuda")
+            self.assertEqual(
+                os.environ["VIDXP_INDEX_DIR"],
+                "selected-index",
+            )
+
     def test_actor_commands_expose_clusters_detections_and_rendering(self):
         cluster = ActorClusterSummary("3", "video-1", 4, 1.0, 8.0)
         self.service.actor_clusters.return_value = (cluster,)
@@ -257,6 +357,42 @@ class CliTests(unittest.TestCase):
                     response.stdout.strip(),
                     f"VidXP {cli.__version__}",
                 )
+
+    def test_main_emits_uniform_json_for_runtime_errors(self):
+        self.service.search.side_effect = IndexNotReadyError(
+            "Index is not ready."
+        )
+        stderr = StringIO()
+        arguments = [
+            "vidxp",
+            "--config",
+            str(self.config_file),
+            "--format",
+            "json",
+            "search",
+            "scene",
+            "yellow taxi",
+        ]
+        with (
+            patch.object(sys, "argv", arguments),
+            patch.object(
+                cli,
+                "VidXPService",
+                return_value=self.service,
+            ),
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            cli.main()
+
+        self.assertEqual(raised.exception.code, 1)
+        payload = json.loads(stderr.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(
+            payload["error"]["message"],
+            "Index is not ready.",
+        )
+        self.assertEqual(payload["error"]["exit_code"], 1)
 
 
 if __name__ == "__main__":
