@@ -118,7 +118,7 @@ not included.
 | Benchmark | Engineering | Operations | What is executable |
 | --- | --- | --- | --- |
 | DiDeMo | A, small | Ready; test media 4.958 GiB | Official 21-candidate moment ranking with Rank@1/5 and mean IoU |
-| HiREST known-video moment retrieval | A, small | Ready from 6.83 MiB released-ASR archive | Official moment R@1 at tIoU 0.5/0.7 for 776 test query–video pairs while holding ASR fixed |
+| HiREST known-video moment retrieval | A, small | Ready from 6.83 MiB released-ASR archive | Official local validation metrics for 193 pairs; 776 held-out test predictions are generated but cannot be scored from placeholder test bounds |
 | HiREST video retrieval | A, small/medium | Gated by complete 4,282-video pool | Official video R@1/5/10/50 only after all 1,391 annotated and 2,891 negative candidates receive consistent evidence |
 | QVHighlights | A, medium | Gated by 133.863 GiB all-splits raw archive/CPU cost | Complete result needs scored intervals and one saliency score per two-second clip on an explicitly named public-label release |
 | Charades-STA | A, medium | Gated by data agreement | Official ranked interval retrieval using fixed-grid windows on either the labelled original or filtered split |
@@ -177,8 +177,8 @@ retrieval:
 2. rechunk and embed it with VidXP's MiniLM path;
 3. project all known-video phrase scores onto a one-second timeline and rank the
    validation-frozen 0.8-duration window;
-4. serialize predictions for the 776 test query–video pairs to the official
-   evaluator.
+4. serialize validated predictions for the 776 held-out test query–video pairs
+   as an unscored submission artifact.
 
 This measures VidXP's chunking, embedding, vector indexing, and retrieval while
 holding ASR constant. It does **not** support official video retrieval: that test

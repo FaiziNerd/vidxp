@@ -146,7 +146,7 @@ def hirest_command(
     ] = HIREST_DEFAULT_WINDOW_FRACTION,
     reset: Annotated[bool, typer.Option()] = False,
 ) -> None:
-    """Run HiREST released-ASR retrieval and its official evaluator."""
+    """Run HiREST released-ASR retrieval; score validation predictions."""
 
     metrics = run_hirest(
         ground_truth_path=ground_truth,

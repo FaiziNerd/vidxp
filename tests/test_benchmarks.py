@@ -3,6 +3,7 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from vidxp.benchmarks.common import verify_artifact
 from vidxp.benchmarks.didemo import (
@@ -12,10 +13,12 @@ from vidxp.benchmarks.didemo import (
     validate_predictions as validate_didemo_predictions,
 )
 from vidxp.benchmarks.hirest import (
+    _evaluate_predictions,
     _metrics_from_output,
     moment_pairs,
     parse_srt,
     rank_interval,
+    run_hirest,
     select_ground_truth,
     validate_predictions as validate_hirest_predictions,
 )
@@ -151,6 +154,95 @@ class DiDeMoAdapterTests(unittest.TestCase):
 
 
 class HiRESTAdapterTests(unittest.TestCase):
+    def test_held_out_test_writes_unscored_submission(self):
+        ground_truth = {
+            "prompt": {
+                "video.mp4": {
+                    "clip": True,
+                    "bounds": [0, 1],
+                    "v_duration": 10.0,
+                }
+            }
+        }
+        predictions = {
+            "prompt": {
+                "video.mp4": {
+                    "bounds": [1.0, 9.0],
+                }
+            }
+        }
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            asr_directory = root / "asr"
+            asr_directory.mkdir()
+            (asr_directory / "video.srt").write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\ntext\n\n",
+                encoding="utf-8",
+            )
+            with (
+                patch(
+                    "vidxp.benchmarks.hirest._verified_artifacts",
+                    return_value=[],
+                ),
+                patch(
+                    "vidxp.benchmarks.hirest.load_ground_truth",
+                    return_value=ground_truth,
+                ),
+                patch(
+                    "vidxp.benchmarks.hirest.run_index",
+                    return_value={},
+                ),
+                patch(
+                    "vidxp.benchmarks.hirest._generate_predictions",
+                    return_value=predictions,
+                ),
+                patch(
+                    "vidxp.benchmarks.hirest._evaluate_predictions"
+                ) as evaluate_predictions,
+            ):
+                result = run_hirest(
+                    ground_truth_path=root / "test.json",
+                    categories_path=root / "categories.json",
+                    evaluator_path=root / "evaluate.py",
+                    asr_archive_path=root / "ASR.zip",
+                    asr_directory=asr_directory,
+                    run_id="test-submission",
+                    output_root=root,
+                    split="test",
+                )
+
+            run_directory = root / "hirest" / "test-submission"
+            self.assertFalse(result["scored"])
+            self.assertEqual(result["prediction_count"], 1)
+            self.assertTrue(
+                (run_directory / "submission.summary.json").is_file()
+            )
+            self.assertFalse((run_directory / "metrics.json").exists())
+            evaluate_predictions.assert_not_called()
+
+    @patch("vidxp.benchmarks.hirest.run_logged_evaluator")
+    def test_official_evaluator_is_forced_to_utf8(
+        self,
+        run_evaluator,
+    ):
+        run_evaluator.return_value.stdout = (
+            "{'total_videos': 1, 'R@0.5': 100.0, 'R@0.7': 100.0}\n"
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            evaluator = root / "evaluate.py"
+            evaluator.write_text("# official evaluator\n", encoding="utf-8")
+
+            _evaluate_predictions(
+                evaluator_path=evaluator,
+                ground_truth_path=root / "ground-truth.json",
+                predictions_path=root / "predictions.json",
+                log_path=root / "evaluator.log",
+            )
+
+        environment = run_evaluator.call_args.kwargs["environment"]
+        self.assertEqual(environment["PYTHONUTF8"], "1")
+
     def test_official_numpy_scalar_output_is_normalized(self):
         metrics = _metrics_from_output(
             "{'total_videos': 1, 'R@0.5': np.float64(50.0), "

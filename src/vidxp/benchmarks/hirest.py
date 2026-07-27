@@ -375,7 +375,10 @@ def _evaluate_predictions(
             ],
             cwd=Path(evaluator_path).resolve().parent,
             log_path=log_path,
-            environment={"PYTHONPATH": pythonpath},
+            environment={
+                "PYTHONPATH": pythonpath,
+                "PYTHONUTF8": "1",
+            },
             note=(
                 "The official evaluator is unchanged. An empty "
                 "language_evaluation import shim is supplied because that "
@@ -468,6 +471,64 @@ def run_hirest(
         write_json_atomic(predictions_path, predictions)
         write_json_atomic(ground_truth_subset_path, ground_truth)
 
+        result_details = {
+            "prediction_count": len(ordered_pairs),
+            "prediction_format_validated": True,
+            "input_mode": "released_timestamped_asr",
+            "dialogue_words_per_phrase": (
+                config.dialogue_words_per_phrase
+            ),
+            "segment_word_timestamps": (
+                "linear_interpolation_within_srt_cue"
+            ),
+            "temporal_ranking": (
+                "duration_relative_window_mean_second_score"
+            ),
+            "temporal_window_fraction": temporal_window_fraction,
+            "whisperx_used": False,
+            "video_decode_used": False,
+        }
+        if split == "test":
+            summary = {
+                "scored": False,
+                "prediction_count": len(ordered_pairs),
+                "prompt_count": len(ground_truth),
+                "video_count": len(
+                    {video for _, video in ordered_pairs}
+                ),
+                "reason": (
+                    "The pinned HiREST test split contains placeholder "
+                    "moment bounds. Official local moment evaluation uses "
+                    "the validation split."
+                ),
+            }
+            write_json_atomic(
+                run_directory / "submission.summary.json",
+                summary,
+            )
+            (run_directory / "evaluator.log").write_text(
+                "not run: the pinned HiREST test split contains "
+                "placeholder moment bounds; predictions are retained as "
+                "an unscored submission artifact.\n",
+                encoding="utf-8",
+            )
+            record_adapter_manifest(
+                run_directory,
+                benchmark="hirest",
+                subset=subset,
+                artifacts=artifacts,
+                state="complete",
+                details={
+                    **result_details,
+                    "result_classification": (
+                        "official_full_moment_test_predictions_unscored"
+                        if pairs is None
+                        else "test_prediction_smoke_unscored"
+                    ),
+                },
+            )
+            return summary
+
         metrics = _evaluate_predictions(
             evaluator_path=evaluator_path,
             ground_truth_path=ground_truth_subset_path,
@@ -482,29 +543,11 @@ def run_hirest(
             artifacts=artifacts,
             state="complete",
             details={
-                "prediction_count": len(ordered_pairs),
-                "prediction_format_validated": True,
-                "input_mode": "released_timestamped_asr",
-                "dialogue_words_per_phrase": (
-                    config.dialogue_words_per_phrase
-                ),
-                "segment_word_timestamps": (
-                    "linear_interpolation_within_srt_cue"
-                ),
-                "temporal_ranking": (
-                    "duration_relative_window_mean_second_score"
-                ),
-                "temporal_window_fraction": temporal_window_fraction,
-                "whisperx_used": False,
-                "video_decode_used": False,
+                **result_details,
                 "result_classification": (
-                    "official_full_moment_test_result"
-                    if split == "test" and pairs is None
-                    else (
-                        "validation_result_not_paper_score"
-                        if split == "validation"
-                        else "smoke_test_not_paper_score"
-                    )
+                    "validation_result_not_paper_score"
+                    if pairs is None
+                    else "validation_smoke_test_not_paper_score"
                 ),
             },
         )

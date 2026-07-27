@@ -31,10 +31,14 @@ The pinned DiDeMo validation split contains 4,180 annotations over 1,094
 videos. The pinned HiREST validation split contains 292 prompts and 193
 `clip: true` moment pairs over 193 videos.
 
-The pinned HiREST test split contains 546 prompts. Moment retrieval evaluates
+The pinned HiREST test split contains 546 prompts. Prediction generation covers
 exactly 776 `clip: true` prompt/video pairs across 382 prompts and 776 unique
 videos. Every one of those videos has a matching SRT in the pinned released-ASR
 archive. Entries with `clip: false` do not enter the moment-retrieval adapter.
+All 776 released test bounds are `[0, 1]` placeholders, and the official README
+only demonstrates moment-retrieval evaluation on validation. The adapter
+therefore retains validated test predictions as an unscored submission artifact
+instead of reporting meaningless local test metrics.
 
 ## DiDeMo behavior
 
@@ -202,7 +206,9 @@ vidxp benchmark hirest `
   --run-id hirest-smoke
 ```
 
-Omit `--pairs` for all 776 official moment pairs.
+Omit `--pairs` to generate all 776 official test predictions. Test output is
+explicitly unscored; use `--split validation` with the pinned validation file
+for locally evaluable official metrics.
 
 ## Shared run output
 
@@ -212,7 +218,6 @@ Both adapters produce:
 benchmark_runs/<benchmark>/<run_id>/
   manifest.json
   predictions.json
-  metrics.json
   timings.jsonl
   failures.jsonl
   evaluator.log
@@ -220,24 +225,25 @@ benchmark_runs/<benchmark>/<run_id>/
 ```
 
 They also retain `ground_truth.subset.json`, the core completion marker, and
-per-video checkpoints. Empty failure logs are created deliberately.
+per-video checkpoints. Validation runs add `metrics.json`; held-out HiREST test
+runs add `submission.summary.json`. Empty failure logs are created deliberately.
 
 ## 2026-07-27 executable smoke results
 
 | Adapter | Declared subset | Actual path exercised | Official evaluator result |
 |---|---|---|---|
 | DiDeMo | Test annotation index `0`; one official downloaded video; frame stride `30` | Real CLIP scene indexing, max-within-chunk aggregation, strict serialization, pinned evaluator | Rank@1 `1.0`, Rank@5 `1.0`, mIoU `1.0` |
-| HiREST | `Make DIY Office Weapons` / `nWBuM3LNTcM.mp4` | Released SRT parsing, five-word rechunking, real MiniLM/Chroma indexing, 0.8-duration known-video window, pinned evaluator | one video; R@0.5 `0.0`, R@0.7 `0.0` |
+| HiREST | `Make DIY Office Weapons` / `nWBuM3LNTcM.mp4` | Released SRT parsing, five-word rechunking, real MiniLM/Chroma indexing, 0.8-duration known-video window, strict prediction validation | one unscored held-out test prediction |
 
 The DiDeMo values establish execution and format correctness only. They are not
 a paper score and were not used to choose max pooling.
 
 The HiREST smoke pair was selected before the validation study and remained
-held out during window selection. Its unusual official ground truth is
-`[0, 1]`; the frozen duration-relative baseline predicted `[0, 294]`, so the
-official zero result is expected and retained. This demonstrates that the
-adapter now executes the declared long-moment validation baseline, not that it
-can recover one-second boundaries without a trained boundary model.
+held out during window selection. Its released `[0, 1]` bound is one of the
+test split's placeholders, so the earlier `0.0` values were not valid held-out
+metrics and are withdrawn. The prediction still establishes execution and
+format correctness; the 193-pair validation run above supplies the locally
+evaluable metric check.
 
 The first HiREST evaluator run returned successfully, but VidXP's output parser
 rejected the evaluator's `np.float64(...)` representation. The parser was
