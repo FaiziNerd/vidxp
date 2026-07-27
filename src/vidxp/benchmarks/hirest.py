@@ -401,6 +401,7 @@ def run_hirest(
     pairs: Sequence[tuple[str, str]] | None = None,
     split: Literal["validation", "test"] = "test",
     temporal_window_fraction: float = HIREST_DEFAULT_WINDOW_FRACTION,
+    device: str = "cpu",
     reset: bool = False,
 ) -> dict[str, Any]:
     if split not in {"validation", "test"}:
@@ -425,6 +426,7 @@ def run_hirest(
         split=split,
         run_id=run_id,
         enabled_modalities=("dialogue",),
+        device=device,
         output_root=output_root,
     )
     run_directory = config.run_directory
