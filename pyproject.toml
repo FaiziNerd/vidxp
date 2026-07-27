@@ -54,6 +54,9 @@ dependencies = [
 frontend = [
   "streamlit>=1.37",
 ]
+benchmarks = [
+  "srt>=3.5,<4",
+]
 
 [project.scripts]
 vidxp = "vidxp.cli:main"

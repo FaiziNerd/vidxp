@@ -1,0 +1,171 @@
+import hashlib
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from vidxp.benchmarks.common import verify_artifact
+from vidxp.benchmarks.didemo import (
+    DIDEMO_MOMENTS,
+    rank_moments,
+    select_annotations,
+    validate_predictions as validate_didemo_predictions,
+)
+from vidxp.benchmarks.hirest import (
+    _metrics_from_output,
+    moment_pairs,
+    parse_srt,
+    select_ground_truth,
+    validate_predictions as validate_hirest_predictions,
+)
+from vidxp.core.contracts import SearchHit
+
+
+def scene_hit(chunk, score):
+    return SearchHit(
+        rank=chunk + 1,
+        video_id="video",
+        start=chunk * 5.0,
+        end=chunk * 5.0 + 1.0,
+        score=score,
+        raw_distance=-score,
+        modality="scene",
+        source_id=f"scene-{chunk}",
+        metadata={"timestamp": chunk * 5.0},
+    )
+
+
+class BenchmarkCommonTests(unittest.TestCase):
+    def test_artifact_checksum_is_verified(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "artifact.json"
+            path.write_text("official", encoding="utf-8")
+            checksum = hashlib.sha256(b"official").hexdigest()
+
+            artifact = verify_artifact(
+                path,
+                name="test artifact",
+                expected_sha256=checksum,
+                source="https://example.invalid/artifact",
+                revision="abc123",
+            )
+
+            self.assertEqual(artifact["sha256"], checksum)
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                verify_artifact(
+                    path,
+                    name="test artifact",
+                    expected_sha256="0" * 64,
+                    source="https://example.invalid/artifact",
+                    revision="abc123",
+                )
+
+
+class DiDeMoAdapterTests(unittest.TestCase):
+    def test_official_candidate_order_is_preserved_for_ties(self):
+        ranking = rank_moments(
+            [scene_hit(chunk, 1.0) for chunk in range(6)],
+            num_segments=6,
+        )
+
+        self.assertEqual(tuple(ranking), DIDEMO_MOMENTS)
+
+    def test_five_segment_video_ranks_unavailable_moments_last(self):
+        ranking = rank_moments(
+            [scene_hit(chunk, float(chunk)) for chunk in range(5)],
+            num_segments=5,
+        )
+
+        self.assertEqual(len(ranking), 21)
+        self.assertTrue(all(moment[1] < 5 for moment in ranking[:15]))
+        self.assertTrue(all(moment[1] == 5 for moment in ranking[15:]))
+
+    def test_prediction_validation_rejects_missing_candidates(self):
+        annotation = {"num_segments": 6}
+        with self.assertRaisesRegex(ValueError, "all 21"):
+            validate_didemo_predictions(
+                [[list(moment) for moment in DIDEMO_MOMENTS[:-1]]],
+                [annotation],
+            )
+
+    def test_subset_indices_remain_in_declared_order(self):
+        annotations = [
+            {"annotation_id": 1},
+            {"annotation_id": 2},
+            {"annotation_id": 3},
+        ]
+        selected = select_annotations(annotations, [2, 0])
+
+        self.assertEqual(
+            [item["annotation_id"] for item in selected],
+            [3, 1],
+        )
+
+
+class HiRESTAdapterTests(unittest.TestCase):
+    def test_official_numpy_scalar_output_is_normalized(self):
+        metrics = _metrics_from_output(
+            "{'total_videos': 1, 'R@0.5': np.float64(50.0), "
+            "'R@0.7': np.float64(0.0)}\n"
+        )
+
+        self.assertEqual(
+            metrics,
+            {"total_videos": 1, "R@0.5": 50.0, "R@0.7": 0.0},
+        )
+
+    def test_srt_parser_preserves_released_timestamps(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "video.srt"
+            path.write_text(
+                "1\n00:00:01,000 --> 00:00:02,500\n"
+                "First line\ncontinues.\n\n",
+                encoding="utf-8",
+            )
+
+            segments = parse_srt(path)
+
+            self.assertEqual(
+                segments,
+                [
+                    {
+                        "text": "First line continues.",
+                        "start": 1.0,
+                        "end": 2.5,
+                    }
+                ],
+            )
+
+    def test_only_clip_true_pairs_enter_moment_evaluation(self):
+        ground_truth = {
+            "query": {
+                "clip.mp4": {"clip": True},
+                "whole.mp4": {"clip": False},
+            }
+        }
+
+        self.assertEqual(moment_pairs(ground_truth), [("query", "clip.mp4")])
+        subset, pairs = select_ground_truth(
+            ground_truth,
+            [("query", "clip.mp4")],
+        )
+        self.assertEqual(pairs, [("query", "clip.mp4")])
+        self.assertEqual(set(subset["query"]), {"clip.mp4"})
+
+    def test_official_prediction_shape_is_strict(self):
+        ground_truth = {
+            "query": {"video.mp4": {"clip": True}}
+        }
+        valid = {
+            "query": {"video.mp4": {"bounds": [1.0, 2.0]}}
+        }
+
+        validate_hirest_predictions(valid, ground_truth)
+        invalid = json.loads(json.dumps(valid))
+        invalid["query"]["video.mp4"]["score"] = 1.0
+        with self.assertRaisesRegex(ValueError, "only bounds"):
+            validate_hirest_predictions(invalid, ground_truth)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -30,7 +30,7 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
+def write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -314,7 +314,7 @@ class ManifestStore:
         return json.loads(self.manifest_path.read_text(encoding="utf-8"))
 
     def write(self, manifest: Mapping[str, Any]) -> None:
-        _atomic_json(self.manifest_path, manifest)
+        write_json_atomic(self.manifest_path, manifest)
 
     def checkpoint(self, video_id: str) -> dict[str, Any] | None:
         path = self._checkpoint_path(video_id)
@@ -418,7 +418,7 @@ class ManifestStore:
             "completed_at": utc_now(),
             "summary": dict(summary),
         }
-        _atomic_json(self._checkpoint_path(video_id), checkpoint)
+        write_json_atomic(self._checkpoint_path(video_id), checkpoint)
         manifest = self.read()
         video = manifest["videos"][video_id]
         video["state"] = "complete"
@@ -496,5 +496,5 @@ class ManifestStore:
             "completed_videos": manifest["completed_videos"],
             "index_size_bytes": index_size_bytes,
         }
-        _atomic_json(self.completion_path, completion)
+        write_json_atomic(self.completion_path, completion)
         return manifest
