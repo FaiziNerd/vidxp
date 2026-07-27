@@ -19,12 +19,36 @@ from vidxp.core.indexing_common import ProgressCallback
 
 
 DEPENDENCIES = (
-    RuntimeDependency("ChromaDB", "chromadb", "chromadb"),
-    RuntimeDependency("CLIP", "clip-anytorch", "clip"),
-    RuntimeDependency("NumPy", "numpy", "numpy"),
-    RuntimeDependency("OpenCV", "opencv-python", "cv2"),
-    RuntimeDependency("Pillow", "Pillow", "PIL.Image"),
-    RuntimeDependency("PyTorch", "torch", "torch"),
+    RuntimeDependency(
+        label="ChromaDB",
+        distribution="chromadb",
+        module="chromadb",
+    ),
+    RuntimeDependency(
+        label="CLIP",
+        distribution="clip-anytorch",
+        module="clip",
+    ),
+    RuntimeDependency(
+        label="NumPy",
+        distribution="numpy",
+        module="numpy",
+    ),
+    RuntimeDependency(
+        label="OpenCV",
+        distribution="opencv-python",
+        module="cv2",
+    ),
+    RuntimeDependency(
+        label="Pillow",
+        distribution="Pillow",
+        module="PIL.Image",
+    ),
+    RuntimeDependency(
+        label="PyTorch",
+        distribution="torch",
+        module="torch",
+    ),
 )
 
 

@@ -21,7 +21,8 @@ Create `src/vidxp/capabilities/<name>/` with only the files the feature needs:
 └── cli.py              # only for specialized commands
 ```
 
-`definition.py` exports one `CapabilityDefinition` named `DEFINITION`.
+`definition.py` exports one frozen, Pydantic-validated
+`CapabilityDefinition` named `DEFINITION`.
 Register it explicitly in `src/vidxp/capabilities/registry.py`. The registry is
 the only central file that should change for ordinary runtime registration.
 

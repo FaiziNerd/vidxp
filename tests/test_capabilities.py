@@ -5,6 +5,7 @@ from pydantic import BaseModel, ValidationError
 from vidxp.capabilities.contracts import (
     CapabilityContext,
     CapabilityDefinition,
+    CapabilityIndexResult,
     CapabilityInput,
     CapabilityOutput,
     OperationDefinition,
@@ -58,13 +59,32 @@ class CapabilityTests(unittest.TestCase):
 
     def test_registered_operations_use_pydantic_contracts(self):
         for capability in CAPABILITIES.values():
+            self.assertIsInstance(capability, BaseModel)
             for operation in capability.operations.values():
+                self.assertIsInstance(operation, BaseModel)
                 self.assertTrue(
                     issubclass(operation.input_model, BaseModel)
                 )
                 self.assertTrue(
                     issubclass(operation.output_model, BaseModel)
                 )
+
+    def test_capability_contracts_are_frozen_and_schema_validated(self):
+        with self.assertRaises(ValidationError):
+            CAPABILITIES["scene"].name = "changed"
+        with self.assertRaises(ValidationError):
+            CapabilityDefinition(
+                name="broken",
+                description="Incomplete index integration.",
+                extra="broken",
+                collection_name="broken",
+                indexer=lambda **_: None,
+            )
+        with self.assertRaises(ValidationError):
+            CapabilityIndexResult(
+                summary={},
+                timings={"index": -1},
+            )
 
     def test_built_in_settings_are_capability_owned_and_validated(self):
         self.assertIs(CAPABILITIES["dialogue"].config_model, DialogueConfig)

@@ -24,15 +24,27 @@ from vidxp.core.indexing_common import ProgressCallback
 from vidxp.core.video import ffmpeg_binary
 
 
-CHROMA = RuntimeDependency("ChromaDB", "chromadb", "chromadb")
-SENTENCE_TRANSFORMERS = RuntimeDependency(
-    "Sentence Transformers",
-    "sentence-transformers",
-    "sentence_transformers",
+CHROMA = RuntimeDependency(
+    label="ChromaDB",
+    distribution="chromadb",
+    module="chromadb",
 )
-MOVIEPY = RuntimeDependency("MoviePy", "moviepy", "moviepy.editor")
-WHISPERX = RuntimeDependency("WhisperX", "whisperx", "whisperx")
-FFMPEG = RuntimeDependency("FFmpeg", check=ffmpeg_binary)
+SENTENCE_TRANSFORMERS = RuntimeDependency(
+    label="Sentence Transformers",
+    distribution="sentence-transformers",
+    module="sentence_transformers",
+)
+MOVIEPY = RuntimeDependency(
+    label="MoviePy",
+    distribution="moviepy",
+    module="moviepy.editor",
+)
+WHISPERX = RuntimeDependency(
+    label="WhisperX",
+    distribution="whisperx",
+    module="whisperx",
+)
+FFMPEG = RuntimeDependency(label="FFmpeg", check=ffmpeg_binary)
 
 DEPENDENCIES = (
     CHROMA,

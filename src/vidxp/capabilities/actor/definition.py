@@ -27,20 +27,36 @@ from vidxp.core.contracts import IndexConfig, VideoSource
 
 
 DEPENDENCIES = (
-    RuntimeDependency("ChromaDB", "chromadb", "chromadb"),
     RuntimeDependency(
-        "face recognition",
-        "face-recognition",
-        "face_recognition",
+        label="ChromaDB",
+        distribution="chromadb",
+        module="chromadb",
     ),
-    RuntimeDependency("dlib", "dlib", "dlib"),
     RuntimeDependency(
-        "face recognition models",
-        "face-recognition-models",
-        "face_recognition_models",
+        label="face recognition",
+        distribution="face-recognition",
+        module="face_recognition",
     ),
-    RuntimeDependency("NumPy", "numpy", "numpy"),
-    RuntimeDependency("OpenCV", "opencv-python", "cv2"),
+    RuntimeDependency(
+        label="dlib",
+        distribution="dlib",
+        module="dlib",
+    ),
+    RuntimeDependency(
+        label="face recognition models",
+        distribution="face-recognition-models",
+        module="face_recognition_models",
+    ),
+    RuntimeDependency(
+        label="NumPy",
+        distribution="numpy",
+        module="numpy",
+    ),
+    RuntimeDependency(
+        label="OpenCV",
+        distribution="opencv-python",
+        module="cv2",
+    ),
 )
 
 
