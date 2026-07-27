@@ -1,54 +1,68 @@
-# VidXP benchmarking research
+# VidXP benchmarking
 
-This directory is the entry point for the paper-benchmarking workstream. Its scope
-is to identify published benchmarks, verify that their data and evaluators can
-actually be obtained, and select the smallest credible suite for the capabilities
-implemented in `main.py`.
+This directory is the entry point for evaluating VidXP against published
+benchmarks. It records what was selected, what has actually been run, how the
+results compare, and which claims the evidence supports.
 
-It does not cover editing the paper itself, and it does not treat a published score
-as directly comparable until VidXP is run on the same data, output protocol, and
-evaluator.
+Benchmark work is separate from writing or tuning the paper itself. For
+installation and product usage, start with the main
+[VidXP README](../../README.md).
 
-## Start here
+## Current status
 
-1. [Direction and source of truth](direction.md) defines the scope, evidence
-   requirements, classification rules, and execution gates.
-2. [Published benchmark catalog](benchmark_catalog.md) contains the validated
-   benchmark matrix, including what every candidate measures, what its result would
-   and would not demonstrate about VidXP, access constraints, and execution order.
-3. [Published comparison results](published_results.md) records exact competitor
-   scores, splits, training status, primary-paper table/page citations, and
-   official artifacts without merging incompatible protocols.
-4. [Execution readiness](execution_readiness.md) records the corrected engineering
-   boundary and identifies which benchmarks can be run after lightweight API and
-   adapter changes.
-5. [Research-paper inventory](research_papers.md) is the prioritized reading queue
-   and maps relevant papers to the benchmarks they introduce or use.
-6. [Paper-by-paper validation ledger](paper_validation.md) records the experimental
-   datasets, protocols, metrics, artifact checks, and corrections verified from
-   each primary paper rather than inferred from its title or abstract.
+| Area | Status | What it means |
+|---|---|---|
+| Shared benchmark support | Complete | Stable IDs, time ranges, metadata, top-k retrieval, isolated runs, checkpoints, and prediction files are implemented |
+| DiDeMo visual localization | Complete | Full official test run completed over 4,021 queries and 1,037 videos |
+| HiREST transcript localization | Validation complete | All 193 official validation pairs were scored; 776 released test predictions are unscored because their public answer bounds are placeholders |
+| LongVALE combined evaluation | Next | Build the visual-plus-speech adapter and validate one evaluation archive before scheduling the full run |
+| Actor clustering | Data-gated | The preferred BBT/Buffy evaluation still requires lawful access to the source episodes |
 
-## Current conclusion
+Read [current results](results.md) for the scores, plain-language metric
+definitions, honest comparisons, and the next benchmark decision.
 
-No single published benchmark covers VidXP's dialogue retrieval, visual scene
-retrieval, and actor clustering together. The current recommendation is a
-component suite led by DiDeMo, QVHighlights, TVR or its speech-backed alternatives,
-and BCL.
+## Find the right document
 
-The paper-use audit now tracks 79 unique primary papers. Each inventory entry is
-mapped to the datasets, protocol, and metrics it actually used in
-[the validation ledger](paper_validation.md); this prevents pretraining corpora,
-adapted tasks, and title-level relevance from being counted as benchmark evidence.
+| If you need to… | Read |
+|---|---|
+| Understand how VidXP performed | [Current results](results.md) |
+| Reproduce DiDeMo or HiREST | [Adapter validation ledger](adapter_validation.md) |
+| Understand the benchmark-ready Python structure | [Core contract](core_contract.md) |
+| See which benchmarks exist and what each measures | [Benchmark catalog](benchmark_catalog.md) |
+| Find exact published competitor scores | [Published comparison results](published_results.md) |
+| Review the relevant papers | [Research-paper inventory](research_papers.md) |
+| Audit what was checked in each paper | [Paper-validation ledger](paper_validation.md) |
+| Review real runtime checks | [Runtime-validation ledger](runtime_validation.md) |
 
-The current top-1 point-returning API is not a scientific constraint. Stable IDs,
-top-k results, scores, intervals, metadata, aggregation, and serializers are normal
-benchmark plumbing. DiDeMo and transcript-backed HiREST are ready to begin after
-that shared adapter; TVR and BCL remain desirable but media-gated.
+The [original direction](direction.md) and
+[pre-implementation readiness assessment](execution_readiness.md) are retained
+as dated planning records. They explain how the benchmark work was selected, but
+they are not the current task list.
+
+## Current benchmark position
+
+No single published benchmark covers dialogue retrieval, scene retrieval, and
+actor clustering together.
+
+The completed DiDeMo and HiREST runs establish separate visual and
+transcript-based baselines. LongVALE is the next combined test because it asks a
+system to find described events in long videos using visual, speech, and general
+audio evidence. VidXP can currently contribute visual and speech evidence; it
+does not recognize general sounds such as music, alarms, or barking. Any
+LongVALE result must keep that limitation visible.
+
+## Evidence rules
+
+- Use the official data split, output format, and evaluator.
+- Keep trained competitors separate from off-the-shelf systems.
+- Record the exact code revision, model settings, predictions, failures, and
+  evaluator output.
+- Label validation results separately from held-out test results.
+- State when supplied transcripts replace VidXP transcription.
+- Do not turn a missing capability into an unreported dataset filter.
 
 ## Historical material
 
-[Legacy benchmarking methodology](../benchmarking_research.md) is retained at its
-original location and filename for provenance
-because it contains useful earlier notes and published reference points. It is not
-the current plan: its Urdu assumption and proposed custom-corpus direction were
-superseded by the published-benchmark-first audit.
+[Legacy benchmarking methodology](../benchmarking_research.md) remains at its
+original path and filename for provenance. It contains an earlier Urdu-specific
+assumption and a custom-corpus direction that are not part of the current plan.

@@ -2,11 +2,17 @@
 
 Collection index: [Benchmarking research](README.md)
 
-Status: Protocol-, artifact-, and storage-validated implementation assessment
+Status: Historical pre-implementation assessment
 
 Established: 2026-07-26
 
 Baseline before this reassessment: commit `4607f9d`
+
+This assessment explains why the benchmark-ready refactor was feasible. Its
+repository limitations and execution sequence describe the code before that
+work was implemented. They are not the current task list. See
+[current results](results.md), the [core contract](core_contract.md), and the
+[benchmark index](README.md) for the live state.
 
 ## Corrected premise
 
@@ -44,9 +50,9 @@ must describe the missing capability; it must not claim full modality coverage.
 
 ## Repository complexity finding
 
-The current system is not protected by a complex package API. It is a small
-application centered on `main.py`, with direct Typer commands and a thin Streamlit
-caller in `frontend.py`.
+The baseline system was not protected by a complex package API. It was a small
+application with direct Typer commands and a thin Streamlit caller. The later
+core refactor replaced that structure.
 
 The main benchmark-facing limitations are localized:
 
@@ -118,7 +124,7 @@ not included.
 | Benchmark | Engineering | Operations | What is executable |
 | --- | --- | --- | --- |
 | DiDeMo | A, small | Ready; test media 4.958 GiB | Official 21-candidate moment ranking with Rank@1/5 and mean IoU |
-| HiREST known-video moment retrieval | A, small | Ready from 6.83 MiB released-ASR archive | Official moment R@1 at tIoU 0.5/0.7 for 776 test query–video pairs while holding ASR fixed |
+| HiREST known-video moment retrieval | A, small | Ready from 6.83 MiB released-ASR archive | Official local validation metrics for 193 pairs; 776 held-out test predictions are generated but cannot be scored from placeholder test bounds |
 | HiREST video retrieval | A, small/medium | Gated by complete 4,282-video pool | Official video R@1/5/10/50 only after all 1,391 annotated and 2,891 negative candidates receive consistent evidence |
 | QVHighlights | A, medium | Gated by 133.863 GiB all-splits raw archive/CPU cost | Complete result needs scored intervals and one saliency score per two-second clip on an explicitly named public-label release |
 | Charades-STA | A, medium | Gated by data agreement | Official ranked interval retrieval using fixed-grid windows on either the labelled original or filtered split |
@@ -175,9 +181,10 @@ retrieval:
 
 1. ingest the released ASR and timestamps;
 2. rechunk and embed it with VidXP's MiniLM path;
-3. use the top phrase's `[start, end]` in the known video for moment retrieval;
-4. serialize predictions for the 776 test query–video pairs to the official
-   evaluator.
+3. project all known-video phrase scores onto a one-second timeline and rank the
+   validation-frozen 0.8-duration window;
+4. serialize validated predictions for the 776 held-out test query–video pairs
+   as an unscored submission artifact.
 
 This measures VidXP's chunking, embedding, vector indexing, and retrieval while
 holding ASR constant. It does **not** support official video retrieval: that test
@@ -283,7 +290,7 @@ TRECVID and MultiVENT are technically executable after adapters. Their present
 deferral is operational: agreements, terabyte-scale storage, resumable ingestion,
 and current CPU-only runtime. API shape is no longer listed as the blocker.
 
-## Immediate execution path
+## Planned execution path at the time of assessment
 
 1. Implement and test the shared stable-ID, interval, top-k, score, filter, and
    serializer contract.

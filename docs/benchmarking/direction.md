@@ -2,11 +2,16 @@
 
 Collection index: [Benchmarking research](README.md)
 
-Status: Active
+Status: Historical founding brief; discovery phase complete
 
 Established: 2026-07-25
 
 Applies to: VidXP / ActorDB paper benchmarking work
+
+This document preserves the rules used to start the benchmark research. It
+predates the benchmark-ready core and completed DiDeMo/HiREST runs. Use
+[current results](results.md) and the [collection index](README.md) for the
+active status and next work.
 
 ## Objective
 
@@ -45,8 +50,8 @@ may add stable corpus IDs, top-k results, scores, richer metadata, start/end
 intervals, filtering, deterministic window aggregation, serializers, timing hooks,
 and non-learned late fusion over existing scene and dialogue rankings.
 
-These are ordinary adapters. A candidate must not be rejected merely because
-`main.py` currently returns one timestamp or stores too little metadata.
+These are ordinary adapters. A candidate was not rejected merely because the
+pre-refactor application returned one timestamp or stored too little metadata.
 
 New trained models or unsupported capabilities remain material changes. Examples
 include OCR, generic sound-event recognition, speaker identification, learned
@@ -215,8 +220,10 @@ The existing [legacy benchmarking methodology](../benchmarking_research.md) is t
 inventory and methodology reference. Its candidates and published values still need
 to pass the access, reproducibility, and applicability checks defined here.
 
-The implementation in [`main.py`](../../main.py) is the authority for determining what
-the current project actually supports.
+At the time of this brief, the project still used a single application module.
+It was subsequently split into the CLI and shared core packages. The current
+implementation boundary is documented in the
+[benchmark-ready core contract](core_contract.md).
 
 ## Current research deliverables
 
@@ -228,5 +235,6 @@ the current project actually supports.
   to the benchmarks they introduce or use and provides the prioritized review
   queue.
 
-These documents are discovery outputs. They do not imply that any benchmark has
-been executed or that a published score is already comparable with VidXP.
+These links were the discovery outputs available when this brief was written.
+DiDeMo and HiREST were subsequently implemented and executed; their current
+status is recorded in [results](results.md).

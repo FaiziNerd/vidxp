@@ -5,9 +5,9 @@ Current benchmarking index: [Benchmarking research](benchmarking/README.md)
 > **Legacy draft — not the current plan.** This file contains an earlier,
 > unsupported assumption that Urdu is an intentional project requirement and
 > prematurely proposes a new local corpus. Do not use those passages as project
-> scope. The current source of truth is
-> [benchmarking direction](benchmarking/direction.md), with verified candidates in
-> the [published benchmark catalog](benchmarking/benchmark_catalog.md).
+> scope. Use the [current benchmarking index](benchmarking/README.md) for active
+> status and the [published benchmark catalog](benchmarking/benchmark_catalog.md)
+> for the verified candidate research.
 
 This document proposes a paper-ready evaluation protocol for the current VidXP pipeline: WhisperX + `all-MiniLM-L6-v2` dialogue retrieval, CLIP text-to-scene retrieval, and `face_recognition`-based actor clustering. It also inventories published reference results; it contains no new VidXP measurements.
 

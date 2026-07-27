@@ -8,9 +8,9 @@ Last verified: 2026-07-26
 
 This is the answer to “what did the published competitors actually score?” It is
 the result-level companion to the capability matrix in the
-[benchmark catalog](benchmark_catalog.md). It does not claim that VidXP has been
-run on any benchmark, and it does not turn scores from different splits or task
-definitions into one leaderboard.
+[benchmark catalog](benchmark_catalog.md). Current VidXP measurements and direct
+comparisons are in [results](results.md). This document does not turn scores from
+different splits or task definitions into one leaderboard.
 
 ## Evidence and comparison rules
 
@@ -1092,7 +1092,7 @@ server, concurrency, and hardware. The repository was checked at
 publish its full configuration and may compare same-machine systems; no external
 fixed score should be copied into the paper.
 
-## What can eventually go in the VidXP paper
+## How to use these numbers
 
 For each selected benchmark, report three separate bands:
 
@@ -1102,7 +1102,7 @@ For each selected benchmark, report three separate bands:
 3. Published trained systems as explicitly labeled context, never as if training
    conditions were equal.
 
-The eventual table should include VidXP only after the run artifact records the
-dataset version, split, evaluator commit, prediction file, model checkpoints,
-fusion rule, and unsupported channels. No score in this document is a VidXP
-result.
+A VidXP row belongs in a comparison table only when its run artifact records the
+dataset version, split, evaluator commit, prediction file, model identifiers,
+aggregation or fusion rule, and unsupported channels. No score in this document
+is itself a VidXP result.
