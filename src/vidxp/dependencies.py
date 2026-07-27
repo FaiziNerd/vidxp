@@ -72,6 +72,15 @@ def inspect_requirement(requirement: Requirement) -> dict:
     }
 
 
+def requirements_available(package: str) -> bool:
+    return all(
+        inspect_requirement(requirement)["ok"]
+        for requirement in active_requirements(
+            packaged_requirements(package)
+        )
+    )
+
+
 def installed_base_requirements(
     distribution: str = "vidxp",
 ) -> tuple[Requirement, ...]:

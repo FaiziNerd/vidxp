@@ -10,7 +10,6 @@ import typer
 
 from vidxp import __version__
 from vidxp.application import VidXPService
-from vidxp.benchmarks.cli import app as benchmark_app
 from vidxp.capabilities.actor.results import ActorClusterNotFoundError
 from vidxp.capabilities.registry import CAPABILITIES
 from vidxp.cli_commands.index import app as index_app
@@ -19,6 +18,7 @@ from vidxp.cli_commands.runtime import doctor, prepare, ui
 from vidxp.cli_commands.search import app as search_app
 from vidxp.cli_support import CLIState, OutputFormat
 from vidxp.core.contracts import IndexSchemaError
+from vidxp.dependencies import requirements_available
 from vidxp.index_state import (
     IndexingInProgressError,
     IndexNotReadyError,
@@ -33,7 +33,18 @@ app = typer.Typer(
 app.add_typer(index_app, name="index")
 app.add_typer(search_app, name="search")
 app.add_typer(repositories_app, name="repositories")
-app.add_typer(benchmark_app, name="benchmark")
+
+
+def _load_benchmark_app():
+    if not requirements_available("vidxp.benchmarks"):
+        return None
+    from vidxp.benchmarks.cli import app as benchmark_app
+
+    return benchmark_app
+
+
+if _benchmark_app := _load_benchmark_app():
+    app.add_typer(_benchmark_app, name="benchmark")
 for _capability in CAPABILITIES.values():
     if _capability.cli_factory is not None:
         app.add_typer(

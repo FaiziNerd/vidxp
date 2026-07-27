@@ -184,10 +184,10 @@ official-media run.
 
 ## Commands
 
-Install the optional adapter parser:
+Install the optional adapters with the capabilities they evaluate:
 
 ```powershell
-python -m pip install -e ".[benchmarks]"
+python -m pip install -e ".[scene,dialogue,benchmarks]"
 ```
 
 Run a declared DiDeMo smoke subset by zero-based official annotation indices:
