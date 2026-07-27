@@ -30,6 +30,9 @@ evaluator.
 7. [Runtime validation ledger](runtime_validation.md) records actual source,
    packaged, modality, worker, and rendering smoke checks separately from unit
    tests and paper results.
+8. [Official adapter validation ledger](adapter_validation.md) pins the
+   DiDeMo and HiREST artifacts, defines their prediction transformations, and
+   records executable subset results from the unchanged official metrics.
 
 ## Current conclusion
 
