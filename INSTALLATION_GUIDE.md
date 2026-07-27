@@ -1,19 +1,27 @@
 # Installation guide
 
+The main [README](README.md) introduces the product and contains the shortest
+install-and-run path. This guide covers platform prerequisites, source
+installation, model preparation, and common first-run issues.
+
 ## Prerequisites
 
 - Python 3.10 through 3.13
 - FFmpeg available on `PATH`
 - CMake and a C/C++ build toolchain for `dlib`
 
-The official `dlib` releases on PyPI are source distributions. A clean VidXP
-installation therefore compiles `dlib` locally on every supported Python
-version unless a compatible build is already cached or supplied by the
-environment. Changing from Python 3.13 to 3.11 does not avoid this requirement.
-On Windows, install CMake and the Microsoft C++ Build Tools. Do not keep
-platform-specific wheels in the repository.
+The official `dlib` package is distributed through PyPI as source. Installing
+VidXP therefore compiles it locally unless a compatible build is already cached
+or provided by the environment. Changing from Python 3.13 to 3.11 does not
+remove that requirement.
+
+On Windows, install CMake and the Microsoft C++ Build Tools. Do not add
+platform-specific `dlib` wheels to this repository.
 
 ## Create an environment
+
+Using a virtual environment keeps VidXP and its Python dependencies separate
+from the system Python:
 
 ```bash
 python -m venv venv
@@ -27,13 +35,13 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-## Install from PyPI
-
-Upgrade pip:
+Upgrade pip before installing:
 
 ```bash
 python -m pip install --upgrade pip
 ```
+
+## Install from PyPI
 
 Install the command-line package:
 
@@ -41,14 +49,13 @@ Install the command-line package:
 python -m pip install vidxp
 ```
 
-Install the command-line package and browser interface:
+Install the command-line package and Streamlit interface:
 
 ```bash
 python -m pip install "vidxp[frontend]"
 ```
 
-`frontend` is a pip optional dependency group that installs Streamlit. The
-package name remains `vidxp`.
+`frontend` is an optional dependency group. The package name remains `vidxp`.
 
 ## Install from source
 
@@ -58,38 +65,113 @@ From the repository root:
 python -m pip install .
 ```
 
-Include the Streamlit interface with:
+Include the Streamlit interface:
 
 ```bash
 python -m pip install ".[frontend]"
 ```
 
-## Installation expectations
-
-VidXP includes PyTorch, WhisperX, computer-vision, and face-recognition
-dependencies. The first installation can take time and consume several
-gigabytes of disk space. The exact download and installed sizes vary by
-operating system, Python version, package versions, and whether CPU or
-accelerator-specific packages are selected.
-
-Confirm that both installed entry points start:
+Use an editable installation while developing:
 
 ```bash
-vidxp --help
-vidxp-ui
+python -m pip install -e ".[frontend,benchmarks]"
 ```
 
-## Models
+## Verify the installation
 
-VidXP downloads model weights on first use instead of expecting repository-local snapshot directories:
+Display the installed package version:
+
+```bash
+vidxp --version
+```
+
+Check FFmpeg and the Python dependencies needed by all indexing capabilities:
+
+```bash
+vidxp doctor
+```
+
+`vidxp doctor` imports the selected dependencies but does not download model
+weights. Restrict the check when diagnosing one capability:
+
+```bash
+vidxp doctor --modalities scene
+```
+
+If the frontend extra was installed, start the interface with `vidxp-ui`. It
+runs until stopped with `Ctrl+C`.
+
+## Prepare models
+
+Model weights are not part of the Python package:
 
 | Capability | Model |
 |---|---|
 | Dialogue embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
 | Transcription | WhisperX `large-v2` |
 | Scene search | CLIP `ViT-B/32` |
-| Word alignment | WhisperX default for the detected language |
+| Word alignment | WhisperX model selected for the detected language |
 
-SentenceTransformer and WhisperX use the Hugging Face cache. CLIP uses its standard user cache. These downloads are not part of `pip install`, so the first indexing or search operation requires network access.
-Model caches require additional disk space beyond the Python installation, and
-the first use of each capability takes longer while its weights are downloaded.
+Download and cache the fixed dialogue, transcription, and scene models before
+indexing:
+
+```bash
+vidxp prepare
+```
+
+WhisperX selects its alignment model after detecting the video's language. Cache
+a known language explicitly when required:
+
+```bash
+vidxp prepare --language en
+```
+
+SentenceTransformer and WhisperX use the Hugging Face cache; CLIP uses its own
+user cache. These caches normally live outside the virtual environment, so
+removing the environment does not necessarily remove downloaded model weights.
+
+## First indexing run
+
+A successful installation means the commands and Python dependencies are
+available. It does not mean the model weights have been downloaded.
+
+If `vidxp prepare` was not run first, the initial indexing command downloads any
+missing models before processing the video:
+
+```bash
+vidxp videoindex samplevideo.mp4
+```
+
+Keep the terminal and internet connection open until VidXP reports that the
+index is ready. Machine-learning dependencies and model caches can consume
+several gigabytes, and the first run takes longer while models are downloaded.
+Exact sizes depend on the platform and selected package builds.
+
+VidXP saves local progress and the final state in
+`chroma_data/index_status.json`. Search is unavailable until indexing completes.
+If the process stops early, run indexing again; VidXP clears the incomplete
+single-video index before rebuilding it.
+
+## Common problems
+
+### `dlib` fails to install
+
+Confirm that CMake and a working C/C++ compiler are installed and visible from
+the active terminal. On Windows, use the Microsoft C++ Build Tools.
+
+### FFmpeg is not found
+
+Run `ffmpeg -version` in the same terminal. Install FFmpeg or add its executable
+directory to `PATH`, then rerun `vidxp doctor`.
+
+### A search says the index is not ready
+
+Wait for the active indexing command to finish. If the previous process ended
+or failed, run `vidxp videoindex` again to rebuild the incomplete local index.
+
+### The first indexing run appears slow
+
+Check the terminal for model-download or indexing progress. Model preparation,
+transcription, scene analysis, and actor detection are separate stages. Use
+`vidxp prepare` before indexing or select fewer capabilities with
+`--modalities`.

@@ -1,10 +1,14 @@
 # Repo specific
 /venv
 /chroma_data
+/benchmark_runs/
+/audio.wav
+/video.mp4
 /dist/
 /build/
 .build
 /MANIFEST
+/.pytest_cache/
 
 __pycache__/
 .DS_Store

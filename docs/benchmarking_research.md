@@ -1,5 +1,14 @@
 # Defensible benchmarking methodology for VidXP
 
+Current benchmarking index: [Benchmarking research](benchmarking/README.md)
+
+> **Legacy draft — not the current plan.** This file contains an earlier,
+> unsupported assumption that Urdu is an intentional project requirement and
+> prematurely proposes a new local corpus. Do not use those passages as project
+> scope. Use the [current benchmarking index](benchmarking/README.md) for active
+> status and the [published benchmark catalog](benchmarking/benchmark_catalog.md)
+> for the verified candidate research.
+
 This document proposes a paper-ready evaluation protocol for the current VidXP pipeline: WhisperX + `all-MiniLM-L6-v2` dialogue retrieval, CLIP text-to-scene retrieval, and `face_recognition`-based actor clustering. It also inventories published reference results; it contains no new VidXP measurements.
 
 ## Related systems, datasets, and published reference points
@@ -233,7 +242,7 @@ Record peak:
 - GPU utilization and device memory over time where available;
 - CPU utilization, disk reads/writes, and index size.
 
-PyTorch's `max_memory_allocated()` returns the peak tensor memory since program start and documents resetting peak statistics between stages ([official API](https://docs.pytorch.org/docs/stable/generated/torch.cuda.max_memory_allocated.html)). Python exposes maximum RSS through `resource.getrusage` ([official documentation](https://docs.python.org/3/library/resource.html)); NVIDIA documents sampled GPU utilization and frame-buffer memory semantics in `nvidia-smi` ([official documentation](https://docs.nvidia.com/deploy/nvidia-smi/index.html)).
+PyTorch's `max_memory_allocated()` returns the peak tensor memory since program start and documents resetting peak statistics between stages ([official API](https://docs.pytorch.org/docs/stable/generated/torch.cuda.memory.max_memory_allocated.html)). Python exposes maximum RSS through `resource.getrusage` ([official documentation](https://docs.python.org/3/library/resource.html)); NVIDIA documents sampled GPU utilization and frame-buffer memory semantics in `nvidia-smi` ([official documentation](https://docs.nvidia.com/deploy/nvidia-smi/index.html)).
 
 For every result table, report CPU model/core count, RAM, storage, GPU and VRAM, OS, accelerator driver/runtime, Python and dependency versions, model identifiers/hashes, precision/compute type, batch size, thread counts, input resolution/fps, frame stride, database settings, and Git commit. Fix seeds where randomness exists, keep the machine otherwise idle, randomize condition order, and publish raw per-run measurements and the benchmark script.
 

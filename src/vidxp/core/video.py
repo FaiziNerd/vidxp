@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from shutil import which
+from typing import Iterator
+
+from vidxp.core.contracts import CancellationToken
+
+
+@dataclass(frozen=True)
+class VideoInfo:
+    fps: float
+    frame_count: int
+    duration: float
+    width: int
+    height: int
+
+
+@dataclass
+class FrameStreamStats:
+    frames_advanced: int = 0
+    frames_materialized: int = 0
+
+
+@dataclass(frozen=True)
+class FrameSample:
+    frame_index: int
+    timestamp: float
+    frame: object
+
+
+def ffmpeg_binary() -> str:
+    from moviepy.config import get_setting
+
+    configured = get_setting("FFMPEG_BINARY")
+    configured_path = Path(str(configured))
+    resolved = (
+        str(configured_path.resolve())
+        if configured_path.is_file()
+        else which(str(configured))
+    )
+    if not resolved:
+        raise RuntimeError(f"FFmpeg executable was not found: {configured}")
+    return resolved
+
+
+def probe_video(path: str | Path) -> VideoInfo:
+    import cv2
+
+    video = cv2.VideoCapture(str(path))
+    try:
+        fps = float(video.get(cv2.CAP_PROP_FPS))
+        if fps <= 0:
+            raise ValueError("The selected video has an invalid frame rate.")
+        frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        return VideoInfo(
+            fps=fps,
+            frame_count=frame_count,
+            duration=frame_count / fps,
+            width=int(video.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            height=int(video.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        )
+    finally:
+        video.release()
+
+
+def iter_frame_batches(
+    path: str | Path,
+    *,
+    frame_stride: int,
+    batch_size: int,
+    cancellation: CancellationToken,
+    stats: FrameStreamStats | None = None,
+) -> Iterator[list[FrameSample]]:
+    import cv2
+
+    if frame_stride <= 0:
+        raise ValueError("frame_stride must be greater than zero.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero.")
+
+    video = cv2.VideoCapture(str(path))
+    fps = float(video.get(cv2.CAP_PROP_FPS))
+    if fps <= 0:
+        video.release()
+        raise ValueError("The selected video has an invalid frame rate.")
+
+    stream_stats = stats or FrameStreamStats()
+    batch: list[FrameSample] = []
+    frame_index = 0
+    try:
+        while True:
+            sampled = frame_index % frame_stride == 0
+            if sampled:
+                retrieved, frame = video.read()
+            else:
+                retrieved = video.grab()
+                frame = None
+            if not retrieved:
+                break
+            stream_stats.frames_advanced += 1
+            if sampled:
+                stream_stats.frames_materialized += 1
+                batch.append(
+                    FrameSample(
+                        frame_index=frame_index,
+                        timestamp=frame_index / fps,
+                        frame=frame,
+                    )
+                )
+                if len(batch) == batch_size:
+                    cancellation.raise_if_cancelled()
+                    yield batch
+                    batch = []
+            frame_index += 1
+        if batch:
+            cancellation.raise_if_cancelled()
+            yield batch
+    finally:
+        video.release()
+
+
+def extract_audio(input_path: str | Path, output_path: str | Path) -> Path:
+    from moviepy.editor import VideoFileClip
+
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with VideoFileClip(str(input_path)) as source_video:
+        if source_video.audio is None:
+            raise ValueError("The selected video does not contain an audio track.")
+        source_video.audio.write_audiofile(str(destination), logger=None)
+    return destination
+
+
+def render_actor_video(
+    input_path: str | Path,
+    output_path: str | Path,
+    cluster_id: str,
+    detections: list[dict],
+) -> None:
+    import cv2
+
+    source_path = Path(input_path)
+    destination = Path(output_path)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Video not found: {source_path}")
+    if source_path.resolve() == destination.resolve():
+        raise ValueError("Actor result output must differ from the input video.")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
+    source = cv2.VideoCapture(str(source_path))
+    if not source.isOpened():
+        source.release()
+        raise RuntimeError(f"Could not open actor source video: {source_path}")
+    fps = float(source.get(cv2.CAP_PROP_FPS))
+    width = int(source.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(source.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if fps <= 0 or width <= 0 or height <= 0:
+        source.release()
+        raise RuntimeError(
+            "Actor source video has invalid FPS or frame dimensions."
+        )
+
+    writer = None
+    for codec in ("avc1", "mp4v"):
+        candidate = cv2.VideoWriter(
+            str(destination),
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            (width, height),
+        )
+        if candidate.isOpened():
+            writer = candidate
+            break
+        candidate.release()
+    if writer is None:
+        source.release()
+        raise RuntimeError(f"Could not open actor result video: {destination}")
+
+    frame_targets = {
+        int(item["frame_index"]): tuple(item["bbox"])
+        for item in detections
+    }
+
+    frames_written = 0
+    try:
+        frame_index = 0
+        while True:
+            retrieved, frame = source.read()
+            if not retrieved:
+                break
+            if frame_index in frame_targets:
+                top, right, bottom, left = frame_targets[frame_index]
+                color = (0, 255, 0)
+                thickness = max(2, int(height / 200))
+                font_scale = max(0.5, height / 1000)
+                cv2.rectangle(
+                    frame,
+                    (left, top),
+                    (right, bottom),
+                    color,
+                    thickness,
+                )
+                cv2.putText(
+                    frame,
+                    f"Actor {cluster_id}",
+                    (left, top - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale,
+                    color,
+                    thickness,
+                )
+            writer.write(frame)
+            frame_index += 1
+            frames_written += 1
+    finally:
+        source.release()
+        writer.release()
+
+    if (
+        frames_written == 0
+        or not destination.is_file()
+        or destination.stat().st_size == 0
+    ):
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"Actor result video was not created: {destination}")

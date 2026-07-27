@@ -1,0 +1,333 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import string
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
+from threading import Event
+from typing import Any, Iterable, Mapping, Sequence
+from urllib.parse import quote
+
+
+INDEX_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 1
+SUPPORTED_MODALITIES = ("dialogue", "scene", "actor")
+
+
+class IndexCancelledError(RuntimeError):
+    """Raised after a cooperative indexing cancellation request."""
+
+
+class IndexSchemaError(RuntimeError):
+    """Raised when an index cannot satisfy the current result contract."""
+
+
+def _require_identifier(label: str, value: str) -> str:
+    value = str(value).strip()
+    if not value:
+        raise ValueError(f"{label} must not be empty.")
+    return value
+
+
+def _filesystem_component(value: str) -> str:
+    value = _require_identifier("path component", value)
+    if value in {".", ".."}:
+        raise ValueError("Run path components cannot be '.' or '..'.")
+    windows_stem = value.rstrip(" .").split(".", 1)[0].upper()
+    reserved = {"CON", "PRN", "AUX", "NUL"}
+    reserved.update(f"COM{index}" for index in range(1, 10))
+    reserved.update(f"LPT{index}" for index in range(1, 10))
+    if windows_stem in reserved:
+        raise ValueError(
+            f"Run path component {value!r} is reserved on Windows."
+        )
+    return quote(value, safe="._-")
+
+
+def stable_source_id(
+    run_id: str,
+    video_id: str,
+    modality: str,
+    local_id: str | int,
+) -> str:
+    """Return an escaped, deterministic record ID.
+
+    Each component is percent-encoded independently, so delimiters inside an
+    official dataset ID cannot collide with the separators in the stored ID.
+    """
+
+    values = (run_id, video_id, modality, str(local_id))
+    labels = ("run_id", "video_id", "modality", "local_id")
+    encoded = [
+        quote(_require_identifier(label, value), safe="")
+        for label, value in zip(labels, values)
+    ]
+    return ":".join(encoded)
+
+
+@dataclass(frozen=True)
+class IndexConfig:
+    dataset: str = "local"
+    split: str = "local"
+    run_id: str = "default"
+    video_id: str | None = None
+    enabled_modalities: tuple[str, ...] = SUPPORTED_MODALITIES
+    frame_stride: int = 1
+    dialogue_words_per_phrase: int = 5
+    scene_batch_size: int = 32
+    dialogue_batch_size: int = 128
+    transcription_batch_size: int = 16
+    actor_batch_size: int = 16
+    storage_batch_size: int = 256
+    normalize_dialogue_embeddings: bool = True
+    vector_distance: str = "l2"
+    face_match_threshold: float = 0.55
+    face_num_jitters: int = 2
+    actor_min_detections: int = 4
+    device: str = "cpu"
+    sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    whisper_model: str = "large-v2"
+    clip_model: str = "ViT-B/32"
+    output_root: str | Path = "benchmark_runs"
+    storage_directory: str | Path | None = None
+    collection_names: tuple[str, str, str] = (
+        "dialogue",
+        "scene",
+        "actor",
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "output_root", str(self.output_root))
+        if self.storage_directory is not None:
+            object.__setattr__(
+                self,
+                "storage_directory",
+                str(self.storage_directory),
+            )
+        for label in ("dataset", "split", "run_id"):
+            _require_identifier(label, getattr(self, label))
+        if self.video_id is not None:
+            _require_identifier("video_id", self.video_id)
+
+        modalities = tuple(dict.fromkeys(self.enabled_modalities))
+        unknown = sorted(set(modalities) - set(SUPPORTED_MODALITIES))
+        if unknown:
+            raise ValueError(f"Unsupported indexing modalities: {', '.join(unknown)}")
+        if not modalities:
+            raise ValueError("At least one indexing modality must be enabled.")
+        object.__setattr__(self, "enabled_modalities", modalities)
+
+        for label in (
+            "frame_stride",
+            "dialogue_words_per_phrase",
+            "scene_batch_size",
+            "dialogue_batch_size",
+            "transcription_batch_size",
+            "actor_batch_size",
+            "storage_batch_size",
+            "face_num_jitters",
+            "actor_min_detections",
+        ):
+            if getattr(self, label) <= 0:
+                raise ValueError(f"{label} must be greater than zero.")
+        if not 0 < self.face_match_threshold < 1:
+            raise ValueError("face_match_threshold must be between zero and one.")
+        if self.vector_distance not in {"l2", "cosine", "ip"}:
+            raise ValueError(
+                "vector_distance must be one of: l2, cosine, ip."
+            )
+        if len(self.collection_names) != len(SUPPORTED_MODALITIES):
+            raise ValueError("collection_names must define dialogue, scene, and actor.")
+        collection_pattern = re.compile(
+            r"^[A-Za-z0-9][A-Za-z0-9._-]{1,510}[A-Za-z0-9]$"
+        )
+        invalid_names = [
+            name
+            for name in self.collection_names
+            if not collection_pattern.fullmatch(str(name))
+        ]
+        if invalid_names:
+            raise ValueError(
+                "collection_names must be 3-512 characters, begin and end "
+                "with an alphanumeric character, and contain only "
+                "letters, numbers, periods, underscores, or hyphens."
+            )
+        if len(set(self.collection_names)) != len(self.collection_names):
+            raise ValueError("collection_names must be distinct.")
+
+    @classmethod
+    def local(cls, **changes: Any) -> "IndexConfig":
+        """Return the single-video configuration used by the existing CLI/UI."""
+
+        defaults = {
+            "storage_directory": "chroma_data",
+            "collection_names": (
+                "voiceEmbeddings",
+                "sceneEmbeddings",
+                "actorCollection",
+            ),
+        }
+        defaults.update(changes)
+        return cls(**defaults)
+
+    @property
+    def run_directory(self) -> Path:
+        if self.storage_directory is not None:
+            return Path(self.storage_directory)
+        return (
+            Path(self.output_root)
+            / _filesystem_component(self.dataset)
+            / _filesystem_component(self.run_id)
+        )
+
+    @property
+    def index_directory(self) -> Path:
+        if self.storage_directory is not None:
+            return Path(self.storage_directory)
+        return self.run_directory / "index"
+
+    def for_video(self, video_id: str) -> "IndexConfig":
+        return replace(self, video_id=_require_identifier("video_id", video_id))
+
+    def record_identity(
+        self,
+        modality: str,
+        source_id: str,
+    ) -> dict[str, str]:
+        if self.video_id is None:
+            raise ValueError("IndexConfig.video_id is required for record metadata.")
+        if modality not in SUPPORTED_MODALITIES:
+            raise ValueError(f"Unsupported indexing modality: {modality}")
+        return {
+            "dataset": self.dataset,
+            "split": self.split,
+            "run_id": self.run_id,
+            "video_id": self.video_id,
+            "modality": modality,
+            "source_id": source_id,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["enabled_modalities"] = list(self.enabled_modalities)
+        payload["collection_names"] = list(self.collection_names)
+        payload["run_directory"] = str(self.run_directory)
+        payload["index_directory"] = str(self.index_directory)
+        return payload
+
+    def fingerprint(self) -> str:
+        payload = asdict(self)
+        for excluded in ("video_id", "output_root", "storage_directory"):
+            payload.pop(excluded, None)
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass(frozen=True)
+class VideoSource:
+    video_id: str | None = None
+    path: str | Path | None = None
+    source_name: str | None = None
+    transcript: Sequence[Mapping[str, Any]] | None = None
+    checksum: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.video_id is not None:
+            _require_identifier("video_id", self.video_id)
+        if self.path is None and self.transcript is None:
+            raise ValueError("A video path or timestamped transcript is required.")
+        if self.checksum is not None:
+            checksum = str(self.checksum).lower()
+            if (
+                len(checksum) != 64
+                or any(character not in string.hexdigits for character in checksum)
+            ):
+                raise ValueError("checksum must be a 64-character SHA-256 value.")
+            object.__setattr__(self, "checksum", checksum)
+
+
+@dataclass(frozen=True)
+class StorageRecord:
+    source_id: str
+    metadata: Mapping[str, Any]
+    embedding: Sequence[float] | None = None
+    document: str | None = None
+
+
+@dataclass(frozen=True)
+class SearchHit:
+    rank: int
+    video_id: str
+    start: float
+    end: float
+    score: float
+    raw_distance: float
+    modality: str
+    source_id: str
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rank": self.rank,
+            "video_id": self.video_id,
+            "start": self.start,
+            "end": self.end,
+            "score": self.score,
+            "raw_distance": self.raw_distance,
+            "modality": self.modality,
+            "source_id": self.source_id,
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    query_id: str
+    query: str
+    modality: str
+    hits: tuple[SearchHit, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": INDEX_SCHEMA_VERSION,
+            "query_id": self.query_id,
+            "query": self.query,
+            "modality": self.modality,
+            "hits": [hit.to_dict() for hit in self.hits],
+        }
+
+    def to_prediction(self) -> dict[str, list[dict[str, Any]]]:
+        return {self.query_id: [hit.to_dict() for hit in self.hits]}
+
+
+class CancellationToken:
+    """A small cooperative cancellation token checked between work batches."""
+
+    def __init__(self, event: Any | None = None):
+        self._event = event or Event()
+
+    @property
+    def cancelled(self) -> bool:
+        return bool(self._event.is_set())
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def raise_if_cancelled(self) -> None:
+        if self.cancelled:
+            raise IndexCancelledError("Indexing was cancelled between batches.")
+
+
+def batched(items: Sequence[Any], batch_size: int) -> Iterable[Sequence[Any]]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than zero.")
+    for start in range(0, len(items), batch_size):
+        yield items[start:start + batch_size]
