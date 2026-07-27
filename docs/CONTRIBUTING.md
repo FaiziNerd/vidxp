@@ -7,6 +7,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | File / path | Role |
 |-------------|------|
 | `src/vidxp/cli.py` | Typer commands and installed `vidxp` entry point |
+| `src/vidxp/application.py` | Reusable application boundary for CLI and future adapters |
 | `src/vidxp/frontend.py` | Streamlit interface and installed `vidxp-ui` entry point |
 | `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |
@@ -50,9 +51,10 @@ record the exact identifier in benchmark results.
 
 - Indexing, retrieval, storage, metadata, and face clustering:
   `src/vidxp/core/`.
+- Transport-neutral application operations: `src/vidxp/application.py`.
 - Command-line behavior: `src/vidxp/cli.py`.
 - Upload and search UX: `src/vidxp/frontend.py`; keep product logic in the
-  shared core.
+  shared application and core modules.
 - Official benchmark formats and evaluator calls: `src/vidxp/benchmarks/`.
 - New dependencies: `pyproject.toml`, with the reason stated in the pull
   request.

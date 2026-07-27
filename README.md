@@ -81,24 +81,25 @@ vidxp prepare
 Build an index containing dialogue, scene, and actor information:
 
 ```bash
-vidxp videoindex samplevideo.mp4
+vidxp index create samplevideo.mp4
 ```
 
 Search the completed index:
 
 ```bash
-vidxp dialogue "the bread just came out of the oven"
-vidxp scene "a yellow taxi on a city street"
-vidxp actor 1 samplevideo.mp4
+vidxp search dialogue "the bread just came out of the oven"
+vidxp search scene "a yellow taxi on a city street" --top-k 5
+vidxp actors list
+vidxp actors render 1 samplevideo.mp4
 ```
 
 Index only selected capabilities or sample fewer visual frames:
 
 ```bash
-vidxp videoindex samplevideo.mp4 --modalities scene --frame-stride 5
+vidxp index create samplevideo.mp4 --modality scene --frame-stride 5
 ```
 
-`--modalities` accepts any combination of `dialogue`, `scene`, and `actor`.
+Repeat `--modality` to combine `dialogue`, `scene`, and `actor`.
 Run `vidxp --help` or any command followed by `--help` for the complete command
 reference.
 

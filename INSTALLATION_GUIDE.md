@@ -139,7 +139,7 @@ If `vidxp prepare` was not run first, the initial indexing command downloads any
 missing models before processing the video:
 
 ```bash
-vidxp videoindex samplevideo.mp4
+vidxp index create samplevideo.mp4
 ```
 
 Keep the terminal and internet connection open until VidXP reports that the
@@ -167,11 +167,12 @@ directory to `PATH`, then rerun `vidxp doctor`.
 ### A search says the index is not ready
 
 Wait for the active indexing command to finish. If the previous process ended
-or failed, run `vidxp videoindex` again to rebuild the incomplete local index.
+or failed, run `vidxp index create` again to rebuild the incomplete local
+index.
 
 ### The first indexing run appears slow
 
 Check the terminal for model-download or indexing progress. Model preparation,
 transcription, scene analysis, and actor detection are separate stages. Use
 `vidxp prepare` before indexing or select fewer capabilities with
-`--modalities`.
+one or more `--modality` options.
