@@ -11,13 +11,12 @@ from unittest.mock import Mock, patch
 from typer.testing import CliRunner
 
 from vidxp import cli
-from vidxp.capabilities.schemas import (
+from vidxp.capabilities.actor.schemas import (
     ActorClusterSummary,
     ActorDetection,
     ActorRenderResult,
-    SearchHit,
-    SearchResult,
 )
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 from vidxp.index_state import IndexNotReadyError
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vidxp.capabilities.schemas import (
+from vidxp.capabilities.actor.schemas import (
     ActorClusterSummary,
     ActorDetection,
     ActorRenderResult,

@@ -6,7 +6,7 @@ from vidxp.capabilities.actor.results import (
     render_actor_result,
 )
 from vidxp.capabilities.contracts import CapabilityContext
-from vidxp.capabilities.schemas import (
+from vidxp.capabilities.actor.schemas import (
     ActorClustersInput,
     ActorClustersOutput,
     ActorDetectionsInput,

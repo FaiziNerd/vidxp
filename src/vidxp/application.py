@@ -21,12 +21,12 @@ from vidxp.capabilities.registry import (
     validate_capability_options,
     validate_capability_names,
 )
-from vidxp.capabilities.schemas import (
+from vidxp.capabilities.actor.schemas import (
     ActorClusterSummary,
     ActorDetection,
     ActorRenderResult,
-    SearchResult,
 )
+from vidxp.capabilities.schemas import SearchResult
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,

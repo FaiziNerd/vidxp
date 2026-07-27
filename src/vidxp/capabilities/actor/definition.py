@@ -14,7 +14,7 @@ from vidxp.capabilities.contracts import (
     OperationDefinition,
     RuntimeDependency,
 )
-from vidxp.capabilities.schemas import (
+from vidxp.capabilities.actor.schemas import (
     ActorClustersInput,
     ActorClustersOutput,
     ActorDetectionsInput,
