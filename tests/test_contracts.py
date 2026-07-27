@@ -6,11 +6,10 @@ from vidxp.core.contracts import (
     CancellationToken,
     IndexCancelledError,
     IndexConfig,
-    SearchHit,
-    SearchResult,
     VideoSource,
     stable_source_id,
 )
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 
 
 class ContractTests(unittest.TestCase):
@@ -74,8 +73,11 @@ class ContractTests(unittest.TestCase):
     def test_invalid_config_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "At least one"):
             IndexConfig(enabled_modalities=())
-        with self.assertRaisesRegex(ValueError, "Unsupported"):
-            IndexConfig(enabled_modalities=("ocr",))
+        with self.assertRaisesRegex(ValueError, "Missing collection names"):
+            IndexConfig(
+                enabled_modalities=("ocr",),
+                collection_names={"scene": "scene"},
+            )
         with self.assertRaisesRegex(ValueError, "frame_stride"):
             IndexConfig(frame_stride=0)
         with self.assertRaisesRegex(ValueError, "cannot be"):
@@ -83,9 +85,21 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reserved on Windows"):
             IndexConfig(dataset="CON.txt").run_directory
         with self.assertRaisesRegex(ValueError, "distinct"):
-            IndexConfig(collection_names=("shared", "shared", "actor"))
+            IndexConfig(
+                collection_names={
+                    "dialogue": "shared",
+                    "scene": "shared",
+                    "actor": "actor",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "3-512"):
-            IndexConfig(collection_names=("a", "scene", "actor"))
+            IndexConfig(
+                collection_names={
+                    "dialogue": "a",
+                    "scene": "scene",
+                    "actor": "actor",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "vector_distance"):
             IndexConfig(vector_distance="unknown")
         with self.assertRaisesRegex(ValueError, "SHA-256"):

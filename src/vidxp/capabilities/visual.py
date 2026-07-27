@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from time import perf_counter
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
+from vidxp.capabilities.contracts import CapabilityIndexResult
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
-    StorageRecord,
     VideoSource,
-    batched,
-    stable_source_id,
 )
-from vidxp.core.indexing_actor import (
+from vidxp.capabilities.actor.indexing import (
     ActorIndexState,
     finalize_actor_index,
     process_actor_samples,
 )
 from vidxp.core.indexing_common import ProgressCallback, report_progress
-from vidxp.core.models import get_clip_model
+from vidxp.capabilities.scene.indexing import (
+    SceneIndexState,
+    process_scene_samples,
+)
+from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.core.storage import IndexStorage
 from vidxp.core.video import (
     FrameSample,
@@ -26,70 +27,6 @@ from vidxp.core.video import (
     iter_frame_batches,
     probe_video,
 )
-
-
-@dataclass
-class SceneIndexState:
-    model: Any
-    preprocess: Any
-    stored_frames: int = 0
-
-
-@dataclass(frozen=True)
-class VisualIndexResult:
-    summary: Mapping[str, Any]
-    timings: Mapping[str, float]
-
-
-def _encode_scene_batch(samples, model, preprocess, device):
-    import torch
-    from PIL import Image
-
-    images = torch.stack(
-        [preprocess(Image.fromarray(sample.frame)) for sample in samples]
-    ).to(device)
-    with torch.no_grad():
-        features = model.encode_image(images)
-        features /= features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy().tolist()
-
-
-def _scene_records(
-    samples,
-    vectors,
-    info,
-    config: IndexConfig,
-) -> list[StorageRecord]:
-    records = []
-    for sample, vector in zip(samples, vectors):
-        end = min(
-            info.duration,
-            sample.timestamp + config.frame_stride / info.fps,
-        )
-        if end <= sample.timestamp:
-            end = sample.timestamp + 1 / info.fps
-        source_id = stable_source_id(
-            config.run_id,
-            str(config.video_id),
-            "scene",
-            f"f{sample.frame_index:012d}",
-        )
-        records.append(
-            StorageRecord(
-                source_id=source_id,
-                embedding=vector,
-                metadata={
-                    **config.record_identity("scene", source_id),
-                    "frame_index": sample.frame_index,
-                    "timestamp": sample.timestamp,
-                    "start": sample.timestamp,
-                    "end": end,
-                    "fps": info.fps,
-                    "duration": info.duration,
-                },
-            )
-        )
-    return records
 
 
 def _rgb_samples(samples) -> list[FrameSample]:
@@ -103,31 +40,6 @@ def _rgb_samples(samples) -> list[FrameSample]:
         )
         for sample in samples
     ]
-
-
-def _process_scene_samples(
-    samples,
-    *,
-    state: SceneIndexState,
-    info,
-    config: IndexConfig,
-    storage: IndexStorage,
-    cancellation: CancellationToken,
-) -> None:
-    for group in batched(samples, config.scene_batch_size):
-        cancellation.raise_if_cancelled()
-        vectors = _encode_scene_batch(
-            group,
-            state.model,
-            state.preprocess,
-            config.device,
-        )
-        state.stored_frames += storage.upsert(
-            "scene",
-            _scene_records(group, vectors, info, config),
-            batch_size=config.storage_batch_size,
-            cancellation=cancellation,
-        )
 
 
 def _consume_visual_stream(
@@ -170,7 +82,7 @@ def _consume_visual_stream(
 
         if scene_state is not None:
             scene_started = perf_counter()
-            _process_scene_samples(
+            process_scene_samples(
                 rgb_samples,
                 state=scene_state,
                 info=info,
@@ -240,7 +152,7 @@ def index_visuals(
     cancellation: CancellationToken,
     progress: ProgressCallback | None = None,
     modalities: Sequence[str] | None = None,
-) -> VisualIndexResult:
+) -> CapabilityIndexResult:
     if config.video_id is None:
         raise ValueError("IndexConfig.video_id is required for indexing.")
     if source.path is None:
@@ -311,7 +223,7 @@ def index_visuals(
         timings["actor"] += perf_counter() - actor_started
     timings["visual_total"] = perf_counter() - started
 
-    return VisualIndexResult(
+    return CapabilityIndexResult(
         summary=_visual_summary(
             scene_state=scene_state,
             actor_state=actor_state,
@@ -321,4 +233,25 @@ def index_visuals(
             info=info,
         ),
         timings=timings,
+    )
+
+
+def index_capabilities(
+    source: VideoSource,
+    *,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+    progress: ProgressCallback | None = None,
+    modalities: Sequence[str] | None = None,
+) -> CapabilityIndexResult:
+    """Registry-facing wrapper that keeps the shared indexer patchable."""
+
+    return index_visuals(
+        source,
+        config=config,
+        storage=storage,
+        cancellation=cancellation,
+        progress=progress,
+        modalities=modalities,
     )

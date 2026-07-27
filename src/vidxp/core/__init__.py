@@ -1,17 +1,13 @@
-"""Benchmark-ready indexing and retrieval engine."""
+"""Shared runtime primitives used by VidXP capabilities."""
 
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
-    SearchHit,
-    SearchResult,
     VideoSource,
 )
 
 __all__ = [
     "CancellationToken",
     "IndexConfig",
-    "SearchHit",
-    "SearchResult",
     "VideoSource",
 ]

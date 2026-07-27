@@ -13,7 +13,7 @@ from vidxp.core.contracts import (
     stable_source_id,
 )
 from vidxp.core.indexing_common import ProgressCallback, report_progress
-from vidxp.core.models import (
+from vidxp.capabilities.dialogue.models import (
     get_alignment_model,
     get_embedder,
     get_whisper_model,

@@ -8,7 +8,6 @@ import typer
 from vidxp.cli_support import (
     CLIState,
     IndexProgress,
-    Modality,
     OutputFormat,
     effective_output_format,
     emit_json,
@@ -63,7 +62,7 @@ def index_create(
         ),
     ],
     modalities: Annotated[
-        list[Modality] | None,
+        list[str] | None,
         typer.Option(
             "--modality",
             "-m",

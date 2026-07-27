@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from streamlit.testing.v1 import AppTest
 
 from vidxp import frontend
-from vidxp.core.contracts import SearchHit, SearchResult
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 from vidxp.index_state import IndexNotReadyError
 
 
@@ -50,7 +50,7 @@ def frontend_harness(video_path, actor_output_path):
     from unittest.mock import Mock, patch
 
     from vidxp import frontend
-    from vidxp.core.contracts import SearchHit, SearchResult
+    from vidxp.capabilities.schemas import SearchHit, SearchResult
 
     video_path = Path(video_path)
     actor_output_path = Path(actor_output_path)

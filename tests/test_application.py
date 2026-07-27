@@ -4,10 +4,54 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from vidxp.application import VidXPService
+from vidxp.capabilities.contracts import (
+    CapabilityDefinition,
+    OperationDefinition,
+)
+from vidxp.capabilities.schemas import SearchInput, SearchResult
 from vidxp.core.contracts import IndexConfig
 
 
 class ApplicationServiceTests(unittest.TestCase):
+    def test_execute_supports_validated_operation_without_an_index(self):
+        capability = CapabilityDefinition(
+            name="export",
+            description="Export results.",
+            extra="export",
+            operations={
+                "run": OperationDefinition(
+                    input_model=SearchInput,
+                    output_model=SearchResult,
+                    handler=lambda context, request: {
+                        "query_id": "export:1",
+                        "query": request.query,
+                        "modality": "export",
+                        "hits": (),
+                    },
+                    requires_index=False,
+                )
+            },
+        )
+        service = VidXPService()
+        with (
+            patch(
+                "vidxp.application.get_capability",
+                return_value=capability,
+            ),
+            patch.object(
+                service,
+                "active_config",
+                side_effect=AssertionError("index should not be loaded"),
+            ),
+        ):
+            result = service.execute(
+                "export",
+                "run",
+                {"query": "result bundle"},
+            )
+
+        self.assertEqual(result.query, "result bundle")
+
     def test_missing_index_has_a_stable_status_contract(self):
         service = VidXPService("missing-index")
         with patch(
@@ -48,30 +92,23 @@ class ApplicationServiceTests(unittest.TestCase):
 
     def test_search_is_a_thin_adapter_over_the_core(self):
         service = VidXPService()
-        config = IndexConfig.local(
-            video_id="video-1",
-            enabled_modalities=("scene",),
+        expected = SearchResult(
+            query_id="scene:1",
+            query="yellow taxi",
+            modality="scene",
         )
-        expected = Mock()
-        with (
-            patch.object(
-                service,
-                "active_config",
-                return_value=(config, {}),
-            ),
-            patch(
-                "vidxp.application.search_scene",
-                return_value=expected,
-            ) as search,
-        ):
+        with patch.object(
+            service,
+            "execute",
+            return_value=expected,
+        ) as execute:
             result = service.search("scene", "yellow taxi", top_k=7)
 
         self.assertIs(result, expected)
-        search.assert_called_once_with(
-            "yellow taxi",
-            config=config,
-            top_k=7,
-            video_id="video-1",
+        execute.assert_called_once_with(
+            "scene",
+            "search",
+            {"query": "yellow taxi", "top_k": 7},
         )
 
     def test_create_index_centralizes_storage_and_runtime_configuration(self):
@@ -95,14 +132,10 @@ class ApplicationServiceTests(unittest.TestCase):
 
     def test_dependency_checks_return_a_transport_neutral_contract(self):
         service = VidXPService()
-        with (
-            patch(
-                "vidxp.application.dependency_failures",
-                return_value=[("CLIP", "missing")],
-            ),
-            patch(
-                "vidxp.application.ffmpeg_binary",
-                return_value="ffmpeg",
+        with patch(
+            "vidxp.application.dependency_checks",
+            return_value=(
+                {"name": "CLIP", "ok": False, "error": "missing"},
             ),
         ):
             result = service.check_dependencies(("scene",))
@@ -116,19 +149,35 @@ class ApplicationServiceTests(unittest.TestCase):
     def test_model_preparation_reports_progress_without_cli_dependencies(self):
         service = VidXPService(device="cuda")
         events = []
+        prepare = Mock(
+            side_effect=lambda config, _language, progress: (
+                progress(
+                    {
+                        "state": "preparing",
+                        "stage": "scene_model",
+                        "message": "Preparing scene model",
+                    }
+                ),
+                (config.clip_model,),
+            )[1]
+        )
+        capability = Mock(prepare=prepare)
         with (
             patch(
-                "vidxp.application.dependency_failures",
-                return_value=[],
+                "vidxp.application.dependency_checks",
+                return_value=(),
             ),
-            patch("vidxp.application.get_clip_model") as load_clip,
+            patch(
+                "vidxp.application.get_capability",
+                return_value=capability,
+            ),
         ):
             result = service.prepare_models(
                 ("scene",),
                 progress_callback=events.append,
             )
 
-        load_clip.assert_called_once_with("ViT-B/32", "cuda")
+        prepare.assert_called_once()
         self.assertEqual(result["device"], "cuda")
         self.assertEqual(events[0]["stage"], "scene_model")
 

@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from vidxp.capabilities.actor.operations import (
+    clusters_operation,
+    detections_operation,
+    render_operation,
+)
+from vidxp.capabilities.contracts import (
+    CapabilityDefinition,
+    OperationDefinition,
+    RuntimeDependency,
+)
+from vidxp.capabilities.schemas import (
+    ActorClustersInput,
+    ActorClustersOutput,
+    ActorDetectionsInput,
+    ActorDetectionsOutput,
+    ActorRenderInput,
+    ActorRenderResult,
+)
+from vidxp.capabilities.visual import index_capabilities
+from vidxp.core.contracts import IndexConfig, VideoSource
+
+
+DEPENDENCIES = (
+    RuntimeDependency("ChromaDB", "chromadb", "chromadb"),
+    RuntimeDependency(
+        "face recognition",
+        "face-recognition",
+        "face_recognition",
+    ),
+    RuntimeDependency("dlib", "dlib", "dlib"),
+    RuntimeDependency(
+        "face recognition models",
+        "face-recognition-models",
+        "face_recognition_models",
+    ),
+    RuntimeDependency("NumPy", "numpy", "numpy"),
+    RuntimeDependency("OpenCV", "opencv-python", "cv2"),
+)
+
+
+def model_manifest(
+    config: IndexConfig,
+    _sources: tuple[VideoSource, ...],
+) -> Mapping[str, Any]:
+    return {
+        "actor": {
+            "library": "face_recognition",
+            "match_threshold": config.face_match_threshold,
+            "num_jitters": config.face_num_jitters,
+            "minimum_detections": config.actor_min_detections,
+        }
+    }
+
+
+def cli_app():
+    from vidxp.capabilities.actor.cli import app
+
+    return app
+
+
+DEFINITION = CapabilityDefinition(
+    name="actor",
+    description="Index, inspect, and render actor clusters.",
+    extra="actor",
+    collection_name="actor",
+    indexer=index_capabilities,
+    index_stage="visual_indexing",
+    dependencies=DEPENDENCIES,
+    model_manifest=model_manifest,
+    operations={
+        "clusters": OperationDefinition(
+            input_model=ActorClustersInput,
+            output_model=ActorClustersOutput,
+            handler=clusters_operation,
+        ),
+        "detections": OperationDefinition(
+            input_model=ActorDetectionsInput,
+            output_model=ActorDetectionsOutput,
+            handler=detections_operation,
+        ),
+        "render": OperationDefinition(
+            input_model=ActorRenderInput,
+            output_model=ActorRenderResult,
+            handler=render_operation,
+        ),
+    },
+    cli_name="actors",
+    cli_factory=cli_app,
+)

@@ -11,13 +11,16 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Mapping
 
+from vidxp.capabilities.registry import (
+    get_capability,
+    runtime_distributions,
+)
 from vidxp.core.contracts import (
     INDEX_SCHEMA_VERSION,
     MANIFEST_SCHEMA_VERSION,
     IndexConfig,
     VideoSource,
 )
-from vidxp.core.models import runtime_distributions
 
 
 MANIFEST_FILE = "manifest.json"
@@ -212,19 +215,11 @@ class ManifestStore:
         ],
     ) -> dict[str, Any]:
         models: dict[str, Any] = {"device": self.config.device}
-        if "dialogue" in self.config.enabled_modalities:
-            models["dialogue"] = self.config.sentence_model
-            if any(source.transcript is None for _, source, _, _ in sources):
-                models["transcription"] = self.config.whisper_model
-        if "scene" in self.config.enabled_modalities:
-            models["scene"] = self.config.clip_model
-        if "actor" in self.config.enabled_modalities:
-            models["actor"] = {
-                "library": "face_recognition",
-                "match_threshold": self.config.face_match_threshold,
-                "num_jitters": self.config.face_num_jitters,
-                "minimum_detections": self.config.actor_min_detections,
-            }
+        source_values = tuple(source for _, source, _, _ in sources)
+        for name in self.config.enabled_modalities:
+            manifest = get_capability(name).model_manifest
+            if manifest is not None:
+                models.update(manifest(self.config, source_values))
         return models
 
     def initialize(

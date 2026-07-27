@@ -16,10 +16,11 @@ from vidxp.benchmarks.common import (
     run_logged_evaluator,
     verify_artifact,
 )
-from vidxp.core.contracts import IndexConfig, SearchHit, VideoSource
+from vidxp.capabilities.scene.operations import search_scene
+from vidxp.capabilities.schemas import SearchHit
+from vidxp.core.contracts import IndexConfig, VideoSource
 from vidxp.core.manifest import write_json_atomic
 from vidxp.core.runner import run_index
-from vidxp.core.search import search_scene
 
 
 DIDEMO_REVISION = "b6a555c8134581305d0ed4716fbc192860e0b88c"

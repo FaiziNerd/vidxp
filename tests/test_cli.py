@@ -11,8 +11,13 @@ from unittest.mock import Mock, patch
 from typer.testing import CliRunner
 
 from vidxp import cli
-from vidxp.core.actor_results import ActorClusterSummary, ActorRenderResult
-from vidxp.core.contracts import SearchHit, SearchResult
+from vidxp.capabilities.schemas import (
+    ActorClusterSummary,
+    ActorDetection,
+    ActorRenderResult,
+    SearchHit,
+    SearchResult,
+)
 from vidxp.index_state import IndexNotReadyError
 
 
@@ -291,18 +296,32 @@ class CliTests(unittest.TestCase):
             )
 
     def test_actor_commands_expose_clusters_detections_and_rendering(self):
-        cluster = ActorClusterSummary("3", "video-1", 4, 1.0, 8.0)
+        cluster = ActorClusterSummary(
+            cluster_id="3",
+            video_id="video-1",
+            detection_count=4,
+            first_timestamp=1.0,
+            last_timestamp=8.0,
+        )
         self.service.actor_clusters.return_value = (cluster,)
         self.service.actor_detections.return_value = [
-            {
-                "frame_index": 2,
-                "timestamp": 1.5,
-                "detection_id": "d2",
-            }
+            ActorDetection(
+                detection_id="d2",
+                cluster_id="3",
+                frame_index=2,
+                timestamp=1.5,
+                bbox=(1, 2, 3, 0),
+                dataset="local",
+                split="local",
+                run_id="default",
+                video_id="video-1",
+                modality="actor",
+                source_id="actor:d2",
+            )
         ]
         self.service.render_actor.return_value = ActorRenderResult(
-            Path("actor.mp4"),
-            4,
+            output_path=Path("actor.mp4"),
+            detection_count=4,
         )
 
         listed = self.invoke(["actors", "list", "--json"])

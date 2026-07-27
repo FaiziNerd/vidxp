@@ -103,7 +103,10 @@ def actors_inspect(
     payload = {
         "cluster_id": cluster_id,
         "detection_count": len(detections),
-        "detections": detections[:limit],
+        "detections": [
+            detection.model_dump(mode="json")
+            for detection in detections[:limit]
+        ],
         "truncated": len(detections) > limit,
     }
     if effective_output_format(state, json_output) == OutputFormat.json:
@@ -115,9 +118,9 @@ def actors_inspect(
     table.add_column("Detection")
     for detection in detections[:limit]:
         table.add_row(
-            str(detection["frame_index"]),
-            f"{float(detection['timestamp']):.3f}s",
-            str(detection["detection_id"]),
+            str(detection.frame_index),
+            f"{detection.timestamp:.3f}s",
+            detection.detection_id,
         )
     Console().print(table)
     if len(detections) > limit:

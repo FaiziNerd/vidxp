@@ -11,13 +11,13 @@ import typer
 from vidxp import __version__
 from vidxp.application import VidXPService
 from vidxp.benchmarks.cli import app as benchmark_app
-from vidxp.cli_commands.actors import app as actors_app
+from vidxp.capabilities.actor.results import ActorClusterNotFoundError
+from vidxp.capabilities.registry import CAPABILITIES
 from vidxp.cli_commands.index import app as index_app
 from vidxp.cli_commands.repositories import app as repositories_app
 from vidxp.cli_commands.runtime import doctor, prepare, ui
 from vidxp.cli_commands.search import app as search_app
 from vidxp.cli_support import CLIState, OutputFormat
-from vidxp.core.actor_results import ActorClusterNotFoundError
 from vidxp.core.contracts import IndexSchemaError
 from vidxp.index_state import (
     IndexingInProgressError,
@@ -28,13 +28,18 @@ from vidxp.repositories import resolve_repository
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Index and search video by dialogue, scene, and actor.",
+    help="Index and search video with installable capabilities.",
 )
 app.add_typer(index_app, name="index")
 app.add_typer(search_app, name="search")
-app.add_typer(actors_app, name="actors")
 app.add_typer(repositories_app, name="repositories")
 app.add_typer(benchmark_app, name="benchmark")
+for _capability in CAPABILITIES.values():
+    if _capability.cli_factory is not None:
+        app.add_typer(
+            _capability.cli_factory(),
+            name=_capability.cli_name,
+        )
 app.command()(doctor)
 app.command()(prepare)
 app.command()(ui)

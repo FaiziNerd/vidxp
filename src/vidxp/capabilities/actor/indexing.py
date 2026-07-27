@@ -146,7 +146,11 @@ def finalize_actor_index(
         if size < config.actor_min_detections
     ]
     for cluster_id in rejected:
-        storage.delete_actor_cluster(str(config.video_id), cluster_id)
+        storage.delete_records(
+            "actor",
+            video_id=str(config.video_id),
+            filters={"cluster_id": cluster_id},
+        )
     retained = {
         cluster_id: size
         for cluster_id, size in state.cluster_sizes.items()

@@ -33,29 +33,12 @@ classifiers = [
   "Topic :: Multimedia :: Video",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+dynamic = ["optional-dependencies"]
 dependencies = [
-  "chromadb",
-  "face_recognition",
   "filelock>=3.13",
-  "moviepy==1.0.3",
-  "numpy>=2.1,<3",
-  "opencv-python",
-  "Pillow>=7.0.0",
+  "pydantic>=2.8,<3",
   "rich",
-  "sentence-transformers>=3.4,<4",
-  "setuptools>=68,<81",
-  "torch",
   "typer>=0.27,<1",
-  "whisperx>=3.8.6,<3.9",
-  "clip-anytorch==2.6.0",
-]
-
-[project.optional-dependencies]
-frontend = [
-  "streamlit>=1.37",
-]
-benchmarks = [
-  "srt>=3.5,<4",
 ]
 
 [project.scripts]
@@ -74,7 +57,23 @@ where = ["src"]
 include = ["vidxp*"]
 
 [tool.setuptools.package-data]
-vidxp = []
+vidxp = [
+  "benchmarks/requirements.txt",
+  "capabilities/*/requirements.txt",
+  "requirements/*.txt",
+]
+
+[tool.setuptools.dynamic.optional-dependencies]
+dialogue = { file = ["src/vidxp/capabilities/dialogue/requirements.txt"] }
+scene = { file = ["src/vidxp/capabilities/scene/requirements.txt"] }
+actor = { file = ["src/vidxp/capabilities/actor/requirements.txt"] }
+all = { file = [
+  "src/vidxp/capabilities/dialogue/requirements.txt",
+  "src/vidxp/capabilities/scene/requirements.txt",
+  "src/vidxp/capabilities/actor/requirements.txt",
+] }
+frontend = { file = ["src/vidxp/requirements/frontend.txt"] }
+benchmarks = { file = ["src/vidxp/benchmarks/requirements.txt"] }
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]

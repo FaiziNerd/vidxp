@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from vidxp.capabilities.registry import CAPABILITIES, capability_names
 from vidxp.cli_support import (
     OutputFormat,
     effective_output_format,
     emit_json,
     parse_modalities,
     state_from_context,
+)
+
+ALL_CAPABILITIES = ",".join(capability_names())
+PREPARABLE_CAPABILITIES = ",".join(
+    name
+    for name, capability in CAPABILITIES.items()
+    if capability.prepare is not None
 )
 
 
@@ -24,7 +31,7 @@ def doctor(
             "-m",
             help="Only validate dependencies for these modalities.",
         ),
-    ] = "dialogue,scene,actor",
+    ] = ALL_CAPABILITIES,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -69,7 +76,7 @@ def prepare(
             "-m",
             help="Only prepare models for these modalities.",
         ),
-    ] = "dialogue,scene",
+    ] = PREPARABLE_CAPABILITIES,
     language: Annotated[
         str | None,
         typer.Option(

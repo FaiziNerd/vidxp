@@ -5,15 +5,13 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from vidxp.core import indexing_visual as indexing_visual_module
-from vidxp.core.contracts import CancellationToken, IndexConfig, VideoSource
-from vidxp.core.indexing import (
+from vidxp.capabilities import visual as indexing_visual_module
+from vidxp.capabilities.dialogue.indexing import (
     build_dialogue_phrases,
-    index_actors,
     index_dialogue,
-    index_scenes,
-    index_visuals,
 )
+from vidxp.capabilities.visual import index_visuals
+from vidxp.core.contracts import CancellationToken, IndexConfig, VideoSource
 from vidxp.core.video import FrameSample, VideoInfo
 
 
@@ -26,8 +24,10 @@ class CapturingStorage:
         self.calls.append((modality, list(records), options))
         return len(records)
 
-    def delete_actor_cluster(self, video_id, cluster_id):
-        self.deleted_actor_clusters.append((video_id, cluster_id))
+    def delete_records(self, modality, *, video_id, filters):
+        self.deleted_actor_clusters.append(
+            (modality, video_id, filters["cluster_id"])
+        )
 
 
 class FakeEncoder:
@@ -117,11 +117,11 @@ class IndexingTests(unittest.TestCase):
         encoder = FakeEncoder()
         with (
             patch(
-                "vidxp.core.indexing_dialogue.get_embedder",
+                "vidxp.capabilities.dialogue.indexing.get_embedder",
                 return_value=encoder,
             ),
             patch(
-                "vidxp.core.indexing_dialogue.transcribe_video",
+                "vidxp.capabilities.dialogue.indexing.transcribe_video",
                 side_effect=AssertionError("video/Whisper path was used"),
             ),
         ):
@@ -188,25 +188,26 @@ class IndexingTests(unittest.TestCase):
         )
 
         with (
-            patch("vidxp.core.indexing_visual.probe_video", return_value=info),
+            patch("vidxp.capabilities.visual.probe_video", return_value=info),
             patch(
-                "vidxp.core.indexing_visual.iter_frame_batches",
+                "vidxp.capabilities.visual.iter_frame_batches",
                 return_value=iter(batches),
             ),
             patch(
-                "vidxp.core.indexing_visual.get_clip_model",
+                "vidxp.capabilities.visual.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
                 ),
             ),
         ):
-            stats = index_scenes(
+            stats = index_visuals(
                 source,
                 config=config,
                 storage=storage,
                 cancellation=CancellationToken(),
-            )
+                modalities=("scene",),
+            ).summary
 
         self.assertEqual(model.batch_sizes, [2, 1])
         self.assertEqual(stats["scene_frames"], 3)
@@ -257,19 +258,20 @@ class IndexingTests(unittest.TestCase):
             ),
         )
         with (
-            patch("vidxp.core.indexing_visual.probe_video", return_value=info),
+            patch("vidxp.capabilities.visual.probe_video", return_value=info),
             patch(
-                "vidxp.core.indexing_visual.iter_frame_batches",
+                "vidxp.capabilities.visual.iter_frame_batches",
                 return_value=iter(batches),
             ),
             patch.dict(sys.modules, {"face_recognition": fake_faces}),
         ):
-            stats = index_actors(
+            stats = index_visuals(
                 source,
                 config=config,
                 storage=storage,
                 cancellation=CancellationToken(),
-            )
+                modalities=("actor",),
+            ).summary
 
         self.assertEqual(stats["actor_frames"], 2)
         self.assertEqual(stats["actor_detections"], 2)
@@ -349,26 +351,26 @@ class IndexingTests(unittest.TestCase):
 
         with (
             patch(
-                "vidxp.core.indexing_visual.probe_video",
+                "vidxp.capabilities.visual.probe_video",
                 return_value=info,
             ) as probe,
             patch(
-                "vidxp.core.indexing_visual.iter_frame_batches",
+                "vidxp.capabilities.visual.iter_frame_batches",
                 frame_stream,
             ),
             patch(
-                "vidxp.core.indexing_visual.get_clip_model",
+                "vidxp.capabilities.visual.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
                 ),
             ),
             patch(
-                "vidxp.core.indexing_visual.process_actor_samples",
+                "vidxp.capabilities.visual.process_actor_samples",
                 side_effect=consume_actor,
             ) as actor_consumer,
             patch(
-                "vidxp.core.indexing_visual._rgb_samples",
+                "vidxp.capabilities.visual._rgb_samples",
                 wraps=indexing_visual_module._rgb_samples,
             ) as rgb_conversion,
         ):

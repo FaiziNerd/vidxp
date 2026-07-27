@@ -1,0 +1,1 @@
+"""Actor capability implementation."""

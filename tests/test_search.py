@@ -4,13 +4,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from vidxp.core.contracts import IndexConfig, IndexSchemaError, SearchResult
-from vidxp.core.search import (
+from vidxp.capabilities.dialogue.operations import search_dialogue
+from vidxp.capabilities.schemas import SearchResult
+from vidxp.capabilities.search import (
     distance_to_score,
-    search_dialogue,
     serialize_predictions,
     stable_query_id,
 )
+from vidxp.core.contracts import IndexConfig, IndexSchemaError
 
 
 class FakeStorage:
@@ -60,7 +61,7 @@ class SearchTests(unittest.TestCase):
             ]
         )
         with patch(
-            "vidxp.core.search._dialogue_embedding",
+            "vidxp.capabilities.dialogue.operations.dialogue_embedding",
             return_value=[0.5, 0.25],
         ):
             result = search_dialogue(
@@ -126,7 +127,7 @@ class SearchTests(unittest.TestCase):
         )
         with (
             patch(
-                "vidxp.core.search._dialogue_embedding",
+                "vidxp.capabilities.dialogue.operations.dialogue_embedding",
                 return_value=[0.5],
             ),
             self.assertRaisesRegex(IndexSchemaError, "must be rebuilt"),
