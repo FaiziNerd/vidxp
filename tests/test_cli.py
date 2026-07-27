@@ -60,7 +60,7 @@ class CliTests(unittest.TestCase):
                 ["--config", str(self.config_file), *arguments],
             )
 
-    def test_grouped_commands_are_exposed_and_compatibility_aliases_are_hidden(self):
+    def test_grouped_commands_are_exposed(self):
         response = self.invoke(["--help"])
 
         self.assertEqual(response.exit_code, 0)
@@ -73,13 +73,14 @@ class CliTests(unittest.TestCase):
             "ui",
         ):
             self.assertIn(command, response.stdout)
-        for alias in ("videoindex", "dialogue", "scene", "actor"):
-            self.assertFalse(
-                any(
-                    line.lstrip("│ ").startswith(f"{alias} ")
-                    for line in response.stdout.splitlines()
-                )
-            )
+
+    def test_removed_legacy_commands_are_rejected(self):
+        for command in ("videoindex", "dialogue", "scene", "actor"):
+            with self.subTest(command=command):
+                response = self.invoke([command])
+
+                self.assertEqual(response.exit_code, 2)
+                self.assertIn("No such command", response.output)
 
     def test_search_returns_ranked_json_and_passes_top_k(self):
         self.service.search.return_value = result(
@@ -275,10 +276,14 @@ class CliTests(unittest.TestCase):
             patch.object(frontend, "ACTOR_OUTPUT_PATH"),
             patch.object(frontend, "main") as launch,
         ):
-            response = self.invoke(["ui"])
+            response = self.invoke(
+                ["ui", "--host", "0.0.0.0", "--port", "8501"]
+            )
 
             self.assertEqual(response.exit_code, 0, response.output)
-            launch.assert_called_once_with()
+            launch.assert_called_once_with(
+                ["--server.address=0.0.0.0", "--server.port=8501"]
+            )
             self.assertEqual(os.environ["VIDXP_DEVICE"], "cuda")
             self.assertEqual(
                 os.environ["VIDXP_INDEX_DIR"],
@@ -325,19 +330,6 @@ class CliTests(unittest.TestCase):
         self.assertEqual(
             json.loads(rendered.stdout)["output_path"],
             "actor.mp4",
-        )
-
-    def test_legacy_search_alias_still_works(self):
-        self.service.search.return_value = result("scene", [3.25])
-
-        response = self.invoke(["scene", "yellow taxi"])
-
-        self.assertEqual(response.exit_code, 0, response.output)
-        self.assertIn("3.250 seconds", response.stdout)
-        self.service.search.assert_called_once_with(
-            "scene",
-            "yellow taxi",
-            top_k=1,
         )
 
     def test_benchmark_commands_are_exposed(self):

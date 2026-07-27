@@ -9,7 +9,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | `src/vidxp/cli.py` | Typer commands and installed `vidxp` entry point |
 | `src/vidxp/application.py` | Reusable application boundary for CLI and future adapters |
 | `src/vidxp/repositories.py` | Persistent named local-index configuration |
-| `src/vidxp/frontend.py` | Streamlit interface and installed `vidxp-ui` entry point |
+| `src/vidxp/frontend.py` | Streamlit interface launched by `vidxp ui` |
 | `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |
 | `pyproject.toml` | Package metadata and Python dependencies |
@@ -42,7 +42,7 @@ vidxp doctor
 ```
 
 CLI: `vidxp --help`  
-UI: `vidxp-ui`
+UI: `vidxp ui`
 
 Models default to CPU and download into their libraries' standard caches on
 first use. If a model identifier changes, update the setup documentation and

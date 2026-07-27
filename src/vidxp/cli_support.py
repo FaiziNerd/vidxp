@@ -181,7 +181,7 @@ def selected_modalities(
     return selected
 
 
-def legacy_modalities(value: str) -> tuple[str, ...]:
+def parse_modalities(value: str) -> tuple[str, ...]:
     selected = tuple(
         item.strip().lower()
         for item in value.split(",")

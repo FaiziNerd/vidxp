@@ -1,6 +1,7 @@
 import hashlib
 import sys
 from pathlib import Path
+from typing import Sequence
 
 import streamlit as st
 
@@ -373,10 +374,15 @@ def run():
         _run_indexing(uploaded_video, status)
 
 
-def main():
+def main(arguments: Sequence[str] = ()):
     from streamlit.web import cli as streamlit_cli
 
-    sys.argv = ["streamlit", "run", str(Path(__file__).resolve()), *sys.argv[1:]]
+    sys.argv = [
+        "streamlit",
+        "run",
+        str(Path(__file__).resolve()),
+        *arguments,
+    ]
     raise SystemExit(streamlit_cli.main())
 
 

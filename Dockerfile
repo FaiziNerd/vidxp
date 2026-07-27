@@ -30,4 +30,4 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 EXPOSE 8501
 
-CMD ["vidxp-ui", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["vidxp", "ui", "--host", "0.0.0.0", "--port", "8501"]

@@ -119,9 +119,8 @@ Install the `frontend` extra and start:
 vidxp ui
 ```
 
-`vidxp-ui` remains available as a direct launcher. Both launchers use the
-active named repository. The command starts a local Streamlit server and
-remains active until stopped.
+The command uses the active named repository, starts a local Streamlit server,
+and remains active until stopped.
 The interface can upload a video, start or cancel indexing, restore saved
 progress after a page reload, and search the capabilities available in the
 completed index.

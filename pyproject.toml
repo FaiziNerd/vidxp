@@ -60,7 +60,6 @@ benchmarks = [
 
 [project.scripts]
 vidxp = "vidxp.cli:main"
-vidxp-ui = "vidxp.frontend:main"
 
 [project.urls]
 Repository = "https://github.com/grayhatdevelopers/vidxp"

@@ -11,7 +11,6 @@ import typer
 from vidxp import __version__
 from vidxp.application import VidXPService
 from vidxp.benchmarks.cli import app as benchmark_app
-from vidxp.cli_commands import compat
 from vidxp.cli_commands.actors import app as actors_app
 from vidxp.cli_commands.index import app as index_app
 from vidxp.cli_commands.repositories import app as repositories_app
@@ -39,10 +38,6 @@ app.add_typer(benchmark_app, name="benchmark")
 app.command()(doctor)
 app.command()(prepare)
 app.command()(ui)
-app.command("videoindex", hidden=True, deprecated=True)(compat.videoindex)
-app.command("dialogue", hidden=True, deprecated=True)(compat.dialogue)
-app.command("scene", hidden=True, deprecated=True)(compat.scene)
-app.command("actor", hidden=True, deprecated=True)(compat.actor)
 
 
 def _show_version(value: bool) -> None:

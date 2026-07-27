@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +10,7 @@ from vidxp.cli_support import (
     OutputFormat,
     effective_output_format,
     emit_json,
-    legacy_modalities,
+    parse_modalities,
     state_from_context,
 )
 
@@ -33,7 +32,7 @@ def doctor(
 ) -> None:
     """Validate selected indexing dependencies without downloading models."""
 
-    selected = legacy_modalities(modalities)
+    selected = parse_modalities(modalities)
     state = state_from_context(ctx)
     result = state.service.check_dependencies(selected)
     if effective_output_format(state, json_output) == OutputFormat.json:
@@ -86,7 +85,7 @@ def prepare(
 ) -> None:
     """Download and cache selected runtime models before indexing."""
 
-    selected = legacy_modalities(modalities)
+    selected = parse_modalities(modalities)
     state = state_from_context(ctx)
     result = state.service.prepare_models(
         selected,
@@ -109,7 +108,22 @@ def prepare(
         )
 
 
-def ui(ctx: typer.Context) -> None:
+def ui(
+    ctx: typer.Context,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Streamlit server address."),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option(
+            "--port",
+            min=1,
+            max=65535,
+            help="Streamlit server port.",
+        ),
+    ] = None,
+) -> None:
     """Launch Streamlit with the selected repository configuration."""
 
     state = state_from_context(ctx)
@@ -138,5 +152,9 @@ def ui(ctx: typer.Context) -> None:
     frontend.ACTOR_OUTPUT_PATH = (
         state.service.index_directory / "actor-result.mp4"
     )
-    sys.argv = [sys.argv[0]]
-    frontend.main()
+    streamlit_arguments = []
+    if host is not None:
+        streamlit_arguments.append(f"--server.address={host}")
+    if port is not None:
+        streamlit_arguments.append(f"--server.port={port}")
+    frontend.main(streamlit_arguments)
