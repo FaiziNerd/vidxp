@@ -98,8 +98,9 @@ weights. Restrict the check when diagnosing one capability:
 vidxp doctor --modalities scene
 ```
 
-If the frontend extra was installed, start the interface with `vidxp-ui`. It
-runs until stopped with `Ctrl+C`.
+If the frontend extra was installed, start the interface with `vidxp ui`. The
+standalone `vidxp-ui` launcher remains available; both use the active repository
+configured by `vidxp repositories use`. They run until stopped with `Ctrl+C`.
 
 ## Prepare models
 

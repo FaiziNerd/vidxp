@@ -8,6 +8,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 |-------------|------|
 | `src/vidxp/cli.py` | Typer commands and installed `vidxp` entry point |
 | `src/vidxp/application.py` | Reusable application boundary for CLI and future adapters |
+| `src/vidxp/repositories.py` | Persistent named local-index configuration |
 | `src/vidxp/frontend.py` | Streamlit interface and installed `vidxp-ui` entry point |
 | `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |

@@ -103,15 +103,25 @@ Repeat `--modality` to combine `dialogue`, `scene`, and `actor`.
 Run `vidxp --help` or any command followed by `--help` for the complete command
 reference.
 
+Use named repositories to keep index locations and devices centrally
+configured:
+
+```bash
+vidxp repositories add team --index-dir ./indexes/team --device cuda --use
+vidxp repositories list
+```
+
 ## Browser interface
 
 Install the `frontend` extra and start:
 
 ```bash
-vidxp-ui
+vidxp ui
 ```
 
-The command starts a local Streamlit server and remains active until stopped.
+`vidxp-ui` remains available as a direct launcher. Both launchers use the
+active named repository. The command starts a local Streamlit server and
+remains active until stopped.
 The interface can upload a video, start or cancel indexing, restore saved
 progress after a page reload, and search the capabilities available in the
 completed index.
