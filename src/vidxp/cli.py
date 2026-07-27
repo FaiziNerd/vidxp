@@ -5,6 +5,7 @@ from typing import Annotated
 import typer
 from rich import print
 
+from vidxp import __version__
 from vidxp.benchmarks.cli import app as benchmark_app
 from vidxp.core.actor_results import (
     ActorClusterNotFoundError,
@@ -32,8 +33,30 @@ from vidxp.index_state import (
 )
 
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 app.add_typer(benchmark_app, name="benchmark")
+
+
+def _show_version(value: bool) -> None:
+    if value:
+        print(f"VidXP {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def app_options(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=_show_version,
+            is_eager=True,
+            help="Show the installed VidXP version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Index and search video by dialogue, scene, and actor."""
 
 
 def _modalities(value: str) -> tuple[str, ...]:

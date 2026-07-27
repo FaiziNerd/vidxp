@@ -130,6 +130,17 @@ class CliCompatibilityTests(unittest.TestCase):
         self.assertIn("didemo", response.stdout)
         self.assertIn("hirest", response.stdout)
 
+    def test_version_options_report_installed_package_version(self):
+        for option in ("--version", "-V"):
+            with self.subTest(option=option):
+                response = CliRunner().invoke(cli.app, [option])
+
+                self.assertEqual(response.exit_code, 0)
+                self.assertEqual(
+                    response.stdout.strip(),
+                    f"VidXP {cli.__version__}",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
