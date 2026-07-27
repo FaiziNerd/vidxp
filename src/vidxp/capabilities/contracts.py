@@ -77,6 +77,14 @@ class CapabilityContext:
         return self.config
 
 
+@dataclass(frozen=True)
+class PreparationContext:
+    """Runtime values supplied to one capability's preparation hook."""
+
+    device: str
+    settings: CapabilityConfig
+
+
 OperationHandler = Callable[[CapabilityContext, BaseModel], BaseModel | Mapping]
 
 
@@ -109,7 +117,7 @@ class CapabilityIndexResult:
 
 IndexHandler = Callable[..., CapabilityIndexResult]
 PrepareHandler = Callable[
-    ["IndexConfig", str | None, "ProgressCallback | None"],
+    [PreparationContext, "ProgressCallback | None"],
     tuple[str, ...],
 ]
 DependencySelector = Callable[

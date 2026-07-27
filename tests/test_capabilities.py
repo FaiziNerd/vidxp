@@ -16,6 +16,7 @@ from vidxp.capabilities.registry import (
     capability_names,
     collection_names,
     index_capability_names,
+    preparable_capability_names,
     validate_capability_options,
 )
 from vidxp.capabilities.scene.config import SceneConfig
@@ -40,6 +41,10 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(
             index_capability_names(),
             capability_names(),
+        )
+        self.assertEqual(
+            preparable_capability_names(),
+            ("dialogue", "scene"),
         )
         self.assertEqual(
             collection_names(),

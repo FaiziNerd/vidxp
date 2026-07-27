@@ -35,6 +35,14 @@ def index_capability_names() -> tuple[str, ...]:
     )
 
 
+def preparable_capability_names() -> tuple[str, ...]:
+    return tuple(
+        name
+        for name, capability in CAPABILITIES.items()
+        if capability.prepare is not None
+    )
+
+
 def get_capability(name: str) -> CapabilityDefinition:
     try:
         return CAPABILITIES[name]

@@ -10,6 +10,7 @@ from vidxp.cli_support import (
     OutputFormat,
     effective_output_format,
     emit_json,
+    parse_capability_options,
     parse_modalities,
     state_from_context,
 )
@@ -77,12 +78,14 @@ def prepare(
             help="Only prepare models for these modalities.",
         ),
     ] = PREPARABLE_CAPABILITIES,
-    language: Annotated[
-        str | None,
+    capability_options: Annotated[
+        list[str] | None,
         typer.Option(
-            "--language",
-            "-l",
-            help="Also cache the WhisperX alignment model for this language.",
+            "--option",
+            help=(
+                "Capability setting as CAPABILITY.KEY=VALUE; "
+                "repeat for multiple settings."
+            ),
         ),
     ] = None,
     json_output: Annotated[
@@ -96,7 +99,7 @@ def prepare(
     state = state_from_context(ctx)
     result = state.service.prepare_models(
         selected,
-        language=language,
+        capability_options=parse_capability_options(capability_options),
         progress_callback=(
             None
             if state.quiet

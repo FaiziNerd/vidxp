@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
+    PreparationContext,
     RuntimeDependency,
 )
 from vidxp.capabilities.dialogue.config import DialogueConfig, dialogue_config
@@ -51,11 +52,10 @@ def dependencies_for_source(
 
 
 def prepare_models(
-    config: IndexConfig,
-    language: str | None,
+    context: PreparationContext,
     progress: ProgressCallback | None,
 ) -> tuple[str, ...]:
-    settings = dialogue_config(config)
+    settings = DialogueConfig.model_validate(context.settings)
     prepared = []
 
     def report(stage: str, message: str) -> None:
@@ -72,21 +72,23 @@ def prepare_models(
         "dialogue_model",
         f"Preparing dialogue model: {settings.sentence_model}",
     )
-    get_embedder(settings.sentence_model, config.device)
+    get_embedder(settings.sentence_model, context.device)
     prepared.append(settings.sentence_model)
     report(
         "transcription_model",
         f"Preparing transcription model: WhisperX {settings.whisper_model}",
     )
-    get_whisper_model(settings.whisper_model, config.device)
+    get_whisper_model(settings.whisper_model, context.device)
     prepared.append(settings.whisper_model)
-    if language:
+    if settings.alignment_language:
         report(
             "alignment_model",
-            f"Preparing the {language} alignment model.",
+            f"Preparing the {settings.alignment_language} alignment model.",
         )
-        get_alignment_model(language, config.device)
-        prepared.append(f"whisperx-alignment:{language}")
+        get_alignment_model(settings.alignment_language, context.device)
+        prepared.append(
+            f"whisperx-alignment:{settings.alignment_language}"
+        )
     return tuple(prepared)
 
 

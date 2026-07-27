@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from vidxp.capabilities.contracts import (
     CapabilityContext,
+    PreparationContext,
     capability_install_hint,
 )
 from vidxp.capabilities.registry import (
@@ -16,6 +17,7 @@ from vidxp.capabilities.registry import (
     dependency_checks,
     get_capability,
     index_capability_names,
+    preparable_capability_names,
     validate_capability_options,
     validate_capability_names,
 )
@@ -161,18 +163,20 @@ class VidXPService:
 
     def prepare_models(
         self,
-        modalities: Iterable[str] = ("dialogue", "scene"),
+        modalities: Iterable[str] | None = None,
         *,
-        language: str | None = None,
+        capability_options: Mapping[
+            str,
+            Mapping[str, Any],
+        ] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
-        selected = self._validate_modalities(modalities)
-        config = IndexConfig.local(
-            enabled_modalities=selected,
-            device=self.device or "cpu",
-            storage_directory=self.index_directory,
-            collection_names=collection_names(),
+        selected = self._validate_modalities(
+            preparable_capability_names()
+            if modalities is None
+            else modalities
         )
+        options = validate_capability_options(selected, capability_options)
         checks = dependency_checks(selected)
         failures = [check for check in checks if not check["ok"]]
         if failures:
@@ -189,16 +193,24 @@ class VidXPService:
 
         prepared = []
         for name in selected:
-            prepare = get_capability(name).prepare
+            capability = get_capability(name)
+            prepare = capability.prepare
             if prepare is not None:
                 prepared.extend(
-                    prepare(config, language, progress_callback)
+                    prepare(
+                        PreparationContext(
+                            device=self.device or "cpu",
+                            settings=capability.config_model.model_validate(
+                                options[name]
+                            ),
+                        ),
+                        progress_callback,
+                    )
                 )
         return {
             "prepared": prepared,
             "modalities": list(selected),
-            "device": config.device,
-            "language": language,
+            "device": self.device or "cpu",
         }
 
     def execute(

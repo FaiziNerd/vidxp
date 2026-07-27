@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
+    PreparationContext,
     RuntimeDependency,
 )
 from vidxp.capabilities.scene.config import SceneConfig, scene_config
@@ -27,11 +28,10 @@ DEPENDENCIES = (
 
 
 def prepare_models(
-    config: IndexConfig,
-    _language: str | None,
+    context: PreparationContext,
     progress: ProgressCallback | None,
 ) -> tuple[str, ...]:
-    settings = scene_config(config)
+    settings = SceneConfig.model_validate(context.settings)
     if progress is not None:
         progress(
             {
@@ -42,7 +42,7 @@ def prepare_models(
                 ),
             }
         )
-    get_clip_model(settings.model, config.device)
+    get_clip_model(settings.model, context.device)
     return (settings.model,)
 
 

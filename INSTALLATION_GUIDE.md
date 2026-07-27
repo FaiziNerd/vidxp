@@ -135,7 +135,7 @@ WhisperX selects its alignment model after detecting the video's language. Cache
 a known language explicitly when required:
 
 ```bash
-vidxp prepare --language en
+vidxp prepare --option dialogue.alignment_language=en
 ```
 
 SentenceTransformer and WhisperX use the Hugging Face cache; CLIP uses its own

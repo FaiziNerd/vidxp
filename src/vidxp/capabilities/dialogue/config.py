@@ -16,6 +16,7 @@ class DialogueConfig(CapabilityConfig):
         min_length=1,
     )
     whisper_model: str = Field(default="large-v2", min_length=1)
+    alignment_language: str | None = Field(default=None, min_length=1)
 
 
 def dialogue_config(config: IndexConfig) -> DialogueConfig:

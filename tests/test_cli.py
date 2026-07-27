@@ -259,15 +259,19 @@ class CliTests(unittest.TestCase):
             "prepared": ["ViT-B/32"],
             "modalities": ["scene"],
             "device": "cpu",
-            "language": None,
         }
 
         checked = self.invoke(
             ["doctor", "--modalities", "scene", "--json"]
         )
-        prepared = self.invoke(
-            ["prepare", "--modalities", "scene", "--json"]
-        )
+        prepared = self.invoke([
+            "prepare",
+            "--modalities",
+            "scene",
+            "--option",
+            "scene.model=test-model",
+            "--json",
+        ])
 
         self.assertTrue(json.loads(checked.stdout)["ok"])
         self.assertEqual(
@@ -276,6 +280,12 @@ class CliTests(unittest.TestCase):
         )
         self.service.check_dependencies.assert_called_once_with(("scene",))
         self.service.prepare_models.assert_called_once()
+        self.assertEqual(
+            self.service.prepare_models.call_args.kwargs[
+                "capability_options"
+            ],
+            {"scene": {"model": "test-model"}},
+        )
 
     def test_ui_receives_the_selected_service_configuration(self):
         self.service.index_directory = Path("selected-index")

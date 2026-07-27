@@ -7,7 +7,9 @@ from vidxp.application import VidXPService
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
+    PreparationContext,
 )
+from vidxp.capabilities.scene.config import SceneConfig
 from vidxp.capabilities.schemas import SearchInput, SearchResult
 from vidxp.core.contracts import IndexConfig
 
@@ -150,7 +152,7 @@ class ApplicationServiceTests(unittest.TestCase):
         service = VidXPService(device="cuda")
         events = []
         prepare = Mock(
-            side_effect=lambda config, _language, progress: (
+            side_effect=lambda context, progress: (
                 progress(
                     {
                         "state": "preparing",
@@ -158,10 +160,13 @@ class ApplicationServiceTests(unittest.TestCase):
                         "message": "Preparing scene model",
                     }
                 ),
-                ("ViT-B/32",),
+                (SceneConfig.model_validate(context.settings).model,),
             )[1]
         )
-        capability = Mock(prepare=prepare)
+        capability = Mock(
+            prepare=prepare,
+            config_model=SceneConfig,
+        )
         with (
             patch(
                 "vidxp.application.dependency_checks",
@@ -178,6 +183,9 @@ class ApplicationServiceTests(unittest.TestCase):
             )
 
         prepare.assert_called_once()
+        context = prepare.call_args.args[0]
+        self.assertIsInstance(context, PreparationContext)
+        self.assertEqual(context.device, "cuda")
         self.assertEqual(result["device"], "cuda")
         self.assertEqual(events[0]["stage"], "scene_model")
 
