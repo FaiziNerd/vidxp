@@ -5,8 +5,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from vidxp.core.contracts import (
+    INDEX_SCHEMA_VERSION,
     IndexCancelledError,
     IndexConfig,
+    IndexSchemaError,
     VideoSource,
 )
 from vidxp.core.manifest import COMPLETION_FILE
@@ -16,6 +18,7 @@ from vidxp.core.runner import (
     _RunLock,
     index_video,
     indexing_in_progress,
+    local_config_from_status,
     run_index,
 )
 from vidxp.index_state import IndexingInProgressError
@@ -73,6 +76,16 @@ class RunnerTests(unittest.TestCase):
             enabled_modalities=modalities,
             output_root=root,
         )
+
+    def test_local_config_rejects_an_older_index_schema(self):
+        status = {
+            "summary": {
+                "index_schema_version": INDEX_SCHEMA_VERSION - 1,
+            }
+        }
+
+        with self.assertRaisesRegex(IndexSchemaError, "Re-index"):
+            local_config_from_status(status)
 
     def test_two_videos_complete_one_isolated_resumable_run(self):
         with TemporaryDirectory() as directory:

@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 
 from vidxp import frontend
 from vidxp.capabilities.schemas import SearchHit, SearchResult
+from vidxp.core.contracts import INDEX_SCHEMA_VERSION
 from vidxp.index_state import IndexNotReadyError
 
 
@@ -14,7 +15,7 @@ READY_STATUS = {
     "state": "ready",
     "message": "Video indexing completed successfully.",
     "summary": {
-        "index_schema_version": 2,
+        "index_schema_version": INDEX_SCHEMA_VERSION,
         "dataset": "local",
         "split": "local",
         "run_id": "default",
@@ -51,6 +52,7 @@ def frontend_harness(video_path, actor_output_path):
 
     from vidxp import frontend
     from vidxp.capabilities.schemas import SearchHit, SearchResult
+    from vidxp.core.contracts import INDEX_SCHEMA_VERSION
 
     video_path = Path(video_path)
     actor_output_path = Path(actor_output_path)
@@ -59,7 +61,7 @@ def frontend_harness(video_path, actor_output_path):
         "state": "ready",
         "message": "Video indexing completed successfully.",
         "summary": {
-            "index_schema_version": 2,
+            "index_schema_version": INDEX_SCHEMA_VERSION,
             "dataset": "local",
             "split": "local",
             "run_id": "default",
