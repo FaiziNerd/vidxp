@@ -7,7 +7,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 from vidxp.benchmarks.common import (
     append_failure,
@@ -26,6 +26,9 @@ DIDEMO_REVISION = "b6a555c8134581305d0ed4716fbc192860e0b88c"
 DIDEMO_REPOSITORY = "https://github.com/LisaAnne/LocalizingMoments"
 DIDEMO_TEST_SHA256 = (
     "1891c04ec48b3d364c739594b2b6413806b74bd9027c092d896e7ebb930ff1cd"
+)
+DIDEMO_VALIDATION_SHA256 = (
+    "b0364cc256553332feb19d46bcc4cd2b09774949fe6c0b25e7ed0ff3c6aefebb"
 )
 DIDEMO_EVALUATOR_SHA256 = (
     "4754bb320564e5d2e7c633e0b660e87feca7f00fa73269e50140e81ffb4ca762"
@@ -109,6 +112,7 @@ def rank_moments(
     hits: Sequence[SearchHit],
     *,
     num_segments: int,
+    chunk_pooling: Literal["max", "mean"] = "max",
 ) -> list[tuple[int, int]]:
     if num_segments not in {5, 6}:
         raise ValueError("DiDeMo num_segments must be five or six.")
@@ -127,8 +131,14 @@ def rank_moments(
             "No sampled scene frame was available for DiDeMo chunk(s): "
             + ", ".join(str(index) for index in missing)
         )
-    chunk_means = {
-        index: mean(values)
+    if chunk_pooling not in {"max", "mean"}:
+        raise ValueError("DiDeMo chunk pooling must be 'max' or 'mean'.")
+    pooled_scores = {
+        index: (
+            max(values)
+            if chunk_pooling == "max"
+            else mean(values)
+        )
         for index, values in chunk_scores.items()
     }
     canonical_order = {
@@ -145,7 +155,7 @@ def rank_moments(
     valid.sort(
         key=lambda moment: (
             -mean(
-                chunk_means[index]
+                pooled_scores[index]
                 for index in range(moment[0], moment[1] + 1)
             ),
             canonical_order[moment],
@@ -201,15 +211,23 @@ def _metrics_from_output(output: str) -> dict[str, float]:
 def _verified_artifacts(
     annotations_path: str | Path,
     evaluator_path: str | Path,
+    *,
+    split: Literal["validation", "test"],
 ) -> list[dict[str, Any]]:
+    split_file = "val_data.json" if split == "validation" else "test_data.json"
+    split_sha256 = (
+        DIDEMO_VALIDATION_SHA256
+        if split == "validation"
+        else DIDEMO_TEST_SHA256
+    )
     return [
         verify_artifact(
             annotations_path,
-            name="DiDeMo test annotations",
-            expected_sha256=DIDEMO_TEST_SHA256,
+            name=f"DiDeMo {split} annotations",
+            expected_sha256=split_sha256,
             source=(
                 f"{DIDEMO_REPOSITORY}/blob/{DIDEMO_REVISION}"
-                "/data/test_data.json"
+                f"/data/{split_file}"
             ),
             revision=DIDEMO_REVISION,
         ),
@@ -251,6 +269,7 @@ def _generate_predictions(
     *,
     config: IndexConfig,
     manifest: Mapping[str, Any],
+    chunk_pooling: Literal["max", "mean"],
 ) -> list[list[list[int]]]:
     scene_counts = {
         video_id: int(video["summary"]["scene_frames"])
@@ -272,6 +291,7 @@ def _generate_predictions(
                 for moment in rank_moments(
                     result.hits,
                     num_segments=int(annotation["num_segments"]),
+                    chunk_pooling=chunk_pooling,
                 )
             ]
         )
@@ -317,16 +337,26 @@ def run_didemo(
     annotation_indices: Sequence[int] | None = None,
     media_overrides: Mapping[str, str | Path] | None = None,
     frame_stride: int = 1,
+    split: Literal["validation", "test"] = "test",
+    chunk_pooling: Literal["max", "mean"] = "max",
     reset: bool = False,
 ) -> dict[str, Any]:
-    artifacts = _verified_artifacts(annotations_path, evaluator_path)
+    if split not in {"validation", "test"}:
+        raise ValueError("DiDeMo split must be 'validation' or 'test'.")
+    if chunk_pooling not in {"max", "mean"}:
+        raise ValueError("DiDeMo chunk pooling must be 'max' or 'mean'.")
+    artifacts = _verified_artifacts(
+        annotations_path,
+        evaluator_path,
+        split=split,
+    )
     annotations = select_annotations(
         load_annotations(annotations_path),
         annotation_indices,
     )
     config = IndexConfig(
         dataset="didemo",
-        split="test",
+        split=split,
         run_id=run_id,
         enabled_modalities=("scene",),
         frame_stride=frame_stride,
@@ -335,7 +365,11 @@ def run_didemo(
     run_directory = config.run_directory
     ensure_adapter_outputs(run_directory)
     subset = {
-        "label": "full_test" if annotation_indices is None else "smoke_test",
+        "label": (
+            f"full_{split}"
+            if annotation_indices is None
+            else f"{split}_subset"
+        ),
         "annotation_count": len(annotations),
         "annotation_indices": (
             None if annotation_indices is None else list(annotation_indices)
@@ -364,6 +398,7 @@ def run_didemo(
             annotations,
             config=config,
             manifest=manifest,
+            chunk_pooling=chunk_pooling,
         )
         validate_predictions(predictions, annotations)
         predictions_path = run_directory / "predictions.json"
@@ -386,10 +421,15 @@ def run_didemo(
             details={
                 "prediction_count": len(predictions),
                 "prediction_format_validated": True,
+                "chunk_pooling": chunk_pooling,
                 "result_classification": (
                     "official_full_test_result"
-                    if annotation_indices is None
-                    else "smoke_test_not_paper_score"
+                    if split == "test" and annotation_indices is None
+                    else (
+                        "validation_result_not_paper_score"
+                        if split == "validation"
+                        else "smoke_test_not_paper_score"
+                    )
                 ),
             },
         )

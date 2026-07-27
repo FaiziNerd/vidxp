@@ -46,6 +46,8 @@ def build_dialogue_phrases(
     *,
     words_per_phrase: int,
 ) -> list[DialoguePhrase]:
+    if words_per_phrase <= 0:
+        raise ValueError("words_per_phrase must be greater than zero.")
     phrases: list[DialoguePhrase] = []
     for segment_index, segment in enumerate(segments):
         words = segment.get("words") or []
@@ -92,14 +94,22 @@ def build_dialogue_phrases(
             segment["end"],
             f"Transcript segment {segment_index}",
         )
-        phrases.append(
-            DialoguePhrase(
-                phrase_id=len(phrases),
-                text=text,
-                start=start,
-                end=end,
+        tokens = text.split()
+        duration = end - start
+        for offset in range(0, len(tokens), words_per_phrase):
+            group = tokens[offset:offset + words_per_phrase]
+            group_start = start + duration * offset / len(tokens)
+            group_end = start + duration * (
+                offset + len(group)
+            ) / len(tokens)
+            phrases.append(
+                DialoguePhrase(
+                    phrase_id=len(phrases),
+                    text=" ".join(group),
+                    start=group_start,
+                    end=group_end,
+                )
             )
-        )
     return phrases
 
 

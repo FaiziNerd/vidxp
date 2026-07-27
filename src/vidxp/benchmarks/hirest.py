@@ -8,7 +8,8 @@ import re
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from statistics import mean
+from typing import Any, Literal, Mapping, Sequence
 
 from vidxp.benchmarks.common import (
     append_failure,
@@ -17,7 +18,7 @@ from vidxp.benchmarks.common import (
     run_logged_evaluator,
     verify_artifact,
 )
-from vidxp.core.contracts import IndexConfig, VideoSource
+from vidxp.core.contracts import IndexConfig, SearchHit, VideoSource
 from vidxp.core.manifest import sha256_file, write_json_atomic
 from vidxp.core.runner import run_index
 from vidxp.core.search import search_dialogue
@@ -36,12 +37,16 @@ HIREST_ASR_SHA256 = (
 HIREST_TEST_SHA256 = (
     "00219050c022ff2fc89c210ca4db605de6aa13c5c6014e4c678345ade3448a62"
 )
+HIREST_VALIDATION_SHA256 = (
+    "70d32c5fcdffe66cbf3c732dd274f03378da2082f50c9cec7e67705f529ecb4d"
+)
 HIREST_CATEGORIES_SHA256 = (
     "157623d50f7b8482f55fa1c4efc500539784c0399fb2dd60bb687b4006d85ca1"
 )
 HIREST_EVALUATOR_SHA256 = (
     "c4b8ba9b572ae4088e90ddc3eec2b2cc4f5b4c1a0153ff6e0843817da89a5ca0"
 )
+HIREST_DEFAULT_WINDOW_FRACTION = 0.8
 
 
 def load_ground_truth(path: str | Path) -> dict[str, dict[str, Any]]:
@@ -147,6 +152,43 @@ def validate_predictions(
                 )
 
 
+def rank_interval(
+    hits: Sequence[SearchHit],
+    *,
+    duration: float,
+    window_fraction: float,
+) -> tuple[float, float]:
+    if duration <= 0 or not math.isfinite(duration):
+        raise ValueError("HiREST video duration must be finite and positive.")
+    if not 0 < window_fraction < 1:
+        raise ValueError(
+            "HiREST temporal window fraction must be between zero and one."
+        )
+    if not hits:
+        raise ValueError("HiREST temporal ranking requires dialogue hits.")
+
+    second_count = max(1, math.ceil(duration))
+    hit_scores = [float(hit.score) for hit in hits]
+    score_range = max(hit_scores) - min(hit_scores)
+    floor_score = min(hit_scores) - max(score_range, 1e-6)
+    timeline = [floor_score] * second_count
+    for hit in hits:
+        start = max(0, math.floor(float(hit.start)))
+        end = min(second_count, math.ceil(float(hit.end)))
+        for second in range(start, end):
+            timeline[second] = max(timeline[second], float(hit.score))
+
+    width = max(1, min(second_count, round(duration * window_fraction)))
+    best_start = max(
+        range(second_count - width + 1),
+        key=lambda start: (
+            mean(timeline[start:start + width]),
+            -start,
+        ),
+    )
+    return float(best_start), min(duration, float(best_start + width))
+
+
 def _metrics_from_output(output: str) -> dict[str, Any]:
     mappings = []
     for line in output.splitlines():
@@ -178,6 +220,7 @@ def _verified_artifacts(
     categories_path: str | Path,
     evaluator_path: str | Path,
     asr_archive_path: str | Path,
+    split: Literal["validation", "test"],
 ) -> list[dict[str, Any]]:
     expected_categories = (
         Path(evaluator_path).resolve().parent
@@ -191,12 +234,22 @@ def _verified_artifacts(
             f"{expected_categories}; --categories must identify that file."
         )
     revision_root = f"{HIREST_REPOSITORY}/blob/{HIREST_REVISION}"
+    split_file = (
+        "all_data_val.json"
+        if split == "validation"
+        else "all_data_test.json"
+    )
+    split_sha256 = (
+        HIREST_VALIDATION_SHA256
+        if split == "validation"
+        else HIREST_TEST_SHA256
+    )
     return [
         verify_artifact(
             ground_truth_path,
-            name="HiREST test split",
-            expected_sha256=HIREST_TEST_SHA256,
-            source=f"{revision_root}/data/splits/all_data_test.json",
+            name=f"HiREST {split} split",
+            expected_sha256=split_sha256,
+            source=f"{revision_root}/data/splits/{split_file}",
             revision=HIREST_REVISION,
         ),
         verify_artifact(
@@ -255,13 +308,19 @@ def _generate_predictions(
     *,
     ground_truth: Mapping[str, Mapping[str, Mapping[str, Any]]],
     config: IndexConfig,
+    manifest: Mapping[str, Any],
+    temporal_window_fraction: float,
 ) -> dict[str, dict[str, dict[str, list[float]]]]:
+    dialogue_counts = {
+        video_id: int(video["summary"]["dialogue_phrases"])
+        for video_id, video in manifest["videos"].items()
+    }
     predictions: dict[str, dict[str, dict[str, list[float]]]] = {}
     for prompt, video in ordered_pairs:
         hits = search_dialogue(
             prompt,
             config=config,
-            top_k=1,
+            top_k=dialogue_counts[video],
             video_id=video,
             query_id=f"{prompt}\0{video}",
         ).hits
@@ -270,8 +329,11 @@ def _generate_predictions(
                 f"HiREST search returned no interval for {prompt!r}/{video!r}."
             )
         duration = float(ground_truth[prompt][video]["v_duration"])
-        start = max(0.0, float(hits[0].start))
-        end = min(duration, float(hits[0].end))
+        start, end = rank_interval(
+            hits,
+            duration=duration,
+            window_fraction=temporal_window_fraction,
+        )
         if end <= start:
             raise ValueError(
                 f"HiREST interval falls outside video duration for "
@@ -334,13 +396,22 @@ def run_hirest(
     run_id: str,
     output_root: str | Path = "benchmark_runs",
     pairs: Sequence[tuple[str, str]] | None = None,
+    split: Literal["validation", "test"] = "test",
+    temporal_window_fraction: float = HIREST_DEFAULT_WINDOW_FRACTION,
     reset: bool = False,
 ) -> dict[str, Any]:
+    if split not in {"validation", "test"}:
+        raise ValueError("HiREST split must be 'validation' or 'test'.")
+    if not 0 < temporal_window_fraction < 1:
+        raise ValueError(
+            "HiREST temporal window fraction must be between zero and one."
+        )
     artifacts = _verified_artifacts(
         ground_truth_path=ground_truth_path,
         categories_path=categories_path,
         evaluator_path=evaluator_path,
         asr_archive_path=asr_archive_path,
+        split=split,
     )
     ground_truth, ordered_pairs = select_ground_truth(
         load_ground_truth(ground_truth_path),
@@ -348,7 +419,7 @@ def run_hirest(
     )
     config = IndexConfig(
         dataset="hirest",
-        split="test",
+        split=split,
         run_id=run_id,
         enabled_modalities=("dialogue",),
         output_root=output_root,
@@ -356,13 +427,17 @@ def run_hirest(
     run_directory = config.run_directory
     ensure_adapter_outputs(run_directory)
     subset = {
-        "label": "full_moment_test" if pairs is None else "smoke_test",
+        "label": (
+            f"full_moment_{split}"
+            if pairs is None
+            else f"{split}_subset"
+        ),
         "pair_count": len(ordered_pairs),
         "prompt_count": len(ground_truth),
         "video_count": len({video for _, video in ordered_pairs}),
     }
     try:
-        run_index(
+        manifest = run_index(
             _transcript_sources(
                 ordered_pairs,
                 asr_directory=asr_directory,
@@ -382,6 +457,8 @@ def run_hirest(
             ordered_pairs,
             ground_truth=ground_truth,
             config=config,
+            manifest=manifest,
+            temporal_window_fraction=temporal_window_fraction,
         )
         validate_predictions(predictions, ground_truth)
         predictions_path = run_directory / "predictions.json"
@@ -408,12 +485,26 @@ def run_hirest(
                 "prediction_count": len(ordered_pairs),
                 "prediction_format_validated": True,
                 "input_mode": "released_timestamped_asr",
+                "dialogue_words_per_phrase": (
+                    config.dialogue_words_per_phrase
+                ),
+                "segment_word_timestamps": (
+                    "linear_interpolation_within_srt_cue"
+                ),
+                "temporal_ranking": (
+                    "duration_relative_window_mean_second_score"
+                ),
+                "temporal_window_fraction": temporal_window_fraction,
                 "whisperx_used": False,
                 "video_decode_used": False,
                 "result_classification": (
                     "official_full_moment_test_result"
-                    if pairs is None
-                    else "smoke_test_not_paper_score"
+                    if split == "test" and pairs is None
+                    else (
+                        "validation_result_not_paper_score"
+                        if split == "validation"
+                        else "smoke_test_not_paper_score"
+                    )
                 ),
             },
         )

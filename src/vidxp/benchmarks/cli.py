@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from rich import print
 
 from vidxp.benchmarks.didemo import run_didemo
-from vidxp.benchmarks.hirest import run_hirest
+from vidxp.benchmarks.hirest import (
+    HIREST_DEFAULT_WINDOW_FRACTION,
+    run_hirest,
+)
 
 
 app = typer.Typer(help="Run official benchmark adapters.")
@@ -67,15 +70,25 @@ def didemo_command(
     ],
     run_id: Annotated[str, typer.Option()],
     output_root: Annotated[Path, typer.Option()] = Path("benchmark_runs"),
+    split: Annotated[
+        Literal["validation", "test"],
+        typer.Option(help="Official split identified by --annotations."),
+    ] = "test",
     annotation_indices: Annotated[
         str | None,
         typer.Option(
             help=(
                 "Comma-separated zero-based annotation indices. "
-                "Omit for the full test split."
+                "Omit for the full selected split."
             )
         ),
     ] = None,
+    chunk_pooling: Annotated[
+        Literal["max", "mean"],
+        typer.Option(
+            help="Pool sampled frame scores within each five-second chunk."
+        ),
+    ] = "max",
     frame_stride: Annotated[int, typer.Option(min=1)] = 1,
     reset: Annotated[bool, typer.Option()] = False,
 ) -> None:
@@ -89,6 +102,8 @@ def didemo_command(
         output_root=output_root,
         annotation_indices=_annotation_indices(annotation_indices),
         frame_stride=frame_stride,
+        split=split,
+        chunk_pooling=chunk_pooling,
         reset=reset,
     )
     print(metrics)
@@ -106,17 +121,29 @@ def hirest_command(
     ],
     run_id: Annotated[str, typer.Option()],
     output_root: Annotated[Path, typer.Option()] = Path("benchmark_runs"),
+    split: Annotated[
+        Literal["validation", "test"],
+        typer.Option(help="Official split identified by --ground-truth."),
+    ] = "test",
     pairs: Annotated[
         Path | None,
         typer.Option(
             exists=True,
             dir_okay=False,
             help=(
-                "JSON list of {prompt, video} pairs. Omit for all 776 "
-                "official moment pairs."
+                "JSON list of {prompt, video} pairs. Omit for every "
+                "moment pair in the selected split."
             ),
         ),
     ] = None,
+    temporal_window_fraction: Annotated[
+        float,
+        typer.Option(
+            min=0.0,
+            max=1.0,
+            help="Video-duration fraction used for the localization window.",
+        ),
+    ] = HIREST_DEFAULT_WINDOW_FRACTION,
     reset: Annotated[bool, typer.Option()] = False,
 ) -> None:
     """Run HiREST released-ASR retrieval and its official evaluator."""
@@ -130,6 +157,8 @@ def hirest_command(
         run_id=run_id,
         output_root=output_root,
         pairs=_pair_file(pairs),
+        split=split,
+        temporal_window_fraction=temporal_window_fraction,
         reset=reset,
     )
     print(metrics)

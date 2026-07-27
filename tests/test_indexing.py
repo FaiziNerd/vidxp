@@ -71,7 +71,28 @@ class IndexingTests(unittest.TestCase):
             [
                 ("one two", 0.0, 0.9),
                 ("three", 1.0, 1.4),
-                ("released ASR span", 2.0, 4.0),
+                ("released ASR", 2.0, 2.0 + 4.0 / 3.0),
+                ("span", 2.0 + 4.0 / 3.0, 4.0),
+            ],
+        )
+
+    def test_segment_text_is_rechunked_with_interpolated_timestamps(self):
+        phrases = build_dialogue_phrases(
+            [
+                {
+                    "text": "one two three four five six seven",
+                    "start": 0.0,
+                    "end": 7.0,
+                }
+            ],
+            words_per_phrase=5,
+        )
+
+        self.assertEqual(
+            [(item.text, item.start, item.end) for item in phrases],
+            [
+                ("one two three four five", 0.0, 5.0),
+                ("six seven", 5.0, 7.0),
             ],
         )
 

@@ -15,6 +15,7 @@ from vidxp.benchmarks.hirest import (
     _metrics_from_output,
     moment_pairs,
     parse_srt,
+    rank_interval,
     select_ground_truth,
     validate_predictions as validate_hirest_predictions,
 )
@@ -32,6 +33,20 @@ def scene_hit(chunk, score):
         modality="scene",
         source_id=f"scene-{chunk}",
         metadata={"timestamp": chunk * 5.0},
+    )
+
+
+def timed_hit(start, end, score, rank=1):
+    return SearchHit(
+        rank=rank,
+        video_id="video",
+        start=start,
+        end=end,
+        score=score,
+        raw_distance=-score,
+        modality="dialogue",
+        source_id=f"hit-{rank}",
+        metadata={},
     )
 
 
@@ -79,6 +94,39 @@ class DiDeMoAdapterTests(unittest.TestCase):
         self.assertEqual(len(ranking), 21)
         self.assertTrue(all(moment[1] < 5 for moment in ranking[:15]))
         self.assertTrue(all(moment[1] == 5 for moment in ranking[15:]))
+
+    def test_max_pooling_preserves_a_brief_relevant_frame(self):
+        hits = [
+            scene_hit(chunk, 0.0)
+            for chunk in range(6)
+        ]
+        hits.extend(
+            [
+                timed_hit(15.5, 16.5, 0.8, rank=7),
+                timed_hit(20.5, 21.5, 1.0, rank=8),
+                timed_hit(21.5, 22.5, -1.0, rank=9),
+            ]
+        )
+        hits[-3].metadata["timestamp"] = 15.5
+        hits[-2].metadata["timestamp"] = 20.5
+        hits[-1].metadata["timestamp"] = 21.5
+
+        self.assertEqual(
+            rank_moments(
+                hits,
+                num_segments=6,
+                chunk_pooling="max",
+            )[0],
+            (4, 4),
+        )
+        self.assertEqual(
+            rank_moments(
+                hits,
+                num_segments=6,
+                chunk_pooling="mean",
+            )[0],
+            (3, 3),
+        )
 
     def test_prediction_validation_rejects_missing_candidates(self):
         annotation = {"num_segments": 6}
@@ -165,6 +213,20 @@ class HiRESTAdapterTests(unittest.TestCase):
         invalid["query"]["video.mp4"]["score"] = 1.0
         with self.assertRaisesRegex(ValueError, "only bounds"):
             validate_hirest_predictions(invalid, ground_truth)
+
+    def test_temporal_ranking_uses_all_dialogue_hits(self):
+        hits = [
+            timed_hit(0.0, 1.0, 0.9, rank=1),
+            timed_hit(1.0, 2.0, 0.8, rank=2),
+            timed_hit(5.0, 6.0, 1.0, rank=3),
+        ]
+
+        self.assertEqual(
+            rank_interval(hits, duration=6.0, window_fraction=1 / 3),
+            (0.0, 2.0),
+        )
+        with self.assertRaisesRegex(ValueError, "between zero and one"):
+            rank_interval(hits, duration=6.0, window_fraction=1.0)
 
 
 if __name__ == "__main__":
