@@ -1,10 +1,44 @@
-# VidXP (Video eXPlain)
+<p align="center">
+   <a href ="https://github.com/grayhatdevelopers/vidxp">
+      <img src="./docs/images/logo.png" alt="logo" width="200">
+   </a>
+</p>
 
-**Search video by what was said, what appeared on screen, and recurring faces.**
+<h1 align="center">VidXP</h1>
 
-VidXP is a local-first video indexing and search engine distributed as a Python
-package. Use it from the command line, through its browser interface, or as an
-indexing and retrieval layer inside another application.
+<p align="center">
+  <em>Search video by what was said, what appeared on screen, and recurring faces.</em>
+</p>
+
+<div align="center">
+  <p>
+    VidXP is a local-first video indexing and search engine distributed as a Python
+    package. 
+    <br/>You can use it:
+  </p>
+
+  <ul style="display:inline-block; text-align:left;">
+    <li>From the command line</li>
+    <li>Through its browser interface</li>
+    <li>As a desktop app</li>
+    <li>As an API</li>
+    <li>As an indexing and retrieval layer inside another application</li>
+  </ul>
+</div>
+
+
+<p align="center">
+  <a href="https://github.com/grayhatdevelopers/vidxp/releases/latest" target="_blank">
+    <img src="https://img.shields.io/badge/download-desktop%20app-black?style=for-the-badge" alt="download">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://grayhat.studio/discord">
+    <img src="https://img.shields.io/discord/867124708473700363?style=for-the-badge&logo=discord&logoColor=white" alt="discord">
+  </a>
+</p>
+
 
 ## Why VidXP
 
@@ -149,6 +183,13 @@ for hit in results.hits:
 The [Python indexing and retrieval contract](docs/benchmarking/core_contract.md)
 documents configuration, stored metadata, result fields, and run layout.
 
+## Recommended specs
+
+> Coming soon
+
+---
+
+
 ## Current scope
 
 - The standard CLI and browser interface manage one local searchable video
@@ -200,3 +241,18 @@ caches normally live outside this directory and outside the virtual environment.
 - [Changelog](CHANGELOG.md)
 - [Issue tracker](https://github.com/grayhatdevelopers/vidxp/issues)
 - [MIT license](LICENSE)
+
+
+## Contributing
+
+See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for guidelines, maintainers, and how to submit PRs. AI/vibe-coded PRs welcome!
+
+## Credits
+
+Built by Grayhat Developers PVT Ltd in 2025. Maintained by the community.
+
+Email: info@grayhat.studio
+
+<a href="https://github.com/grayhatdevelopers/vidxp/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=grayhatdevelopers/vidxp" />
+</a>
