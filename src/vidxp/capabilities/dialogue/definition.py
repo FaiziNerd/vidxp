@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
     PreparationContext,
-    RuntimeDependency,
+    RuntimeCheck,
 )
 from vidxp.capabilities.dialogue.config import DialogueConfig, dialogue_config
 from vidxp.capabilities.dialogue.models import (
@@ -24,43 +27,25 @@ from vidxp.core.indexing_common import ProgressCallback
 from vidxp.core.video import ffmpeg_binary
 
 
-CHROMA = RuntimeDependency(
-    label="ChromaDB",
-    distribution="chromadb",
-    module="chromadb",
-)
-SENTENCE_TRANSFORMERS = RuntimeDependency(
-    label="Sentence Transformers",
-    distribution="sentence-transformers",
-    module="sentence_transformers",
-)
-MOVIEPY = RuntimeDependency(
-    label="MoviePy",
-    distribution="moviepy",
-    module="moviepy.editor",
-)
-WHISPERX = RuntimeDependency(
-    label="WhisperX",
-    distribution="whisperx",
-    module="whisperx",
-)
-FFMPEG = RuntimeDependency(label="FFmpeg", check=ffmpeg_binary)
-
-DEPENDENCIES = (
-    CHROMA,
-    SENTENCE_TRANSFORMERS,
-    MOVIEPY,
-    WHISPERX,
-    FFMPEG,
+FFMPEG = RuntimeCheck(
+    label="FFmpeg",
+    check=ffmpeg_binary,
+    applies_to=lambda source: source.transcript is None,
 )
 
 
-def dependencies_for_source(
+def filter_requirements_for_source(
     source: VideoSource,
-) -> tuple[RuntimeDependency, ...]:
+    requirements: tuple[Requirement, ...],
+) -> tuple[Requirement, ...]:
     if source.transcript is not None:
-        return CHROMA, SENTENCE_TRANSFORMERS
-    return DEPENDENCIES
+        needed = {"chromadb", "sentence-transformers"}
+        return tuple(
+            requirement
+            for requirement in requirements
+            if canonicalize_name(requirement.name) in needed
+        )
+    return requirements
 
 
 def prepare_models(
@@ -123,8 +108,8 @@ DEFINITION = CapabilityDefinition(
     collection_name="dialogue",
     indexer=index_capability,
     index_stage="dialogue_indexing",
-    dependencies=DEPENDENCIES,
-    dependencies_for_source=dependencies_for_source,
+    runtime_checks=(FFMPEG,),
+    requirement_filter=filter_requirements_for_source,
     prepare=prepare_models,
     model_manifest=model_manifest,
     operations={

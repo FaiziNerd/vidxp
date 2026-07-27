@@ -6,7 +6,6 @@ from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
     PreparationContext,
-    RuntimeDependency,
 )
 from vidxp.capabilities.scene.config import SceneConfig, scene_config
 from vidxp.capabilities.scene.indexing import VISUAL_PROCESSOR
@@ -16,41 +15,6 @@ from vidxp.capabilities.schemas import SearchInput, SearchResult
 from vidxp.capabilities.visual import index_capabilities
 from vidxp.core.contracts import IndexConfig, VideoSource
 from vidxp.core.indexing_common import ProgressCallback
-
-
-DEPENDENCIES = (
-    RuntimeDependency(
-        label="ChromaDB",
-        distribution="chromadb",
-        module="chromadb",
-    ),
-    RuntimeDependency(
-        label="CLIP",
-        distribution="clip-anytorch",
-        module="clip",
-    ),
-    RuntimeDependency(
-        label="NumPy",
-        distribution="numpy",
-        module="numpy",
-    ),
-    RuntimeDependency(
-        label="OpenCV",
-        distribution="opencv-python",
-        module="cv2",
-    ),
-    RuntimeDependency(
-        label="Pillow",
-        distribution="Pillow",
-        module="PIL.Image",
-    ),
-    RuntimeDependency(
-        label="PyTorch",
-        distribution="torch",
-        module="torch",
-    ),
-)
-
 
 def prepare_models(
     context: PreparationContext,
@@ -87,7 +51,6 @@ DEFINITION = CapabilityDefinition(
     indexer=index_capabilities,
     index_processor=VISUAL_PROCESSOR,
     index_stage="visual_indexing",
-    dependencies=DEPENDENCIES,
     prepare=prepare_models,
     model_manifest=model_manifest,
     operations={

@@ -3,15 +3,24 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
 from vidxp.capabilities.actor.definition import DEFINITION as ACTOR
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
-    RuntimeDependency,
+    RuntimeCheck,
     capability_install_hint,
 )
 from vidxp.capabilities.dialogue.definition import DEFINITION as DIALOGUE
 from vidxp.capabilities.scene.definition import DEFINITION as SCENE
 from vidxp.core.contracts import VideoSource
+from vidxp.dependencies import (
+    active_requirements,
+    inspect_requirement,
+    installed_base_requirements,
+    packaged_requirements,
+)
 
 
 _BUILT_INS = (DIALOGUE, SCENE, ACTOR)
@@ -97,34 +106,47 @@ def validate_capability_options(
     }
 
 
-def dependencies_for(
+def requirements_for(
     names: Iterable[str],
     *,
     source: VideoSource | None = None,
-) -> tuple[RuntimeDependency, ...]:
-    dependencies = []
+) -> tuple[Requirement, ...]:
+    requirements = []
     for name in validate_capability_names(names):
         capability = get_capability(name)
-        dependencies.extend(
-            capability.dependencies
+        selected = active_requirements(
+            packaged_requirements(f"vidxp.capabilities.{name}")
+        )
+        requirements.extend(
+            selected
             if source is None
-            else capability.source_dependencies(source)
+            else capability.source_requirements(source, selected)
         )
-    unique = {}
-    for dependency in dependencies:
-        key = (
-            dependency.module,
-            dependency.distribution,
-            dependency.label,
-        )
-        unique.setdefault(key, dependency)
+    unique = {str(requirement): requirement for requirement in requirements}
     return tuple(unique.values())
+
+
+def runtime_checks_for(
+    names: Iterable[str],
+    *,
+    source: VideoSource | None = None,
+) -> tuple[RuntimeCheck, ...]:
+    checks = (
+        check
+        for name in validate_capability_names(names)
+        for check in get_capability(name).runtime_checks
+        if check.applies(source)
+    )
+    return tuple({check.label: check for check in checks}.values())
 
 
 def dependency_checks(names: Iterable[str]) -> tuple[dict, ...]:
     return tuple(
-        dependency.inspect()
-        for dependency in dependencies_for(names)
+        inspect_requirement(requirement)
+        for requirement in requirements_for(names)
+    ) + tuple(
+        check.inspect()
+        for check in runtime_checks_for(names)
     )
 
 
@@ -136,9 +158,14 @@ def require_dependencies(
     selected = validate_capability_names(names)
     failures = [
         result
-        for dependency in dependencies_for(selected, source=source)
-        if not (result := dependency.inspect())["ok"]
+        for requirement in requirements_for(selected, source=source)
+        if not (result := inspect_requirement(requirement))["ok"]
     ]
+    failures.extend(
+        result
+        for check in runtime_checks_for(selected, source=source)
+        if not (result := check.inspect())["ok"]
+    )
     if failures:
         details = "; ".join(
             f"{failure['name']}: {failure['error']}"
@@ -155,10 +182,11 @@ def require_dependencies(
 
 def runtime_distributions() -> tuple[str, ...]:
     distributions = {
-        dependency.distribution
-        for capability in CAPABILITIES.values()
-        for dependency in capability.dependencies
-        if dependency.distribution is not None
+        canonicalize_name(requirement.name)
+        for requirement in installed_base_requirements()
     }
-    distributions.update({"filelock", "pydantic", "rich", "typer"})
+    distributions.update(
+        canonicalize_name(requirement.name)
+        for requirement in requirements_for(capability_names())
+    )
     return tuple(sorted(distributions, key=str.lower))

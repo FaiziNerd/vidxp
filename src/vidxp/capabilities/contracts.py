@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from importlib import import_module
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -12,6 +11,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from packaging.requirements import Requirement
 
 from vidxp.core.contracts import IndexConfig, VideoSource
 from vidxp.core.indexing_common import ProgressCallback
@@ -39,19 +39,16 @@ class CapabilityConfig(_ContractModel):
     """Base model for settings owned and validated by one capability."""
 
 
-class RuntimeDependency(_ContractModel):
-    """One import or executable required by a capability."""
+class RuntimeCheck(_ContractModel):
+    """One non-package environment requirement."""
 
     label: str = Field(min_length=1)
-    distribution: str | None = None
-    module: str | None = None
-    check: Callable[[], str | None] | None = None
+    check: Callable[[], str | None]
+    applies_to: Callable[[VideoSource], bool] | None = None
 
     def inspect(self) -> dict[str, Any]:
         try:
-            if self.module is not None:
-                import_module(self.module)
-            detail = self.check() if self.check is not None else None
+            detail = self.check()
         except Exception as exc:
             return {
                 "name": self.label,
@@ -66,6 +63,13 @@ class RuntimeDependency(_ContractModel):
         if detail is not None:
             result["path"] = detail
         return result
+
+    def applies(self, source: VideoSource | None) -> bool:
+        return (
+            source is None
+            or self.applies_to is None
+            or self.applies_to(source)
+        )
 
 
 class CapabilityContext(_ContractModel):
@@ -129,9 +133,9 @@ PrepareHandler = Callable[
     [PreparationContext, ProgressCallback | None],
     tuple[str, ...],
 ]
-DependencySelector = Callable[
-    [VideoSource],
-    tuple[RuntimeDependency, ...],
+RequirementFilter = Callable[
+    [VideoSource, tuple[Requirement, ...]],
+    tuple[Requirement, ...],
 ]
 ModelManifest = Callable[
     [IndexConfig, tuple[VideoSource, ...]],
@@ -147,13 +151,13 @@ class CapabilityDefinition(_ContractModel):
     description: str = Field(min_length=1)
     extra: str = Field(min_length=1)
     config_model: type[CapabilityConfig] = CapabilityConfig
-    dependencies: tuple[RuntimeDependency, ...] = ()
+    runtime_checks: tuple[RuntimeCheck, ...] = ()
     collection_name: str | None = None
     indexer: IndexHandler | None = None
     index_processor: Any | None = None
     index_stage: str | None = None
     operations: Mapping[str, OperationDefinition] = Field(default_factory=dict)
-    dependencies_for_source: DependencySelector | None = None
+    requirement_filter: RequirementFilter | None = None
     prepare: PrepareHandler | None = None
     model_manifest: ModelManifest | None = None
     cli_name: str | None = None
@@ -206,13 +210,14 @@ class CapabilityDefinition(_ContractModel):
             )
         return self
 
-    def source_dependencies(
+    def source_requirements(
         self,
         source: VideoSource,
-    ) -> tuple[RuntimeDependency, ...]:
-        if self.dependencies_for_source is None:
-            return self.dependencies
-        return self.dependencies_for_source(source)
+        requirements: tuple[Requirement, ...],
+    ) -> tuple[Requirement, ...]:
+        if self.requirement_filter is None:
+            return requirements
+        return self.requirement_filter(source, requirements)
 
 
 def capability_install_hint(name: str) -> str:

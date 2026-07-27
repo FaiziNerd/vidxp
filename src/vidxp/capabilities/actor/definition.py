@@ -12,7 +12,6 @@ from vidxp.capabilities.actor.operations import (
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     OperationDefinition,
-    RuntimeDependency,
 )
 from vidxp.capabilities.actor.schemas import (
     ActorClustersInput,
@@ -24,41 +23,6 @@ from vidxp.capabilities.actor.schemas import (
 )
 from vidxp.capabilities.visual import index_capabilities
 from vidxp.core.contracts import IndexConfig, VideoSource
-
-
-DEPENDENCIES = (
-    RuntimeDependency(
-        label="ChromaDB",
-        distribution="chromadb",
-        module="chromadb",
-    ),
-    RuntimeDependency(
-        label="face recognition",
-        distribution="face-recognition",
-        module="face_recognition",
-    ),
-    RuntimeDependency(
-        label="dlib",
-        distribution="dlib",
-        module="dlib",
-    ),
-    RuntimeDependency(
-        label="face recognition models",
-        distribution="face-recognition-models",
-        module="face_recognition_models",
-    ),
-    RuntimeDependency(
-        label="NumPy",
-        distribution="numpy",
-        module="numpy",
-    ),
-    RuntimeDependency(
-        label="OpenCV",
-        distribution="opencv-python",
-        module="cv2",
-    ),
-)
-
 
 def model_manifest(
     config: IndexConfig,
@@ -90,7 +54,6 @@ DEFINITION = CapabilityDefinition(
     indexer=index_capabilities,
     index_processor=VISUAL_PROCESSOR,
     index_stage="visual_indexing",
-    dependencies=DEPENDENCIES,
     model_manifest=model_manifest,
     operations={
         "clusters": OperationDefinition(

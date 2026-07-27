@@ -56,8 +56,11 @@ dummy collections or index handlers.
 ## Dependencies and installation
 
 Put direct runtime requirements in the capability's `requirements.txt`.
-Declare matching `RuntimeDependency` checks in `definition.py`, then expose the
-requirements file as an optional dependency in `pyproject.toml`:
+This file is the only declaration of Python package dependencies: setuptools
+uses it to build the extra, and runtime dependency checks read the same packaged
+file. Declare a `RuntimeCheck` only for a non-Python environment prerequisite
+such as an executable. Expose the requirements file as an optional dependency
+in `pyproject.toml`:
 
 ```toml
 [tool.setuptools.dynamic.optional-dependencies]

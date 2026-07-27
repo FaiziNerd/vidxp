@@ -36,6 +36,7 @@ classifiers = [
 dynamic = ["optional-dependencies"]
 dependencies = [
   "filelock>=3.13",
+  "packaging>=24",
   "pydantic>=2.8,<3",
   "rich",
   "typer>=0.27,<1",
