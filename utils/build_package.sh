@@ -15,6 +15,16 @@ restore_readme() {
 
 trap restore_readme EXIT
 
+if [[ "${BUILD_CHANGELOG:-0}" == "1" ]]; then
+  if [[ -z "${NEW_VERSION:-}" ]]; then
+    echo "NEW_VERSION is required when BUILD_CHANGELOG=1" >&2
+    exit 1
+  fi
+
+  echo "📰 Building changelog for v${NEW_VERSION}..."
+  towncrier build --yes --version "$NEW_VERSION"
+fi
+
 echo "📝 Backing up original README..."
 cp "$README" "$README_BAK"
 

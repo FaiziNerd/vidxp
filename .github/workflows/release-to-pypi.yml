@@ -1,26 +1,14 @@
-name: Release (release → PyPI)
+name: Release (main → PyPI)
 
 on:
-  push:
-    branches:
-      - release
-    paths:
-      - "src/**"
-      - "pyproject.toml"
-      - "README.md"
-      - "LICENSE"
-      - "MANIFEST.in"
-      - "utils/build_package.sh"
-      - "utils/build-requirements.txt"
-      - "utils/fix_readme_links.py"
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
-  pull-requests: write
 
 concurrency:
-  group: pypi-${{ github.ref }}
+  group: pypi-main
   cancel-in-progress: false
 
 jobs:
@@ -39,6 +27,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -48,15 +37,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build "python-semantic-release~=10.6.0"
-          pip install -r utils/build-requirements.txt
+          python -m pip install -r utils/build-requirements.txt
 
       - name: Create stable release
         id: release
         env:
+          BUILD_CHANGELOG: "1"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          semantic-release version --commit --tag --push
+        run: semantic-release version --no-changelog
 
       - name: Publish to PyPI
         if: steps.release.outputs.released == 'true'

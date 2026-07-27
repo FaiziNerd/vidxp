@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidxp"
-version = "0.1.0-b.3"
+version = "0.1.0"
 authors = [
   { name = "Muhammad Haroon" },
   { name = "Talha Momin" },
@@ -97,6 +97,8 @@ select = ["E4", "E7", "E9", "F"]
 version_toml = ["pyproject.toml:project.version"]
 tag_format = "v{version}"
 build_command = "bash ./utils/build_package.sh"
+build_command_env = ["BUILD_CHANGELOG"]
+assets = ["CHANGELOG.md"]
 commit_parser = "conventional"
 major_on_zero = true
 allow_zero_version = true
@@ -108,15 +110,45 @@ patch_tags = ["fix", "perf"]
 parse_squash_commits = true
 ignore_merge_commits = true
 
-[tool.semantic_release.changelog.default_templates]
-changelog_file = "./CHANGELOG.md"
-output_format = "md"
-
-[tool.semantic_release.branches.release]
-match = "release"
-prerelease = false
-
 [tool.semantic_release.branches.main]
 match = "main"
-prerelease = true
+prerelease = false
 prerelease_token = "b"
+
+[tool.towncrier]
+directory = "changes"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->"
+title_format = "## v{version} ({project_date})"
+issue_format = "[#{issue}](https://github.com/grayhatdevelopers/vidxp/pull/{issue})"
+wrap = false
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking Changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug Fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "deprecation"
+name = "Deprecations"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "docs"
+name = "Documentation"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true

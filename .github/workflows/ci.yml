@@ -2,17 +2,12 @@ name: CI
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/ci.yml"
-      - "src/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "MANIFEST.in"
-      - "README.md"
-      - "LICENSE"
-      - "utils/build_package.sh"
-      - "utils/build-requirements.txt"
-      - "utils/fix_readme_links.py"
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
   workflow_call:
 
 concurrency:
@@ -27,23 +22,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install test surface
+
+      - name: Install repository tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[scene,frontend,benchmarks]" build ruff
+          python -m pip install -r utils/build-requirements.txt
+
+      - name: Require a changelog fragment
+        if: >-
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+        run: towncrier check --compare-with "${{ github.event.pull_request.base.sha }}"
+
+      - name: Determine validation scope
+        id: scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" HEAD |
+            grep -Eq '^(\.github/workflows/ci\.yml|src/|tests/|utils/|Dockerfile$|LICENSE$|MANIFEST\.in$|README\.md$|pyproject\.toml$)'; then
+            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_suite=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install test surface
+        if: steps.scope.outputs.run_suite == 'true'
+        run: python -m pip install ".[scene,frontend,benchmarks]"
+
       - name: Lint
+        if: steps.scope.outputs.run_suite == 'true'
         run: ruff check src tests
+
       - name: Test
+        if: steps.scope.outputs.run_suite == 'true'
         run: python -m unittest discover -s tests -q
         env:
           PYTHONPATH: src
+
       - name: Build wheel and source distribution
+        if: steps.scope.outputs.run_suite == 'true'
         run: python -m build
+
       - name: Verify minimal wheel
+        if: steps.scope.outputs.run_suite == 'true'
         shell: bash
         run: |
           python -m venv .wheel-smoke

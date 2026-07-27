@@ -91,8 +91,34 @@ python -m unittest discover -s tests
 - Note any new env vars, model downloads, or breaking index format changes.
 - Link a related issue when there is one.
 
+### Changelog fragments
+
+Add one `changes/<pr-number>.<type>.md` file for every user-visible pull
+request. Use one of these types:
+
+- `breaking` for incompatible behavior or API changes.
+- `feature` for new behavior.
+- `bugfix` for corrected behavior.
+- `deprecation` for behavior scheduled for removal.
+- `docs` for user-facing documentation improvements.
+- `security` for security fixes or hardening users should know about.
+
+The fragment should be one sentence written for users. Do not include a heading,
+version number, commit message, or implementation details. See
+[`changes/README.md`](../changes/README.md) for an example.
+
+Internal-only maintenance does not need an empty fragment. Explain the reason in
+the pull request and ask a maintainer to apply the `skip-changelog` label. CI
+requires either a fragment or that label.
+
+Towncrier collects the pending fragments into `CHANGELOG.md` and removes them
+when a stable release is made. Do not edit the changelog or package version in a
+feature pull request.
+
 ## Questions
 
 Follow [Adding a capability](adding-a-capability.md) for the complete extension
 contract. Open an issue before large cross-capability refactors so scope stays
 aligned with the roadmap.
+
+Maintainers should follow the [release process](releasing.md).
