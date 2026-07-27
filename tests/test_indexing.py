@@ -51,6 +51,61 @@ class FakeClipModel:
 
 
 class IndexingTests(unittest.TestCase):
+    def test_shared_visual_stream_accepts_a_registered_processor(self):
+        frame = np.zeros((2, 2, 3), dtype=np.uint8)
+        info = VideoInfo(
+            fps=10.0,
+            frame_count=1,
+            duration=0.1,
+            width=2,
+            height=2,
+        )
+        processor = Mock()
+        processor.batch_size.return_value = 1
+        processor.prepare.return_value = object()
+        processor.finalize.return_value = ({"ocr_frames": 1}, 1)
+
+        def stream(*_, **options):
+            options["stats"].frames_advanced = 1
+            options["stats"].frames_materialized = 1
+            return iter([[FrameSample(0, 0.0, frame)]])
+
+        config = IndexConfig(
+            video_id="video-1",
+            enabled_modalities=("ocr",),
+            collection_names={"ocr": "ocr"},
+        )
+        with (
+            patch(
+                "vidxp.capabilities.registry.get_capability",
+                return_value=Mock(index_processor=processor),
+            ),
+            patch(
+                "vidxp.capabilities.visual.probe_video",
+                return_value=info,
+            ),
+            patch(
+                "vidxp.capabilities.visual.iter_frame_batches",
+                side_effect=stream,
+            ),
+            patch(
+                "vidxp.capabilities.visual._rgb_samples",
+                side_effect=lambda samples: samples,
+            ),
+        ):
+            result = index_visuals(
+                VideoSource(path="unused.mp4"),
+                config=config,
+                storage=CapturingStorage(),
+                cancellation=CancellationToken(),
+            )
+
+        processor.prepare.assert_called_once()
+        processor.process.assert_called_once()
+        processor.finalize.assert_called_once()
+        self.assertEqual(result.summary["ocr_frames"], 1)
+        self.assertEqual(result.summary["frame_operations"], 1)
+
     def test_timestamped_words_and_segments_keep_real_intervals(self):
         phrases = build_dialogue_phrases(
             [
@@ -196,7 +251,7 @@ class IndexingTests(unittest.TestCase):
                 return_value=iter(batches),
             ),
             patch(
-                "vidxp.capabilities.visual.get_clip_model",
+                "vidxp.capabilities.scene.indexing.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
@@ -365,14 +420,14 @@ class IndexingTests(unittest.TestCase):
                 frame_stream,
             ),
             patch(
-                "vidxp.capabilities.visual.get_clip_model",
+                "vidxp.capabilities.scene.indexing.get_clip_model",
                 return_value=(
                     model,
                     lambda _: torch.ones((3, 2, 2), dtype=torch.float32),
                 ),
             ),
             patch(
-                "vidxp.capabilities.visual.process_actor_samples",
+                "vidxp.capabilities.actor.indexing.process_actor_samples",
                 side_effect=consume_actor,
             ) as actor_consumer,
             patch(

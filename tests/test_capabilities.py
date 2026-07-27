@@ -146,6 +146,9 @@ class CapabilityTests(unittest.TestCase):
             _index_groups(("dialogue", "scene", "actor")),
             (("dialogue",), ("scene", "actor")),
         )
+        self.assertIsNotNone(CAPABILITIES["scene"].index_processor)
+        self.assertIsNotNone(CAPABILITIES["actor"].index_processor)
+        self.assertIsNone(CAPABILITIES["dialogue"].index_processor)
 
     def test_capability_options_do_not_require_core_config_fields(self):
         config = IndexConfig(

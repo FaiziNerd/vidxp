@@ -142,6 +142,7 @@ class CapabilityDefinition:
     dependencies: tuple[RuntimeDependency, ...] = ()
     collection_name: str | None = None
     indexer: IndexHandler | None = None
+    index_processor: Any | None = None
     index_stage: str | None = None
     operations: Mapping[str, OperationDefinition] = field(default_factory=dict)
     dependencies_for_source: DependencySelector | None = None

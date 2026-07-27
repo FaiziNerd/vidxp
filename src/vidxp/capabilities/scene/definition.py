@@ -9,6 +9,7 @@ from vidxp.capabilities.contracts import (
     RuntimeDependency,
 )
 from vidxp.capabilities.scene.config import SceneConfig, scene_config
+from vidxp.capabilities.scene.indexing import VISUAL_PROCESSOR
 from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.capabilities.scene.operations import search_operation
 from vidxp.capabilities.schemas import SearchInput, SearchResult
@@ -60,6 +61,7 @@ DEFINITION = CapabilityDefinition(
     config_model=SceneConfig,
     collection_name="scene",
     indexer=index_capabilities,
+    index_processor=VISUAL_PROCESSOR,
     index_stage="visual_indexing",
     dependencies=DEPENDENCIES,
     prepare=prepare_models,

@@ -41,7 +41,9 @@ FastAPI, or an MCP implementation into operation modules.
 An indexable capability also declares its collection names, indexing handler,
 and index stage. The generic runner groups capabilities that reference the same
 indexing handler, allowing related capabilities to share work without adding a
-name switch to the runner. Capability-specific settings belong in
+name switch to the runner. A capability joining a shared decoder also supplies
+its own prepare/process/finalize processor through its definition; the shared
+handler must not import individual capabilities. Capability-specific settings belong in
 `IndexConfig.capability_options` and are read with
 `config.options_for("<name>")`. Validate them through the capability's
 Pydantic settings model; do not add feature-specific fields to `IndexConfig`

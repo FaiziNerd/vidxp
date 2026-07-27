@@ -11,6 +11,7 @@ from vidxp.core.contracts import (
     batched,
     stable_source_id,
 )
+from vidxp.core.indexing_common import ProgressCallback
 from vidxp.core.storage import IndexStorage
 
 
@@ -160,3 +161,57 @@ def finalize_actor_index(
         if size >= settings.minimum_detections
     }
     return sum(retained.values()), len(retained)
+
+
+class ActorVisualProcessor:
+    def batch_size(self, config: IndexConfig) -> int:
+        return actor_config(config).batch_size
+
+    def prepare(
+        self,
+        config: IndexConfig,
+        progress: ProgressCallback | None,
+    ) -> ActorIndexState:
+        return ActorIndexState()
+
+    def process(
+        self,
+        samples,
+        *,
+        state: ActorIndexState,
+        info,
+        config: IndexConfig,
+        storage: IndexStorage,
+        cancellation: CancellationToken,
+    ) -> None:
+        process_actor_samples(
+            samples,
+            state=state,
+            config=config,
+            storage=storage,
+            cancellation=cancellation,
+        )
+
+    def finalize(
+        self,
+        state: ActorIndexState,
+        *,
+        config: IndexConfig,
+        storage: IndexStorage,
+    ) -> tuple[dict[str, Any], int]:
+        detections, clusters = finalize_actor_index(
+            state,
+            config=config,
+            storage=storage,
+        )
+        return (
+            {
+                "actor_frames": state.processed_frames,
+                "actor_detections": detections,
+                "actor_clusters": clusters,
+            },
+            state.processed_frames,
+        )
+
+
+VISUAL_PROCESSOR = ActorVisualProcessor()

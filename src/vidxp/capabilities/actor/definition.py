@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from vidxp.capabilities.actor.config import ActorConfig, actor_config
+from vidxp.capabilities.actor.indexing import VISUAL_PROCESSOR
 from vidxp.capabilities.actor.operations import (
     clusters_operation,
     detections_operation,
@@ -71,6 +72,7 @@ DEFINITION = CapabilityDefinition(
     config_model=ActorConfig,
     collection_name="actor",
     indexer=index_capabilities,
+    index_processor=VISUAL_PROCESSOR,
     index_stage="visual_indexing",
     dependencies=DEPENDENCIES,
     model_manifest=model_manifest,

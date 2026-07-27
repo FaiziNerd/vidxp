@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from vidxp.capabilities.scene.config import scene_config
+from vidxp.capabilities.scene.models import get_clip_model
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
@@ -11,6 +12,7 @@ from vidxp.core.contracts import (
     batched,
     stable_source_id,
 )
+from vidxp.core.indexing_common import ProgressCallback, report_progress
 from vidxp.core.storage import IndexStorage
 
 
@@ -96,3 +98,53 @@ def process_scene_samples(
             batch_size=config.storage_batch_size,
             cancellation=cancellation,
         )
+
+
+class SceneVisualProcessor:
+    def batch_size(self, config: IndexConfig) -> int:
+        return scene_config(config).batch_size
+
+    def prepare(
+        self,
+        config: IndexConfig,
+        progress: ProgressCallback | None,
+    ) -> SceneIndexState:
+        settings = scene_config(config)
+        report_progress(
+            progress,
+            "preparing_scene_model",
+            f"Preparing scene model: CLIP {settings.model}.",
+        )
+        model, preprocess = get_clip_model(settings.model, config.device)
+        return SceneIndexState(model, preprocess)
+
+    def process(
+        self,
+        samples,
+        *,
+        state: SceneIndexState,
+        info,
+        config: IndexConfig,
+        storage: IndexStorage,
+        cancellation: CancellationToken,
+    ) -> None:
+        process_scene_samples(
+            samples,
+            state=state,
+            info=info,
+            config=config,
+            storage=storage,
+            cancellation=cancellation,
+        )
+
+    def finalize(
+        self,
+        state: SceneIndexState,
+        *,
+        config: IndexConfig,
+        storage: IndexStorage,
+    ) -> tuple[dict[str, Any], int]:
+        return {"scene_frames": state.stored_frames}, state.stored_frames
+
+
+VISUAL_PROCESSOR = SceneVisualProcessor()
