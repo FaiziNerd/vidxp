@@ -50,9 +50,9 @@ must describe the missing capability; it must not claim full modality coverage.
 
 ## Repository complexity finding
 
-The current system is not protected by a complex package API. It is a small
-application centered on `main.py`, with direct Typer commands and a thin Streamlit
-caller in `frontend.py`.
+The baseline system was not protected by a complex package API. It was a small
+application with direct Typer commands and a thin Streamlit caller. The later
+core refactor replaced that structure.
 
 The main benchmark-facing limitations are localized:
 

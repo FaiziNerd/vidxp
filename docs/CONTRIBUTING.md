@@ -10,7 +10,6 @@ Thanks for contributing to VidXP (Video eXPlain).
 | `src/vidxp/frontend.py` | Streamlit interface and installed `vidxp-ui` entry point |
 | `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |
-| `src/vidxp/main.py` | Compatibility imports for the pre-refactor module surface |
 | `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Installation-linked guidance, benchmark research, and contribution notes |
 | `chroma_data/` | Local ChromaDB index and `index_status.json` readiness record (generated; do not commit) |

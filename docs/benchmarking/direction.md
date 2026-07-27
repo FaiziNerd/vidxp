@@ -220,8 +220,8 @@ The existing [legacy benchmarking methodology](../benchmarking_research.md) is t
 inventory and methodology reference. Its candidates and published values still need
 to pass the access, reproducibility, and applicability checks defined here.
 
-At the time of this brief, [`src/vidxp/main.py`](../../src/vidxp/main.py) was the
-starting point for determining what the project supported. The current
+At the time of this brief, the project still used a single application module.
+It was subsequently split into the CLI and shared core packages. The current
 implementation boundary is documented in the
 [benchmark-ready core contract](core_contract.md).
 
