@@ -327,6 +327,23 @@ def _evaluate_predictions(
     return _metrics_from_output(completed.stdout)
 
 
+def _result_classification(
+    *,
+    split: str,
+    full_split: bool,
+    has_media_overrides: bool,
+) -> str:
+    if split == "test" and full_split:
+        return (
+            "official_full_test_result_with_documented_media_substitution"
+            if has_media_overrides
+            else "official_full_test_result"
+        )
+    if split == "validation":
+        return "validation_result_not_paper_score"
+    return "smoke_test_not_paper_score"
+
+
 def run_didemo(
     *,
     annotations_path: str | Path,
@@ -422,14 +439,12 @@ def run_didemo(
                 "prediction_count": len(predictions),
                 "prediction_format_validated": True,
                 "chunk_pooling": chunk_pooling,
-                "result_classification": (
-                    "official_full_test_result"
-                    if split == "test" and annotation_indices is None
-                    else (
-                        "validation_result_not_paper_score"
-                        if split == "validation"
-                        else "smoke_test_not_paper_score"
-                    )
+                "media_override_count": len(media_overrides or {}),
+                "media_override_video_ids": sorted(media_overrides or {}),
+                "result_classification": _result_classification(
+                    split=split,
+                    full_split=annotation_indices is None,
+                    has_media_overrides=bool(media_overrides),
                 ),
             },
         )

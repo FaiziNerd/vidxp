@@ -158,6 +158,26 @@ an empty failure log, and reproduced R@0.5 `78.23834196891191` and R@0.7
 `44.559585492227974` through the unchanged official evaluator. Its manifest
 classifies the output as validation-only, not a paper score.
 
+### Full DiDeMo test result
+
+The run `didemo-full-test-final-20260727` indexed 1,037/1,037 test videos,
+generated all 4,021 predictions with all 21 official candidates, and completed
+with an empty failure log. The pinned evaluator returned:
+
+| Rank@1 | Rank@5 | Mean IoU |
+|---:|---:|---:|
+| `0.20193981596617758` | `0.5570753543894553` | `0.3460485230318605` |
+
+One media exception must accompany this result. The
+[official Multimedia Commons object](https://multimedia-commons.s3-us-west-2.amazonaws.com/data/videos/mp4/deb/3d8/deb3d8c8aba7077b378d16b236b0a5.mp4)
+for Flickr video `13482799053` is 151,552 bytes and FFmpeg/OpenCV reject its
+contradictory MP4 sample tables. It was replaced with Wikimedia Commons'
+[archived original of the same Flickr item](https://commons.wikimedia.org/wiki/File:Common_Starlings_flying_away_from_a_Marsh_Harrier.webm),
+whose SHA-1 `2aefa90d4256e74cf62e492729c0e0f6d6bede72` and 94,107,862-byte
+size match the archive record. The manifest therefore classifies this as an
+official test result with a documented media substitution, not an untouched
+official-media run.
+
 ## Commands
 
 Install the optional adapter parser:

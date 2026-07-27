@@ -8,6 +8,7 @@ from unittest.mock import patch
 from vidxp.benchmarks.common import verify_artifact
 from vidxp.benchmarks.didemo import (
     DIDEMO_MOMENTS,
+    _result_classification as didemo_result_classification,
     rank_moments,
     select_annotations,
     validate_predictions as validate_didemo_predictions,
@@ -80,6 +81,19 @@ class BenchmarkCommonTests(unittest.TestCase):
 
 
 class DiDeMoAdapterTests(unittest.TestCase):
+    def test_media_override_is_disclosed_in_result_classification(self):
+        self.assertEqual(
+            didemo_result_classification(
+                split="test",
+                full_split=True,
+                has_media_overrides=True,
+            ),
+            (
+                "official_full_test_result_with_documented_"
+                "media_substitution"
+            ),
+        )
+
     def test_official_candidate_order_is_preserved_for_ties(self):
         ranking = rank_moments(
             [scene_hit(chunk, 1.0) for chunk in range(6)],
