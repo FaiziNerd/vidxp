@@ -74,7 +74,11 @@ def indexing_in_progress(config: IndexConfig | None = None) -> bool:
     return _run_lock_held(active_config.run_directory)
 
 
-def local_config_from_status(status: dict[str, Any]) -> IndexConfig:
+def local_config_from_status(
+    status: dict[str, Any],
+    *,
+    storage_directory: str | Path | None = None,
+) -> IndexConfig:
     summary = status.get("summary") or {}
     if summary.get("index_schema_version") != INDEX_SCHEMA_VERSION:
         raise IndexSchemaError(
@@ -93,9 +97,12 @@ def local_config_from_status(status: dict[str, Any]) -> IndexConfig:
             "split": str(summary["split"]),
             "run_id": str(summary["run_id"]),
             "video_id": str(summary["video_id"]),
-            "storage_directory": "chroma_data",
         }
     )
+    if storage_directory is not None:
+        stored["storage_directory"] = str(storage_directory)
+    else:
+        stored.setdefault("storage_directory", "chroma_data")
     if "enabled_modalities" in stored:
         stored["enabled_modalities"] = tuple(stored["enabled_modalities"])
     if "collection_names" in stored:
@@ -542,6 +549,7 @@ def index_video(
             total=event.get("total"),
             summary=event.get("summary"),
             error=event.get("error"),
+            index_directory=active_config.index_directory,
         )
         if progress_callback is not None:
             progress_callback(event)
