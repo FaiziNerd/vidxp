@@ -50,17 +50,20 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-Install the command-line package:
+Install the command line and all indexing capabilities:
 
 ```bash
-python -m pip install vidxp
+python -m pip install "vidxp[all]"
 ```
 
 Include the browser interface:
 
 ```bash
-python -m pip install "vidxp[frontend]"
+python -m pip install "vidxp[all,frontend]"
 ```
+
+Install only the capabilities you need with extras such as
+`vidxp[dialogue]`, `vidxp[scene]`, or `vidxp[scene,actor]`.
 
 Confirm the installed package and its runtime dependencies:
 
@@ -133,7 +136,7 @@ transcripts, resumable per-video checkpoints, and metadata-rich top-k results.
 ```python
 from vidxp.core import IndexConfig, VideoSource
 from vidxp.core.runner import run_index
-from vidxp.core.search import search_scene
+from vidxp.capabilities.scene.operations import search_scene
 
 config = IndexConfig(
     dataset="my-library",
@@ -207,6 +210,7 @@ caches normally live outside this directory and outside the virtual environment.
 - [Installation and troubleshooting](INSTALLATION_GUIDE.md)
 - [Benchmarking status and results](docs/benchmarking/README.md)
 - [Contribution guidelines](docs/CONTRIBUTING.md)
+- [Adding a capability](docs/adding-a-capability.md)
 - [Changelog](CHANGELOG.md)
 - [Issue tracker](https://github.com/grayhatdevelopers/vidxp/issues)
 - [MIT license](LICENSE)

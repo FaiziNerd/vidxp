@@ -7,8 +7,8 @@ installation, model preparation, and common first-run issues.
 ## Prerequisites
 
 - Python 3.10 through 3.13
-- FFmpeg available on `PATH`
-- CMake and a C/C++ build toolchain for `dlib`
+- FFmpeg available on `PATH` when installing `dialogue`
+- CMake and a C/C++ build toolchain when installing `actor`
 
 The official `dlib` package is distributed through PyPI as source. Installing
 VidXP therefore compiles it locally unless a compatible build is already cached
@@ -43,19 +43,29 @@ python -m pip install --upgrade pip
 
 ## Install from PyPI
 
-Install the command-line package:
+Install the lightweight command and application layer:
 
 ```bash
 python -m pip install vidxp
 ```
 
-Install the command-line package and Streamlit interface:
+Add only the indexing capabilities you need:
 
 ```bash
-python -m pip install "vidxp[frontend]"
+python -m pip install "vidxp[dialogue]"
+python -m pip install "vidxp[scene,actor]"
+python -m pip install "vidxp[all]"
 ```
 
-`frontend` is an optional dependency group. The package name remains `vidxp`.
+`all` contains all runtime capabilities. It does not include the `frontend` or
+`benchmarks` extras:
+
+```bash
+python -m pip install "vidxp[all,frontend]"
+```
+
+The `benchmarks` extra contains evaluation tooling only. Combine it with the
+capability being evaluated, for example `vidxp[scene,benchmarks]`.
 
 ## Install from source
 
@@ -65,16 +75,16 @@ From the repository root:
 python -m pip install .
 ```
 
-Include the Streamlit interface:
+Include all capabilities and the Streamlit interface:
 
 ```bash
-python -m pip install ".[frontend]"
+python -m pip install ".[all,frontend]"
 ```
 
 Use an editable installation while developing:
 
 ```bash
-python -m pip install -e ".[frontend,benchmarks]"
+python -m pip install -e ".[all,frontend,benchmarks]"
 ```
 
 ## Verify the installation
@@ -85,14 +95,15 @@ Display the installed package version:
 vidxp --version
 ```
 
-Check FFmpeg and the Python dependencies needed by all indexing capabilities:
+Check the Python and system dependencies needed by all indexing capabilities:
 
 ```bash
 vidxp doctor
 ```
 
 `vidxp doctor` imports the selected dependencies but does not download model
-weights. Restrict the check when diagnosing one capability:
+weights. A base-only install therefore reports which capability extras are
+missing. Restrict the check when diagnosing one capability:
 
 ```bash
 vidxp doctor --modalities scene

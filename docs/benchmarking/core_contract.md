@@ -126,7 +126,7 @@ an official ID cannot collide with the separator.
 ## Retrieval API
 
 ```python
-from vidxp.core.search import search_scene
+from vidxp.capabilities.scene.operations import search_scene
 
 result = search_scene(
     "a person cuts bread",
