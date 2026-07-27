@@ -163,14 +163,16 @@ Search rejects records that lack dataset, split, run ID, video ID, modality, and
 source ID provenance, in addition to the modality-specific interval metadata.
 
 `serialize_predictions()` writes the generic query-to-ranked-hits contract while
-preserving queries with zero hits. Official DiDeMo and HiREST serializers remain
-part of their own adapters and must not alter official evaluator logic.
+preserving queries with zero hits. The implemented official DiDeMo and HiREST
+serializers remain isolated in their benchmark adapters and do not alter official
+evaluator logic.
 
 ## Deliberate remaining boundaries
 
-This core does not yet provide benchmark-specific dataset loaders, interval
-aggregation, prediction serializers, or evaluator invocations. Those belong to
-the next adapter chunk and must follow each benchmark's official protocol.
+The core deliberately does not provide generic benchmark-specific dataset
+loaders, interval aggregation, prediction serializers, or evaluator invocations.
+DiDeMo and HiREST now implement those operations in their own adapters; later
+benchmarks must follow the same separation and their own official protocols.
 
 Resume is currently per video, not from the middle of a partially indexed video.
 Frame timestamps are derived from frame index and reported FPS, so a

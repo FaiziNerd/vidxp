@@ -175,7 +175,8 @@ retrieval:
 
 1. ingest the released ASR and timestamps;
 2. rechunk and embed it with VidXP's MiniLM path;
-3. use the top phrase's `[start, end]` in the known video for moment retrieval;
+3. project all known-video phrase scores onto a one-second timeline and rank the
+   validation-frozen 0.8-duration window;
 4. serialize predictions for the 776 test query–video pairs to the official
    evaluator.
 
