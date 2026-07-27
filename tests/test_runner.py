@@ -5,7 +5,6 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from vidxp.core.contracts import (
-    CancellationToken,
     IndexCancelledError,
     IndexConfig,
     VideoSource,

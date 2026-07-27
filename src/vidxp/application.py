@@ -15,6 +15,7 @@ from vidxp.core.contracts import (
     SUPPORTED_MODALITIES,
     CancellationToken,
     IndexConfig,
+    IndexSchemaError,
     SearchResult,
 )
 from vidxp.core.manifest import (
