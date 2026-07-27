@@ -13,8 +13,11 @@ from packaging.requirements import Requirement
 
 
 @lru_cache(maxsize=None)
-def packaged_requirements(package: str) -> tuple[Requirement, ...]:
-    content = files(package).joinpath("requirements.txt").read_text(
+def packaged_requirements(
+    package: str,
+    resource: str = "requirements.txt",
+) -> tuple[Requirement, ...]:
+    content = files(package).joinpath(resource).read_text(
         encoding="utf-8"
     )
     return tuple(

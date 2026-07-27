@@ -65,10 +65,21 @@ vidxp = [
 ]
 
 [tool.setuptools.dynamic.optional-dependencies]
-dialogue = { file = ["src/vidxp/capabilities/dialogue/requirements.txt"] }
-scene = { file = ["src/vidxp/capabilities/scene/requirements.txt"] }
-actor = { file = ["src/vidxp/capabilities/actor/requirements.txt"] }
+storage = { file = ["src/vidxp/requirements/storage.txt"] }
+dialogue = { file = [
+  "src/vidxp/requirements/storage.txt",
+  "src/vidxp/capabilities/dialogue/requirements.txt",
+] }
+scene = { file = [
+  "src/vidxp/requirements/storage.txt",
+  "src/vidxp/capabilities/scene/requirements.txt",
+] }
+actor = { file = [
+  "src/vidxp/requirements/storage.txt",
+  "src/vidxp/capabilities/actor/requirements.txt",
+] }
 all = { file = [
+  "src/vidxp/requirements/storage.txt",
   "src/vidxp/capabilities/dialogue/requirements.txt",
   "src/vidxp/capabilities/scene/requirements.txt",
   "src/vidxp/capabilities/actor/requirements.txt",

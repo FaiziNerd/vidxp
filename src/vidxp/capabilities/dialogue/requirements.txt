@@ -1,4 +1,3 @@
-chromadb
 moviepy==1.0.3
 sentence-transformers>=3.4,<4
 whisperx>=3.8.6,<3.9

@@ -111,16 +111,33 @@ def requirements_for(
     *,
     source: VideoSource | None = None,
 ) -> tuple[Requirement, ...]:
-    requirements = []
-    for name in validate_capability_names(names):
-        capability = get_capability(name)
-        selected = active_requirements(
-            packaged_requirements(f"vidxp.capabilities.{name}")
+    selected = tuple(
+        get_capability(name)
+        for name in validate_capability_names(names)
+    )
+    requirements = list(
+        active_requirements(
+            packaged_requirements(
+                "vidxp",
+                "requirements/storage.txt",
+            )
+        )
+        if any(capability.indexer is not None for capability in selected)
+        else ()
+    )
+    for capability in selected:
+        capability_requirements = active_requirements(
+            packaged_requirements(
+                f"vidxp.capabilities.{capability.name}"
+            )
         )
         requirements.extend(
-            selected
+            capability_requirements
             if source is None
-            else capability.source_requirements(source, selected)
+            else capability.source_requirements(
+                source,
+                capability_requirements,
+            )
         )
     unique = {str(requirement): requirement for requirement in requirements}
     return tuple(unique.values())

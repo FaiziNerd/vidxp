@@ -10,12 +10,17 @@ ROOT = Path(__file__).resolve().parents[1]
 class PackagingTests(unittest.TestCase):
     def test_capability_extras_read_capability_owned_requirements(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        storage = "src/vidxp/requirements/storage.txt"
         all_block = pyproject.split("all = { file = [", 1)[1].split(
             "] }",
             1,
         )[0]
 
         for capability in CAPABILITIES.values():
+            extra_block = pyproject.split(
+                f"{capability.extra} = {{ file = [",
+                1,
+            )[1].split("] }", 1)[0]
             requirements = (
                 ROOT
                 / "src"
@@ -26,12 +31,19 @@ class PackagingTests(unittest.TestCase):
             )
             relative = requirements.relative_to(ROOT).as_posix()
             self.assertTrue(requirements.is_file())
-            self.assertIn(
-                f'{capability.extra} = {{ file = ["{relative}"] }}',
-                pyproject,
-            )
+            self.assertIn(f'"{storage}"', extra_block)
+            self.assertIn(f'"{relative}"', extra_block)
             self.assertIn(f'"{relative}"', all_block)
 
+        self.assertIn(f'storage = {{ file = ["{storage}"] }}', pyproject)
+        self.assertEqual(
+            sum(
+                line.strip() == "chromadb"
+                for path in (ROOT / "src" / "vidxp").rglob("*.txt")
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ),
+            1,
+        )
         self.assertNotIn("benchmarks/requirements.txt", all_block)
         self.assertNotIn("requirements/frontend.txt", all_block)
 

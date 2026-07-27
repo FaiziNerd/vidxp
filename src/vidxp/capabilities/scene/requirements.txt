@@ -1,4 +1,3 @@
-chromadb
 clip-anytorch==2.6.0
 numpy>=2.1,<3
 opencv-python

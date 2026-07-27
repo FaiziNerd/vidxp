@@ -1,4 +1,3 @@
-chromadb
 face-recognition
 numpy>=2.1,<3
 opencv-python
