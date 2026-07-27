@@ -5,6 +5,7 @@ import json
 import platform
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -43,7 +44,14 @@ def write_json_atomic(path: Path, payload: Any) -> None:
         + "\n",
         encoding="utf-8",
     )
-    temporary.replace(path)
+    for attempt in range(5):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _append_jsonl(path: Path, payload: Mapping[str, Any]) -> None:

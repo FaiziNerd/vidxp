@@ -2,12 +2,37 @@ import hashlib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from vidxp.core.contracts import IndexConfig, VideoSource
-from vidxp.core.manifest import ManifestStore, source_checksums
+from vidxp.core.manifest import (
+    ManifestStore,
+    source_checksums,
+    write_json_atomic,
+)
 
 
 class ManifestIdentityTests(unittest.TestCase):
+    def test_atomic_write_retries_transient_windows_reader_lock(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            with (
+                patch.object(
+                    Path,
+                    "replace",
+                    side_effect=[
+                        PermissionError("reader lock"),
+                        PermissionError("reader lock"),
+                        None,
+                    ],
+                ) as replace,
+                patch("vidxp.core.manifest.time.sleep") as sleep,
+            ):
+                write_json_atomic(path, {"state": "running"})
+
+            self.assertEqual(replace.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+
     def test_declared_video_checksum_does_not_suppress_transcript_hash(self):
         transcript = ({"text": "hello", "start": 0.0, "end": 1.0},)
         checksums = source_checksums(
