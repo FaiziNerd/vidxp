@@ -6,8 +6,6 @@ on:
       - opened
       - synchronize
       - reopened
-      - labeled
-      - unlabeled
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -15,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
@@ -24,27 +23,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install repository tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r utils/build-requirements.txt
-
-      - name: Require a changelog fragment
-        if: >-
-          github.event_name == 'pull_request' &&
-          !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
-        run: towncrier check --compare-with "${{ github.event.pull_request.base.sha }}"
-
       - name: Determine validation scope
         id: scope
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_ACTOR: ${{ github.actor }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           changed_files="$(git diff --name-only "$BASE_SHA" HEAD)"
           if grep -Eq '^(\.github/workflows/ci\.yml$|src/|tests/|utils/|LICENSE$|MANIFEST\.in$|pyproject\.toml$)' <<< "$changed_files"; then
@@ -57,8 +43,41 @@ jobs:
           else
             run_container=false
           fi
+
+          if [[ "$PR_ACTOR" == "dependabot[bot]" ]] ||
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" \
+              --jq '.[].name' | grep -Fxq 'skip-changelog'; then
+            require_changelog=false
+          else
+            require_changelog=true
+          fi
+
+          if [[ "$run_suite" == "true" || "$require_changelog" == "true" ]]; then
+            needs_python=true
+          else
+            needs_python=false
+          fi
+
           echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT"
           echo "run_container=$run_container" >> "$GITHUB_OUTPUT"
+          echo "require_changelog=$require_changelog" >> "$GITHUB_OUTPUT"
+          echo "needs_python=$needs_python" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v7
+        if: steps.scope.outputs.needs_python == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install repository tooling
+        if: steps.scope.outputs.needs_python == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r utils/build-requirements.txt
+
+      - name: Require a changelog fragment
+        if: steps.scope.outputs.require_changelog == 'true'
+        run: towncrier check --compare-with "${{ github.event.pull_request.base.sha }}"
 
       - name: Install test surface
         if: steps.scope.outputs.run_suite == 'true'

@@ -1,14 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: pip
-    directories:
-      - "/"
-      - "/src/vidxp/requirements"
-      - "/src/vidxp/capabilities/dialogue"
-      - "/src/vidxp/capabilities/scene"
-      - "/src/vidxp/capabilities/actor"
-      - "/src/vidxp/benchmarks"
-      - "/utils"
+    directory: "/"
     schedule:
       interval: cron
       cronjob: "0 9 1,15 * *"
