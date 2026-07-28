@@ -4,28 +4,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: pypi-main
   cancel-in-progress: false
 
 jobs:
-  ci:
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/ci.yml
-    with:
-      container: true
-    permissions:
-      contents: read
-
   release:
     if: github.ref == 'refs/heads/main'
-    needs: ci
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
+    permissions:
+      contents: write
     outputs:
       commit_sha: ${{ steps.release.outputs.commit_sha }}
       released: ${{ steps.release.outputs.released }}
@@ -54,8 +44,45 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: semantic-release version --no-changelog
 
-      - name: Publish to PyPI
+      - name: Smoke distribution
         if: steps.release.outputs.released == 'true'
+        shell: bash
+        run: |
+          python -m venv .release-smoke
+          .release-smoke/bin/python -m pip install dist/*.whl
+          .release-smoke/bin/python -m pip check
+          .release-smoke/bin/vidxp --version
+
+      - name: Upload GitHub release assets
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release publish --tag "${{ steps.release.outputs.tag }}"
+
+      - name: Preserve distribution
+        if: steps.release.outputs.released == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pypi-distribution
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-pypi:
+    if: needs.release.outputs.released == 'true'
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: pypi-distribution
+          path: dist/
+
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
@@ -94,6 +121,43 @@ jobs:
             org.opencontainers.image.version=${{ needs.release.outputs.version }}
             org.opencontainers.image.licenses=MIT
 
+      - name: Build stable container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+      - name: Smoke stable container
+        shell: bash
+        run: |
+          image="ghcr.io/${{ github.repository }}:${{ needs.release.outputs.version }}"
+          docker run --detach --name vidxp-release \
+            --publish 127.0.0.1:8501:8501 "$image"
+          trap 'docker rm --force vidxp-release >/dev/null 2>&1 || true' EXIT
+
+          docker exec vidxp-release vidxp --version
+          docker exec vidxp-release python -c \
+            'import clip, face_recognition, whisperx'
+          docker exec vidxp-release sh -c \
+            'test ! -d "$HOME/.cache/huggingface" && test ! -d "$HOME/.cache/clip"'
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            if [[ "$(docker inspect --format='{{.State.Running}}' vidxp-release)" != "true" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker logs vidxp-release
+          exit 1
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -101,14 +165,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish stable container
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+      - name: Publish stable container
+        run: docker push --all-tags "ghcr.io/${{ github.repository }}"
 
       - name: Verify public container access
         shell: bash
