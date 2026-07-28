@@ -21,8 +21,9 @@ changes/123.feature.md
 Add named repositories for selecting shared index locations and devices.
 ```
 
-Purely internal changes may omit a fragment only when a maintainer applies the
-`skip-changelog` label and the pull request explains why.
+Dependency updates marked `dependencies` do not require a fragment. Other
+internal changes may omit one when a maintainer applies `skip-changelog` and
+the pull request explains why.
 
 Towncrier collects and removes fragments when a stable release is created.
 Do not edit `CHANGELOG.md` directly.
