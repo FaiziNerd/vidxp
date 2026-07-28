@@ -57,6 +57,7 @@ def frontend_harness(video_path, actor_output_path):
     video_path = Path(video_path)
     actor_output_path = Path(actor_output_path)
     service = Mock()
+    service.check_dependencies.return_value = {"ok": True}
     service.index_status.return_value = {
         "state": "ready",
         "message": "Video indexing completed successfully.",
@@ -174,6 +175,40 @@ class FrontendSearchTests(unittest.TestCase):
         self.assertTrue(state[frontend.INDEX_REQUESTED_KEY])
         self.assertNotIn(frontend.SEARCH_RESULT_KEY, state)
         self.assertNotIn(frontend.INDEX_ERROR_KEY, state)
+
+    def test_available_index_modalities_excludes_missing_extras(self):
+        def dependency_status(modalities):
+            return {"ok": modalities == ("scene",)}
+
+        self.service.check_dependencies.side_effect = dependency_status
+        with patch.object(frontend, "SERVICE", self.service):
+            available = frontend._available_index_modalities()
+
+        self.assertEqual(available, ("scene",))
+
+    def test_indexing_passes_selected_modalities_to_the_worker(self):
+        uploaded_video = Mock()
+        uploaded_video.name = "source.mp4"
+        uploaded_video.getvalue.return_value = b"video"
+        with TemporaryDirectory() as directory:
+            saved_video = Path(directory) / "source-video.mp4"
+            with (
+                patch.object(frontend, "SAVED_VIDEO_PATH", saved_video),
+                patch.object(frontend, "start_indexing") as start,
+                patch.object(frontend.st, "rerun"),
+            ):
+                frontend._run_indexing(
+                    uploaded_video,
+                    {},
+                    ("scene",),
+                )
+
+        start.assert_called_once_with(
+            str(saved_video),
+            "source.mp4",
+            frontend.SERVICE,
+            modalities=("scene",),
+        )
 
     def test_cancellation_request_uses_the_worker_token(self):
         state = {}

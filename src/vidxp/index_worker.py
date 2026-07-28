@@ -26,9 +26,11 @@ def _run_indexing(
     cancel_event,
     index_directory: str,
     device: str | None,
+    modalities: tuple[str, ...],
 ) -> None:
     VidXPService(index_directory, device=device).create_index(
         path,
+        modalities=modalities,
         source_name=source_name,
         cancellation=CancellationToken(cancel_event),
     )
@@ -45,6 +47,8 @@ def start_indexing(
     path: str,
     source_name: str,
     service: VidXPService | None = None,
+    *,
+    modalities: tuple[str, ...],
 ) -> None:
     global _cancel_event, _process
 
@@ -63,6 +67,7 @@ def start_indexing(
                 _cancel_event,
                 str(active_service.index_directory),
                 active_service.device,
+                modalities,
             ),
             name="vidxp-indexer",
             daemon=True,
