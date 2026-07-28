@@ -6,44 +6,12 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 from vidxp.core.contracts import (
     IndexConfig,
     IndexSchemaError,
-    SearchHit,
-    SearchResult,
 )
-from vidxp.core.models import get_clip_model, get_embedder
 from vidxp.core.storage import IndexStorage
-
-
-REQUIRED_METADATA = {
-    "dialogue": {
-        "dataset",
-        "split",
-        "run_id",
-        "video_id",
-        "source_id",
-        "start",
-        "end",
-        "text",
-        "phrase_id",
-        "modality",
-    },
-    "scene": {
-        "dataset",
-        "split",
-        "run_id",
-        "video_id",
-        "source_id",
-        "start",
-        "end",
-        "frame_index",
-        "timestamp",
-        "fps",
-        "duration",
-        "modality",
-    },
-}
 
 
 def distance_to_score(raw_distance: float) -> float:
@@ -77,33 +45,11 @@ def stable_query_id(
     return f"{modality}:{digest}"
 
 
-def _dialogue_embedding(query: str, config: IndexConfig) -> list[float]:
-    encoder = get_embedder(config.sentence_model, config.device)
-    encoded = encoder.encode(
-        [query],
-        convert_to_numpy=True,
-        normalize_embeddings=config.normalize_dialogue_embeddings,
-    )
-    return encoded[0].tolist()
-
-
-def _scene_embedding(query: str, config: IndexConfig) -> list[float]:
-    import clip
-    import torch
-
-    model, _ = get_clip_model(config.clip_model, config.device)
-    tokens = clip.tokenize([query]).to(config.device)
-    with torch.no_grad():
-        features = model.encode_text(tokens)
-        features /= features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy().tolist()[0]
-
-
 def _to_hits(
     modality: str,
     rows: list[dict[str, Any]],
+    required_metadata: frozenset[str],
 ) -> tuple[SearchHit, ...]:
-    required = REQUIRED_METADATA[modality]
     ordered = sorted(
         rows,
         key=lambda row: (row["raw_distance"], row["source_id"]),
@@ -111,7 +57,7 @@ def _to_hits(
     hits = []
     for rank, row in enumerate(ordered, start=1):
         metadata = row["metadata"]
-        missing = sorted(required - metadata.keys())
+        missing = sorted(required_metadata - metadata.keys())
         if missing:
             raise IndexSchemaError(
                 "The saved index predates the benchmark-ready schema and must "
@@ -141,11 +87,13 @@ def _to_hits(
     return tuple(hits)
 
 
-def search(
+def search_embeddings(
     query: str,
     modality: str,
+    embedding: list[float],
     *,
     config: IndexConfig,
+    required_metadata: frozenset[str],
     top_k: int = 10,
     video_id: str | None = None,
     query_id: str | None = None,
@@ -161,13 +109,6 @@ def search(
         raise ValueError(
             f"The {modality} modality is not present in this index run."
         )
-    if modality == "dialogue":
-        embedding = _dialogue_embedding(query, config)
-    elif modality == "scene":
-        embedding = _scene_embedding(query, config)
-    else:
-        raise ValueError("Semantic search supports dialogue and scene modalities.")
-
     owns_storage = storage is None
     store = storage or IndexStorage(config)
     try:
@@ -185,16 +126,8 @@ def search(
         query_id=query_id or stable_query_id(query, modality, config),
         query=query,
         modality=modality,
-        hits=_to_hits(modality, rows),
+        hits=_to_hits(modality, rows, required_metadata),
     )
-
-
-def search_dialogue(query: str, **options: Any) -> SearchResult:
-    return search(query, "dialogue", **options)
-
-
-def search_scene(query: str, **options: Any) -> SearchResult:
-    return search(query, "scene", **options)
 
 
 def serialize_predictions(

@@ -13,23 +13,22 @@ on:
       - "LICENSE"
       - "MANIFEST.in"
       - "utils/**"
-      - ".github/workflows/ci.yml"
       - ".github/workflows/release-to-test-pypi.yml"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
+
+concurrency:
+  group: testpypi-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-    permissions:
-      contents: read
-
   prerelease:
-    needs: ci
     runs-on: ubuntu-latest
-    environment: testpypi
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.release.outputs.released }}
 
     steps:
       - uses: actions/checkout@v7
@@ -52,8 +51,45 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: semantic-release version --as-prerelease --prerelease-token b --no-changelog
 
-      - name: Publish to TestPyPI
+      - name: Smoke distribution
         if: steps.release.outputs.released == 'true'
+        shell: bash
+        run: |
+          python -m venv .release-smoke
+          .release-smoke/bin/python -m pip install dist/*.whl
+          .release-smoke/bin/python -m pip check
+          .release-smoke/bin/vidxp --version
+
+      - name: Upload GitHub release assets
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release publish --tag "${{ steps.release.outputs.tag }}"
+
+      - name: Preserve distribution
+        if: steps.release.outputs.released == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: testpypi-distribution
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-testpypi:
+    if: needs.prerelease.outputs.released == 'true'
+    needs: prerelease
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: testpypi-distribution
+          path: dist/
+
+      - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/

@@ -10,6 +10,10 @@ from vidxp import cli
 
 
 class BenchmarkCliTests(unittest.TestCase):
+    def test_benchmark_app_is_not_loaded_without_its_extra(self):
+        with patch.object(cli, "requirements_available", return_value=False):
+            self.assertIsNone(cli._load_benchmark_app())
+
     def test_benchmark_uses_global_device_and_json_output(self):
         runner = CliRunner()
         service = Mock()

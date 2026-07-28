@@ -17,15 +17,16 @@ Pending Towncrier fragments remain in `changes/` during prereleases.
 
 1. Confirm that `main` is green and its TestPyPI prerelease is usable.
 2. Confirm that every user-visible merged pull request has an accurate fragment.
-3. Run the **Release (main → PyPI)** workflow.
-4. Approve the protected `pypi` environment deployment.
+3. Run the **Release (main → PyPI)** workflow from `main`.
+4. Approve the `pypi` environment deployment when reviewer protection is enabled.
 5. Confirm the new tag, GitHub release, PyPI package, and emptied pending
    fragment set.
 
-The workflow always checks out `main`. Python Semantic Release is the only
-version authority. During its build step, Towncrier receives that calculated
-version, updates `CHANGELOG.md`, and removes the released fragments before the
-release commit and tag are created.
+The workflow only runs its validation and release jobs for a `main` dispatch.
+Both jobs use the same immutable dispatch revision. Python Semantic Release is
+the only version authority. During its build step, Towncrier receives that
+calculated version, updates `CHANGELOG.md`, and removes the released fragments
+before the release commit and tag are created.
 
 Release and CI tools are declared once in `utils/build-requirements.txt`. Do not
 duplicate their versions in workflow files.

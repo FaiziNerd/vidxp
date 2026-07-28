@@ -6,6 +6,7 @@ from typing import Sequence
 import streamlit as st
 
 from vidxp.application import VidXPService
+from vidxp.capabilities.registry import index_capability_names
 from vidxp.index_state import IndexNotReadyError
 from vidxp.index_worker import (
     cancel_indexing,
@@ -122,7 +123,15 @@ def _request_cancellation():
         )
 
 
-def _run_indexing(uploaded_video, status):
+def _available_index_modalities() -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in index_capability_names()
+        if SERVICE.check_dependencies((name,))["ok"]
+    )
+
+
+def _run_indexing(uploaded_video, status, modalities):
     try:
         if uploaded_video is not None:
             SAVED_VIDEO_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +143,12 @@ def _run_indexing(uploaded_video, status):
                 if status
                 else SAVED_VIDEO_PATH.name
             )
-        start_indexing(str(SAVED_VIDEO_PATH), source_name, SERVICE)
+        start_indexing(
+            str(SAVED_VIDEO_PATH),
+            source_name,
+            SERVICE,
+            modalities=modalities,
+        )
     except Exception as exc:
         st.session_state[INDEX_ERROR_KEY] = f"{type(exc).__name__}: {exc}"
     else:
@@ -287,6 +301,7 @@ def run():
     requested = st.session_state.get(INDEX_REQUESTED_KEY, False)
     busy = active or requested
     status = SERVICE.index_status()
+    installed_modalities = _available_index_modalities()
     video_column, workflow_column = st.columns(
         [0.95, 1.05],
         gap="large",
@@ -298,10 +313,25 @@ def run():
 
     with workflow_column:
         st.subheader("Build index")
+        selected_modalities = tuple(
+            st.multiselect(
+                "Capabilities",
+                installed_modalities,
+                default=installed_modalities,
+                disabled=busy,
+                help="Install another capability extra to make it available here.",
+            )
+        )
+        if not installed_modalities:
+            st.warning(
+                "No indexing capabilities are installed. "
+                'Install one, for example: pip install "vidxp[scene]"'
+            )
         st.button(
             "Index video",
             type="primary",
             disabled=busy
+            or not selected_modalities
             or (uploaded_video is None and not SAVED_VIDEO_PATH.is_file()),
             help=(
                 "Indexing is already running."
@@ -371,7 +401,7 @@ def run():
         _render_search_result(st.session_state.get(SEARCH_RESULT_KEY))
 
     if requested:
-        _run_indexing(uploaded_video, status)
+        _run_indexing(uploaded_video, status, selected_modalities)
 
 
 def main(arguments: Sequence[str] = ()):

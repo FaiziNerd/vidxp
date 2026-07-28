@@ -17,23 +17,17 @@ from rich.progress import (
 from rich.table import Table
 
 from vidxp.application import VidXPService
-from vidxp.core.contracts import (
-    SUPPORTED_MODALITIES,
-    IndexConfig,
-    SearchResult,
+from vidxp.capabilities.registry import (
+    index_capability_names,
+    validate_capability_names,
 )
+from vidxp.capabilities.schemas import SearchResult
 from vidxp.repositories import RepositoryConfig, RepositoryRegistry
 
 
 class OutputFormat(str, Enum):
     rich = "rich"
     json = "json"
-
-
-class Modality(str, Enum):
-    dialogue = "dialogue"
-    scene = "scene"
-    actor = "actor"
 
 
 @dataclass
@@ -171,14 +165,14 @@ class IndexProgress:
 
 
 def selected_modalities(
-    values: Iterable[Modality] | None,
+    values: Iterable[str] | None,
 ) -> tuple[str, ...]:
     if values is None:
-        return SUPPORTED_MODALITIES
-    selected = tuple(dict.fromkeys(value.value for value in values))
-    if not selected:
-        raise typer.BadParameter("At least one modality is required.")
-    return selected
+        return index_capability_names()
+    try:
+        return validate_capability_names(values)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def parse_modalities(value: str) -> tuple[str, ...]:
@@ -188,7 +182,25 @@ def parse_modalities(value: str) -> tuple[str, ...]:
         if item.strip()
     )
     try:
-        IndexConfig(enabled_modalities=selected)
+        return validate_capability_names(selected)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    return selected
+
+
+def parse_capability_options(
+    values: Iterable[str] | None,
+) -> dict[str, dict[str, Any]]:
+    options: dict[str, dict[str, Any]] = {}
+    for value in values or ():
+        path, separator, raw = value.partition("=")
+        capability, dot, key = path.partition(".")
+        if not separator or not dot or not capability or not key:
+            raise typer.BadParameter(
+                "Capability options must use CAPABILITY.KEY=VALUE."
+            )
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = raw
+        options.setdefault(capability, {})[key] = parsed
+    return options

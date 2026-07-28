@@ -4,10 +4,56 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from vidxp.application import VidXPService
+from vidxp.capabilities.contracts import (
+    CapabilityDefinition,
+    OperationDefinition,
+    PreparationContext,
+)
+from vidxp.capabilities.scene.config import SceneConfig
+from vidxp.capabilities.schemas import SearchInput, SearchResult
 from vidxp.core.contracts import IndexConfig
 
 
 class ApplicationServiceTests(unittest.TestCase):
+    def test_execute_supports_validated_operation_without_an_index(self):
+        capability = CapabilityDefinition(
+            name="export",
+            description="Export results.",
+            extra="export",
+            operations={
+                "run": OperationDefinition(
+                    input_model=SearchInput,
+                    output_model=SearchResult,
+                    handler=lambda context, request: {
+                        "query_id": "export:1",
+                        "query": request.query,
+                        "modality": "export",
+                        "hits": (),
+                    },
+                    requires_index=False,
+                )
+            },
+        )
+        service = VidXPService()
+        with (
+            patch(
+                "vidxp.application.get_capability",
+                return_value=capability,
+            ),
+            patch.object(
+                service,
+                "active_config",
+                side_effect=AssertionError("index should not be loaded"),
+            ),
+        ):
+            result = service.execute(
+                "export",
+                "run",
+                {"query": "result bundle"},
+            )
+
+        self.assertEqual(result.query, "result bundle")
+
     def test_missing_index_has_a_stable_status_contract(self):
         service = VidXPService("missing-index")
         with patch(
@@ -48,31 +94,55 @@ class ApplicationServiceTests(unittest.TestCase):
 
     def test_search_is_a_thin_adapter_over_the_core(self):
         service = VidXPService()
-        config = IndexConfig.local(
-            video_id="video-1",
-            enabled_modalities=("scene",),
+        expected = SearchResult(
+            query_id="scene:1",
+            query="yellow taxi",
+            modality="scene",
         )
-        expected = Mock()
-        with (
-            patch.object(
-                service,
-                "active_config",
-                return_value=(config, {}),
-            ),
-            patch(
-                "vidxp.application.search_scene",
-                return_value=expected,
-            ) as search,
-        ):
+        with patch.object(
+            service,
+            "execute",
+            return_value=expected,
+        ) as execute:
             result = service.search("scene", "yellow taxi", top_k=7)
 
         self.assertIs(result, expected)
-        search.assert_called_once_with(
-            "yellow taxi",
-            config=config,
-            top_k=7,
-            video_id="video-1",
+        execute.assert_called_once_with(
+            "scene",
+            "search",
+            {"query": "yellow taxi", "top_k": 7},
         )
+
+    def test_execute_translates_missing_optional_dependency(self):
+        def missing_dependency(_context, _request):
+            raise ModuleNotFoundError("No module named 'clip'", name="clip")
+
+        operation = OperationDefinition(
+            input_model=SearchInput,
+            output_model=SearchResult,
+            handler=missing_dependency,
+            requires_index=False,
+        )
+        capability = CapabilityDefinition(
+            name="scene",
+            description="Search visual scenes.",
+            extra="scene",
+            operations={"search": operation},
+        )
+        service = VidXPService()
+        with patch(
+            "vidxp.application.get_capability",
+            return_value=capability,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r'clip is unavailable.*pip install "vidxp\[scene\]"',
+            ):
+                service.execute(
+                    "scene",
+                    "search",
+                    {"query": "yellow taxi"},
+                )
 
     def test_create_index_centralizes_storage_and_runtime_configuration(self):
         service = VidXPService("selected-index", device="cuda")
@@ -95,14 +165,10 @@ class ApplicationServiceTests(unittest.TestCase):
 
     def test_dependency_checks_return_a_transport_neutral_contract(self):
         service = VidXPService()
-        with (
-            patch(
-                "vidxp.application.dependency_failures",
-                return_value=[("CLIP", "missing")],
-            ),
-            patch(
-                "vidxp.application.ffmpeg_binary",
-                return_value="ffmpeg",
+        with patch(
+            "vidxp.application.dependency_checks",
+            return_value=(
+                {"name": "CLIP", "ok": False, "error": "missing"},
             ),
         ):
             result = service.check_dependencies(("scene",))
@@ -116,19 +182,41 @@ class ApplicationServiceTests(unittest.TestCase):
     def test_model_preparation_reports_progress_without_cli_dependencies(self):
         service = VidXPService(device="cuda")
         events = []
+        prepare = Mock(
+            side_effect=lambda context, progress: (
+                progress(
+                    {
+                        "state": "preparing",
+                        "stage": "scene_model",
+                        "message": "Preparing scene model",
+                    }
+                ),
+                (SceneConfig.model_validate(context.settings).model,),
+            )[1]
+        )
+        capability = Mock(
+            prepare=prepare,
+            config_model=SceneConfig,
+        )
         with (
             patch(
-                "vidxp.application.dependency_failures",
-                return_value=[],
+                "vidxp.application.dependency_checks",
+                return_value=(),
             ),
-            patch("vidxp.application.get_clip_model") as load_clip,
+            patch(
+                "vidxp.application.get_capability",
+                return_value=capability,
+            ),
         ):
             result = service.prepare_models(
                 ("scene",),
                 progress_callback=events.append,
             )
 
-        load_clip.assert_called_once_with("ViT-B/32", "cuda")
+        prepare.assert_called_once()
+        context = prepare.call_args.args[0]
+        self.assertIsInstance(context, PreparationContext)
+        self.assertEqual(context.device, "cuda")
         self.assertEqual(result["device"], "cuda")
         self.assertEqual(events[0]["stage"], "scene_model")
 
@@ -180,6 +268,32 @@ class ApplicationServiceTests(unittest.TestCase):
                 (index_directory / "index_status.json").exists()
             )
             self.assertFalse(checkpoint_directory.exists())
+
+    def test_clear_translates_missing_storage_dependency(self):
+        with TemporaryDirectory() as directory:
+            service = VidXPService(directory)
+            with (
+                patch(
+                    "vidxp.application.indexing_in_progress",
+                    return_value=False,
+                ),
+                patch(
+                    "vidxp.application.read_index_status",
+                    return_value=None,
+                ),
+                patch(
+                    "vidxp.application.IndexStorage",
+                    side_effect=ModuleNotFoundError(
+                        "No module named 'chromadb'",
+                        name="chromadb",
+                    ),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    r'chromadb is unavailable.*pip install "vidxp\[storage\]"',
+                ):
+                    service.clear_index()
 
 
 if __name__ == "__main__":

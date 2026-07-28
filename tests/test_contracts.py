@@ -6,11 +6,10 @@ from vidxp.core.contracts import (
     CancellationToken,
     IndexCancelledError,
     IndexConfig,
-    SearchHit,
-    SearchResult,
     VideoSource,
     stable_source_id,
 )
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 
 
 class ContractTests(unittest.TestCase):
@@ -62,7 +61,7 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(first.fingerprint(), relocated.fingerprint())
 
     def test_path_objects_are_normalized_for_manifest_serialization(self):
-        config = IndexConfig(
+        config = IndexConfig.local(
             output_root=Path("benchmark-output"),
             storage_directory=Path("benchmark-index"),
         )
@@ -74,20 +73,43 @@ class ContractTests(unittest.TestCase):
     def test_invalid_config_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "At least one"):
             IndexConfig(enabled_modalities=())
-        with self.assertRaisesRegex(ValueError, "Unsupported"):
-            IndexConfig(enabled_modalities=("ocr",))
+        with self.assertRaisesRegex(ValueError, "Missing collection names"):
+            IndexConfig(
+                enabled_modalities=("ocr",),
+                collection_names={"scene": "scene"},
+            )
         with self.assertRaisesRegex(ValueError, "frame_stride"):
-            IndexConfig(frame_stride=0)
+            IndexConfig.local(frame_stride=0)
         with self.assertRaisesRegex(ValueError, "cannot be"):
-            IndexConfig(dataset="..").run_directory
+            IndexConfig(
+                dataset="..",
+                enabled_modalities=("scene",),
+            ).run_directory
         with self.assertRaisesRegex(ValueError, "reserved on Windows"):
-            IndexConfig(dataset="CON.txt").run_directory
+            IndexConfig(
+                dataset="CON.txt",
+                enabled_modalities=("scene",),
+            ).run_directory
         with self.assertRaisesRegex(ValueError, "distinct"):
-            IndexConfig(collection_names=("shared", "shared", "actor"))
+            IndexConfig(
+                enabled_modalities=("dialogue", "scene", "actor"),
+                collection_names={
+                    "dialogue": "shared",
+                    "scene": "shared",
+                    "actor": "actor",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "3-512"):
-            IndexConfig(collection_names=("a", "scene", "actor"))
+            IndexConfig(
+                enabled_modalities=("dialogue", "scene", "actor"),
+                collection_names={
+                    "dialogue": "a",
+                    "scene": "scene",
+                    "actor": "actor",
+                }
+            )
         with self.assertRaisesRegex(ValueError, "vector_distance"):
-            IndexConfig(vector_distance="unknown")
+            IndexConfig.local(vector_distance="unknown")
         with self.assertRaisesRegex(ValueError, "SHA-256"):
             VideoSource(path="video.mp4", checksum="not-a-checksum")
 

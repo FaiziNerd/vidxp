@@ -63,6 +63,7 @@ class IndexWorkerTests(unittest.TestCase):
                 "video.mp4",
                 "source.mp4",
                 self.service,
+                modalities=("scene",),
             )
 
         self.assertTrue(context.process.is_alive())
@@ -76,6 +77,7 @@ class IndexWorkerTests(unittest.TestCase):
                 context.event,
                 "selected-index",
                 "cuda",
+                ("scene",),
             ),
         )
         self.assertIs(context.process.options["target"], index_worker._run_indexing)
@@ -93,6 +95,7 @@ class IndexWorkerTests(unittest.TestCase):
                 FakeEvent(),
                 "selected-index",
                 "cuda",
+                ("scene",),
             )
 
         service_type.assert_called_once_with("selected-index", device="cuda")
@@ -100,6 +103,10 @@ class IndexWorkerTests(unittest.TestCase):
         self.assertEqual(
             service.create_index.call_args.kwargs["source_name"],
             "source.mp4",
+        )
+        self.assertEqual(
+            service.create_index.call_args.kwargs["modalities"],
+            ("scene",),
         )
 
     def test_worker_rejects_a_second_indexing_run(self):
@@ -110,12 +117,14 @@ class IndexWorkerTests(unittest.TestCase):
                 "video.mp4",
                 "source.mp4",
                 self.service,
+                modalities=("scene",),
             )
             with self.assertRaises(IndexingInProgressError):
                 index_worker.start_indexing(
                     "video.mp4",
                     "source.mp4",
                     self.service,
+                    modalities=("scene",),
                 )
 
     def test_existing_service_run_remains_visible(self):
@@ -130,6 +139,7 @@ class IndexWorkerTests(unittest.TestCase):
                 "video.mp4",
                 "source.mp4",
                 self.service,
+                modalities=("scene",),
             )
 
         self.assertTrue(index_worker.cancel_indexing())

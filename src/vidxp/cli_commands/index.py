@@ -8,11 +8,11 @@ import typer
 from vidxp.cli_support import (
     CLIState,
     IndexProgress,
-    Modality,
     OutputFormat,
     effective_output_format,
     emit_json,
     emit_status,
+    parse_capability_options,
     selected_modalities,
     state_from_context,
 )
@@ -27,6 +27,7 @@ def create_index(
     *,
     modalities: Iterable[str],
     frame_stride: int,
+    capability_options: dict[str, dict],
 ) -> dict:
     show_progress = (
         not state.quiet and state.output_format == OutputFormat.rich
@@ -36,6 +37,7 @@ def create_index(
             path,
             modalities=modalities,
             frame_stride=frame_stride,
+            capability_options=capability_options,
             progress_callback=progress.update,
         )
     if state.output_format == OutputFormat.json:
@@ -63,7 +65,7 @@ def index_create(
         ),
     ],
     modalities: Annotated[
-        list[Modality] | None,
+        list[str] | None,
         typer.Option(
             "--modality",
             "-m",
@@ -78,6 +80,16 @@ def index_create(
             help="Materialize every Nth frame for visual modalities.",
         ),
     ] = 1,
+    capability_options: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--option",
+            help=(
+                "Capability setting as CAPABILITY.KEY=VALUE; "
+                "repeat for multiple settings."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Create or replace a local index for one video."""
 
@@ -87,6 +99,7 @@ def index_create(
         path,
         modalities=selected_modalities(modalities),
         frame_stride=frame_stride,
+        capability_options=parse_capability_options(capability_options),
     )
 
 

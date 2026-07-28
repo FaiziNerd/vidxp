@@ -11,8 +11,12 @@ from unittest.mock import Mock, patch
 from typer.testing import CliRunner
 
 from vidxp import cli
-from vidxp.core.actor_results import ActorClusterSummary, ActorRenderResult
-from vidxp.core.contracts import SearchHit, SearchResult
+from vidxp.capabilities.actor.schemas import (
+    ActorClusterSummary,
+    ActorDetection,
+    ActorRenderResult,
+)
+from vidxp.capabilities.schemas import SearchHit, SearchResult
 from vidxp.index_state import IndexNotReadyError
 
 
@@ -206,6 +210,10 @@ class CliTests(unittest.TestCase):
                     "scene",
                     "--frame-stride",
                     "5",
+                    "--option",
+                    "scene.batch_size=4",
+                    "--option",
+                    "scene.model=test-model",
                 ]
             )
 
@@ -215,6 +223,10 @@ class CliTests(unittest.TestCase):
         call = self.service.create_index.call_args
         self.assertEqual(call.kwargs["modalities"], ("scene",))
         self.assertEqual(call.kwargs["frame_stride"], 5)
+        self.assertEqual(
+            call.kwargs["capability_options"],
+            {"scene": {"batch_size": 4, "model": "test-model"}},
+        )
 
     def test_index_status_reports_missing_index_as_json(self):
         self.service.index_status.return_value = {
@@ -246,15 +258,19 @@ class CliTests(unittest.TestCase):
             "prepared": ["ViT-B/32"],
             "modalities": ["scene"],
             "device": "cpu",
-            "language": None,
         }
 
         checked = self.invoke(
             ["doctor", "--modalities", "scene", "--json"]
         )
-        prepared = self.invoke(
-            ["prepare", "--modalities", "scene", "--json"]
-        )
+        prepared = self.invoke([
+            "prepare",
+            "--modalities",
+            "scene",
+            "--option",
+            "scene.model=test-model",
+            "--json",
+        ])
 
         self.assertTrue(json.loads(checked.stdout)["ok"])
         self.assertEqual(
@@ -263,6 +279,12 @@ class CliTests(unittest.TestCase):
         )
         self.service.check_dependencies.assert_called_once_with(("scene",))
         self.service.prepare_models.assert_called_once()
+        self.assertEqual(
+            self.service.prepare_models.call_args.kwargs[
+                "capability_options"
+            ],
+            {"scene": {"model": "test-model"}},
+        )
 
     def test_ui_receives_the_selected_service_configuration(self):
         self.service.index_directory = Path("selected-index")
@@ -291,18 +313,32 @@ class CliTests(unittest.TestCase):
             )
 
     def test_actor_commands_expose_clusters_detections_and_rendering(self):
-        cluster = ActorClusterSummary("3", "video-1", 4, 1.0, 8.0)
+        cluster = ActorClusterSummary(
+            cluster_id="3",
+            video_id="video-1",
+            detection_count=4,
+            first_timestamp=1.0,
+            last_timestamp=8.0,
+        )
         self.service.actor_clusters.return_value = (cluster,)
         self.service.actor_detections.return_value = [
-            {
-                "frame_index": 2,
-                "timestamp": 1.5,
-                "detection_id": "d2",
-            }
+            ActorDetection(
+                detection_id="d2",
+                cluster_id="3",
+                frame_index=2,
+                timestamp=1.5,
+                bbox=(1, 2, 3, 0),
+                dataset="local",
+                split="local",
+                run_id="default",
+                video_id="video-1",
+                modality="actor",
+                source_id="actor:d2",
+            )
         ]
         self.service.render_actor.return_value = ActorRenderResult(
-            Path("actor.mp4"),
-            4,
+            output_path=Path("actor.mp4"),
+            detection_count=4,
         )
 
         listed = self.invoke(["actors", "list", "--json"])

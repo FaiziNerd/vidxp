@@ -11,9 +11,8 @@ from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import quote
 
 
-INDEX_SCHEMA_VERSION = 2
+INDEX_SCHEMA_VERSION = 3
 MANIFEST_SCHEMA_VERSION = 1
-SUPPORTED_MODALITIES = ("dialogue", "scene", "actor")
 
 
 class IndexCancelledError(RuntimeError):
@@ -73,29 +72,18 @@ class IndexConfig:
     split: str = "local"
     run_id: str = "default"
     video_id: str | None = None
-    enabled_modalities: tuple[str, ...] = SUPPORTED_MODALITIES
+    enabled_modalities: tuple[str, ...] = ()
     frame_stride: int = 1
-    dialogue_words_per_phrase: int = 5
-    scene_batch_size: int = 32
-    dialogue_batch_size: int = 128
-    transcription_batch_size: int = 16
-    actor_batch_size: int = 16
     storage_batch_size: int = 256
-    normalize_dialogue_embeddings: bool = True
     vector_distance: str = "l2"
-    face_match_threshold: float = 0.55
-    face_num_jitters: int = 2
-    actor_min_detections: int = 4
     device: str = "cpu"
-    sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    whisper_model: str = "large-v2"
-    clip_model: str = "ViT-B/32"
+    capability_options: Mapping[str, Mapping[str, Any]] = field(
+        default_factory=dict
+    )
     output_root: str | Path = "benchmark_runs"
     storage_directory: str | Path | None = None
-    collection_names: tuple[str, str, str] = (
-        "dialogue",
-        "scene",
-        "actor",
+    collection_names: Mapping[str, str] = field(
+        default_factory=dict
     )
 
     def __post_init__(self) -> None:
@@ -112,40 +100,61 @@ class IndexConfig:
             _require_identifier("video_id", self.video_id)
 
         modalities = tuple(dict.fromkeys(self.enabled_modalities))
-        unknown = sorted(set(modalities) - set(SUPPORTED_MODALITIES))
-        if unknown:
-            raise ValueError(f"Unsupported indexing modalities: {', '.join(unknown)}")
         if not modalities:
             raise ValueError("At least one indexing modality must be enabled.")
         object.__setattr__(self, "enabled_modalities", modalities)
+        collection_names = {
+            str(capability): str(name)
+            for capability, name in self.collection_names.items()
+        }
+        if not collection_names:
+            collection_names = {
+                capability: capability
+                for capability in modalities
+            }
+        missing_collections = sorted(
+            set(modalities) - set(collection_names)
+        )
+        if missing_collections:
+            raise ValueError(
+                "Missing collection names for capabilities: "
+                + ", ".join(missing_collections)
+            )
+        object.__setattr__(self, "collection_names", collection_names)
+        capability_options = {
+            str(capability): dict(options)
+            for capability, options in self.capability_options.items()
+        }
+        unknown_options = sorted(
+            set(capability_options) - set(modalities)
+        )
+        if unknown_options:
+            raise ValueError(
+                "Options were supplied for disabled capabilities: "
+                + ", ".join(unknown_options)
+            )
+        object.__setattr__(
+            self,
+            "capability_options",
+            capability_options,
+        )
 
         for label in (
             "frame_stride",
-            "dialogue_words_per_phrase",
-            "scene_batch_size",
-            "dialogue_batch_size",
-            "transcription_batch_size",
-            "actor_batch_size",
             "storage_batch_size",
-            "face_num_jitters",
-            "actor_min_detections",
         ):
             if getattr(self, label) <= 0:
                 raise ValueError(f"{label} must be greater than zero.")
-        if not 0 < self.face_match_threshold < 1:
-            raise ValueError("face_match_threshold must be between zero and one.")
         if self.vector_distance not in {"l2", "cosine", "ip"}:
             raise ValueError(
                 "vector_distance must be one of: l2, cosine, ip."
             )
-        if len(self.collection_names) != len(SUPPORTED_MODALITIES):
-            raise ValueError("collection_names must define dialogue, scene, and actor.")
         collection_pattern = re.compile(
             r"^[A-Za-z0-9][A-Za-z0-9._-]{1,510}[A-Za-z0-9]$"
         )
         invalid_names = [
             name
-            for name in self.collection_names
+            for name in self.collection_names.values()
             if not collection_pattern.fullmatch(str(name))
         ]
         if invalid_names:
@@ -154,7 +163,9 @@ class IndexConfig:
                 "with an alphanumeric character, and contain only "
                 "letters, numbers, periods, underscores, or hyphens."
             )
-        if len(set(self.collection_names)) != len(self.collection_names):
+        if len(set(self.collection_names.values())) != len(
+            self.collection_names
+        ):
             raise ValueError("collection_names must be distinct.")
 
     @classmethod
@@ -163,12 +174,11 @@ class IndexConfig:
 
         defaults = {
             "storage_directory": "chroma_data",
-            "collection_names": (
-                "voiceEmbeddings",
-                "sceneEmbeddings",
-                "actorCollection",
-            ),
         }
+        if "enabled_modalities" not in changes:
+            from vidxp.capabilities.registry import index_capability_names
+
+            defaults["enabled_modalities"] = index_capability_names()
         defaults.update(changes)
         return cls(**defaults)
 
@@ -198,8 +208,10 @@ class IndexConfig:
     ) -> dict[str, str]:
         if self.video_id is None:
             raise ValueError("IndexConfig.video_id is required for record metadata.")
-        if modality not in SUPPORTED_MODALITIES:
-            raise ValueError(f"Unsupported indexing modality: {modality}")
+        if modality not in self.enabled_modalities:
+            raise ValueError(
+                f"Capability {modality!r} is not enabled for this run."
+            )
         return {
             "dataset": self.dataset,
             "split": self.split,
@@ -209,10 +221,17 @@ class IndexConfig:
             "source_id": source_id,
         }
 
+    def options_for(self, capability: str) -> dict[str, Any]:
+        if capability not in self.enabled_modalities:
+            raise ValueError(
+                f"Capability {capability!r} is not enabled for this run."
+            )
+        return dict(self.capability_options.get(capability, {}))
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["enabled_modalities"] = list(self.enabled_modalities)
-        payload["collection_names"] = list(self.collection_names)
+        payload["collection_names"] = dict(self.collection_names)
         payload["run_directory"] = str(self.run_directory)
         payload["index_directory"] = str(self.index_directory)
         return payload
@@ -260,52 +279,6 @@ class StorageRecord:
     metadata: Mapping[str, Any]
     embedding: Sequence[float] | None = None
     document: str | None = None
-
-
-@dataclass(frozen=True)
-class SearchHit:
-    rank: int
-    video_id: str
-    start: float
-    end: float
-    score: float
-    raw_distance: float
-    modality: str
-    source_id: str
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "rank": self.rank,
-            "video_id": self.video_id,
-            "start": self.start,
-            "end": self.end,
-            "score": self.score,
-            "raw_distance": self.raw_distance,
-            "modality": self.modality,
-            "source_id": self.source_id,
-            "metadata": dict(self.metadata),
-        }
-
-
-@dataclass(frozen=True)
-class SearchResult:
-    query_id: str
-    query: str
-    modality: str
-    hits: tuple[SearchHit, ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "schema_version": INDEX_SCHEMA_VERSION,
-            "query_id": self.query_id,
-            "query": self.query,
-            "modality": self.modality,
-            "hits": [hit.to_dict() for hit in self.hits],
-        }
-
-    def to_prediction(self) -> dict[str, list[dict[str, Any]]]:
-        return {self.query_id: [hit.to_dict() for hit in self.hits]}
 
 
 class CancellationToken:

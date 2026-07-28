@@ -8,9 +8,10 @@ Thanks for contributing to VidXP (Video eXPlain).
 |-------------|------|
 | `src/vidxp/cli.py` | Typer commands and installed `vidxp` entry point |
 | `src/vidxp/application.py` | Reusable application boundary for CLI and future adapters |
+| `src/vidxp/capabilities/` | Capability registry, schemas, operations, dependencies, and optional CLI modules |
 | `src/vidxp/repositories.py` | Persistent named local-index configuration |
 | `src/vidxp/frontend.py` | Streamlit interface launched by `vidxp ui` |
-| `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
+| `src/vidxp/core/` | Capability-neutral storage, media, run state, and execution contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |
 | `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Installation-linked guidance, benchmark research, and contribution notes |
@@ -19,7 +20,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | Model caches | Managed by WhisperX, SentenceTransformer, and CLIP outside the repository |
 
 The full local CLI/UI index uses up to three collections:
-`voiceEmbeddings`, `sceneEmbeddings`, and `actorCollection`. Runs containing
+`dialogue`, `scene`, and `actor`. Runs containing
 selected capabilities create only the collections they need.
 
 ## Setup
@@ -31,7 +32,7 @@ package metadata directly.
 python -m venv venv
 # Windows: venv\Scripts\activate
 # macOS/Linux: source venv/bin/activate
-python -m pip install -e ".[frontend,benchmarks]"
+python -m pip install -e ".[all,frontend,benchmarks]"
 ```
 
 Verify the environment:
@@ -50,15 +51,17 @@ record the exact identifier in benchmark results.
 
 ## Where to put work
 
-- Indexing, retrieval, storage, metadata, and face clustering:
+- Capability-specific indexing, retrieval, models, schemas, and dependencies:
+  the matching folder under `src/vidxp/capabilities/`.
+- Shared storage, media handling, run state, and execution mechanics:
   `src/vidxp/core/`.
 - Transport-neutral application operations: `src/vidxp/application.py`.
 - Command-line behavior: `src/vidxp/cli.py`.
 - Upload and search UX: `src/vidxp/frontend.py`; keep product logic in the
   shared application and core modules.
 - Official benchmark formats and evaluator calls: `src/vidxp/benchmarks/`.
-- New dependencies: `pyproject.toml`, with the reason stated in the pull
-  request.
+- Capability dependencies: that capability's `requirements.txt`; wire a new
+  install extra into `pyproject.toml`.
 - Product direction: the roadmap in the main [README](../README.md).
 
 Prefer small, focused pull requests. If you change how embeddings or metadata
@@ -114,7 +117,8 @@ feature pull request.
 
 ## Questions
 
-Open an issue before large refactors or new modalities so scope stays aligned
-with the roadmap.
+Follow [Adding a capability](adding-a-capability.md) for the complete extension
+contract. Open an issue before large cross-capability refactors so scope stays
+aligned with the roadmap.
 
 Maintainers should follow the [release process](releasing.md).

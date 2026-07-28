@@ -5,12 +5,21 @@ from typing import Annotated
 
 import typer
 
+from vidxp.capabilities.registry import CAPABILITIES, capability_names
 from vidxp.cli_support import (
     OutputFormat,
     effective_output_format,
     emit_json,
+    parse_capability_options,
     parse_modalities,
     state_from_context,
+)
+
+ALL_CAPABILITIES = ",".join(capability_names())
+PREPARABLE_CAPABILITIES = ",".join(
+    name
+    for name, capability in CAPABILITIES.items()
+    if capability.prepare is not None
 )
 
 
@@ -23,7 +32,7 @@ def doctor(
             "-m",
             help="Only validate dependencies for these modalities.",
         ),
-    ] = "dialogue,scene,actor",
+    ] = ALL_CAPABILITIES,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Emit machine-readable JSON."),
@@ -68,13 +77,15 @@ def prepare(
             "-m",
             help="Only prepare models for these modalities.",
         ),
-    ] = "dialogue,scene",
-    language: Annotated[
-        str | None,
+    ] = PREPARABLE_CAPABILITIES,
+    capability_options: Annotated[
+        list[str] | None,
         typer.Option(
-            "--language",
-            "-l",
-            help="Also cache the WhisperX alignment model for this language.",
+            "--option",
+            help=(
+                "Capability setting as CAPABILITY.KEY=VALUE; "
+                "repeat for multiple settings."
+            ),
         ),
     ] = None,
     json_output: Annotated[
@@ -88,7 +99,7 @@ def prepare(
     state = state_from_context(ctx)
     result = state.service.prepare_models(
         selected,
-        language=language,
+        capability_options=parse_capability_options(capability_options),
         progress_callback=(
             None
             if state.quiet

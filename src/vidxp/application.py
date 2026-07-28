@@ -2,21 +2,35 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, cast
 
-from vidxp.core.actor_results import (
-    ActorClusterSummary,
-    ActorRenderResult,
-    actor_clusters,
-    actor_detections,
-    render_actor_result,
+from pydantic import BaseModel
+
+from vidxp.capabilities.contracts import (
+    CapabilityContext,
+    PreparationContext,
+    capability_install_hint,
 )
+from vidxp.capabilities.registry import (
+    capability_names,
+    collection_names,
+    dependency_checks,
+    get_capability,
+    index_capability_names,
+    preparable_capability_names,
+    validate_capability_options,
+    validate_capability_names,
+)
+from vidxp.capabilities.actor.schemas import (
+    ActorClusterSummary,
+    ActorDetection,
+    ActorRenderResult,
+)
+from vidxp.capabilities.schemas import SearchResult
 from vidxp.core.contracts import (
-    SUPPORTED_MODALITIES,
     CancellationToken,
     IndexConfig,
     IndexSchemaError,
-    SearchResult,
 )
 from vidxp.core.manifest import (
     CHECKPOINT_DIRECTORY,
@@ -25,23 +39,13 @@ from vidxp.core.manifest import (
     MANIFEST_FILE,
     TIMINGS_FILE,
 )
-from vidxp.core.models import (
-    INDEXING_DEPENDENCIES,
-    dependency_failures,
-    get_alignment_model,
-    get_clip_model,
-    get_embedder,
-    get_whisper_model,
-)
 from vidxp.core.runner import (
     ProgressCallback,
     index_video,
     indexing_in_progress,
     local_config_from_status,
 )
-from vidxp.core.search import search_dialogue, search_scene
 from vidxp.core.storage import IndexStorage
-from vidxp.core.video import ffmpeg_binary
 from vidxp.index_state import (
     INDEX_STATUS_FILE,
     INDEX_STATUS_SCHEMA,
@@ -91,17 +95,38 @@ class VidXPService:
         self,
         video_path: str | Path,
         *,
-        modalities: Iterable[str] = SUPPORTED_MODALITIES,
+        modalities: Iterable[str] | None = None,
         frame_stride: int = 1,
+        capability_options: Mapping[
+            str,
+            Mapping[str, Any],
+        ] | None = None,
         progress_callback: ProgressCallback | None = None,
         cancellation: CancellationToken | None = None,
         source_name: str | None = None,
     ) -> dict[str, Any]:
-        selected = tuple(dict.fromkeys(str(item) for item in modalities))
+        selected = self._validate_modalities(
+            index_capability_names() if modalities is None else modalities
+        )
+        non_indexable = [
+            name
+            for name in selected
+            if get_capability(name).indexer is None
+        ]
+        if non_indexable:
+            raise ValueError(
+                "These capabilities do not support indexing: "
+                + ", ".join(non_indexable)
+            )
         options: dict[str, Any] = {
             "enabled_modalities": selected,
             "frame_stride": frame_stride,
             "storage_directory": self.index_directory,
+            "collection_names": collection_names(selected),
+            "capability_options": validate_capability_options(
+                selected,
+                capability_options,
+            ),
         }
         if self.device is not None:
             options["device"] = self.device
@@ -124,128 +149,105 @@ class VidXPService:
 
     def check_dependencies(
         self,
-        modalities: Iterable[str] = SUPPORTED_MODALITIES,
+        modalities: Iterable[str] | None = None,
     ) -> dict[str, Any]:
-        selected = self._validate_modalities(modalities)
-        failures = dict(
-            dependency_failures(
-                selected,
-                needs_transcription="dialogue" in selected,
-            )
+        selected = self._validate_modalities(
+            capability_names() if modalities is None else modalities
         )
-        dependencies = []
-        for modality in selected:
-            dependencies.extend(INDEXING_DEPENDENCIES[modality])
-        if "dialogue" in selected:
-            dependencies.extend(INDEXING_DEPENDENCIES["transcription"])
-
-        checks = []
-        seen = set()
-        for dependency in dependencies:
-            if dependency.label in seen:
-                continue
-            seen.add(dependency.label)
-            error = failures.get(dependency.label)
-            checks.append(
-                {
-                    "name": dependency.label,
-                    "ok": error is None,
-                    "error": error,
-                }
-            )
-        if "dialogue" in selected:
-            try:
-                resolved_ffmpeg = ffmpeg_binary()
-            except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
-                failures["FFmpeg"] = error
-                checks.append(
-                    {"name": "FFmpeg", "ok": False, "error": error}
-                )
-            else:
-                checks.append(
-                    {
-                        "name": "FFmpeg",
-                        "ok": True,
-                        "path": resolved_ffmpeg,
-                        "error": None,
-                    }
-                )
+        checks = list(dependency_checks(selected))
         return {
-            "ok": not failures,
+            "ok": all(check["ok"] for check in checks),
             "modalities": list(selected),
             "checks": checks,
         }
 
     def prepare_models(
         self,
-        modalities: Iterable[str] = ("dialogue", "scene"),
+        modalities: Iterable[str] | None = None,
         *,
-        language: str | None = None,
+        capability_options: Mapping[
+            str,
+            Mapping[str, Any],
+        ] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
-        selected = self._validate_modalities(modalities)
-        config = IndexConfig.local(
-            enabled_modalities=selected,
-            device=self.device or "cpu",
-            storage_directory=self.index_directory,
+        selected = self._validate_modalities(
+            preparable_capability_names()
+            if modalities is None
+            else modalities
         )
-        failures = dependency_failures(
-            selected,
-            needs_transcription="dialogue" in selected,
-        )
+        options = validate_capability_options(selected, capability_options)
+        checks = dependency_checks(selected)
+        failures = [check for check in checks if not check["ok"]]
         if failures:
             details = "; ".join(
-                f"{label}: {error}" for label, error in failures
+                f"{check['name']}: {check['error']}"
+                for check in failures
             )
-            raise RuntimeError(details)
+            extras = ",".join(
+                get_capability(name).extra for name in selected
+            )
+            raise RuntimeError(
+                f"{details}. {capability_install_hint(extras)}"
+            )
 
         prepared = []
-
-        def report(stage: str, message: str) -> None:
-            if progress_callback is not None:
-                progress_callback(
-                    {
-                        "state": "preparing",
-                        "stage": stage,
-                        "message": message,
-                    }
+        for name in selected:
+            capability = get_capability(name)
+            prepare = capability.prepare
+            if prepare is not None:
+                prepared.extend(
+                    prepare(
+                        PreparationContext(
+                            device=self.device or "cpu",
+                            settings=capability.config_model.model_validate(
+                                options[name]
+                            ),
+                        ),
+                        progress_callback,
+                    )
                 )
-
-        if "dialogue" in selected:
-            report(
-                "dialogue_model",
-                f"Preparing dialogue model: {config.sentence_model}",
-            )
-            get_embedder(config.sentence_model, config.device)
-            prepared.append(config.sentence_model)
-            report(
-                "transcription_model",
-                f"Preparing transcription model: WhisperX "
-                f"{config.whisper_model}",
-            )
-            get_whisper_model(config.whisper_model, config.device)
-            prepared.append(config.whisper_model)
-            if language:
-                report(
-                    "alignment_model",
-                    f"Preparing the {language} alignment model.",
-                )
-                get_alignment_model(language, config.device)
-                prepared.append(f"whisperx-alignment:{language}")
-        if "scene" in selected:
-            report(
-                "scene_model",
-                f"Preparing scene model: CLIP {config.clip_model}",
-            )
-            get_clip_model(config.clip_model, config.device)
-            prepared.append(config.clip_model)
         return {
             "prepared": prepared,
             "modalities": list(selected),
-            "device": config.device,
-            "language": language,
+            "device": self.device or "cpu",
         }
+
+    def execute(
+        self,
+        capability: str,
+        operation: str,
+        payload: BaseModel | Mapping[str, Any],
+    ) -> BaseModel:
+        """Validate and execute a registered capability operation."""
+
+        definition = get_capability(capability)
+        try:
+            selected_operation = definition.operations[operation]
+        except KeyError as exc:
+            available = ", ".join(definition.operations) or "none"
+            raise ValueError(
+                f"Capability {capability!r} has no operation {operation!r}. "
+                f"Available operations: {available}."
+            ) from exc
+        config = None
+        if selected_operation.requires_index:
+            config, _ = self.active_config()
+            if capability not in config.enabled_modalities:
+                raise ValueError(
+                    f"The {capability} capability is not present in this index."
+                )
+        try:
+            return selected_operation.invoke(
+                CapabilityContext(config=config),
+                payload,
+            )
+        except ModuleNotFoundError as exc:
+            dependency = exc.name or "optional dependency"
+            raise RuntimeError(
+                f"{dependency} is unavailable. "
+                + capability_install_hint(definition.extra)
+            ) from exc
 
     def search(
         self,
@@ -254,35 +256,29 @@ class VidXPService:
         *,
         top_k: int = 10,
     ) -> SearchResult:
-        config, _ = self.active_config()
-        if modality not in config.enabled_modalities:
-            raise ValueError(
-                f"The {modality} modality is not present in this index."
-            )
-        find = {
-            "dialogue": search_dialogue,
-            "scene": search_scene,
-        }.get(modality)
-        if find is None:
-            raise ValueError(
-                "Semantic search supports dialogue and scene modalities."
-            )
-        return find(
-            query,
-            config=config,
-            top_k=top_k,
-            video_id=config.video_id,
+        return cast(
+            SearchResult,
+            self.execute(
+                modality,
+                "search",
+                {"query": query, "top_k": top_k},
+            ),
         )
 
     def actor_clusters(self) -> tuple[ActorClusterSummary, ...]:
-        config, _ = self.active_config()
-        self._require_actor(config)
-        return actor_clusters(config)
+        result = self.execute("actor", "clusters", {})
+        return tuple(result.clusters)
 
-    def actor_detections(self, cluster_id: str) -> list[dict[str, Any]]:
-        config, _ = self.active_config()
-        self._require_actor(config)
-        return actor_detections(config, cluster_id)
+    def actor_detections(
+        self,
+        cluster_id: str,
+    ) -> list[ActorDetection]:
+        result = self.execute(
+            "actor",
+            "detections",
+            {"cluster_id": cluster_id},
+        )
+        return list(result.detections)
 
     def render_actor(
         self,
@@ -290,13 +286,17 @@ class VidXPService:
         input_path: str | Path,
         output_path: str | Path,
     ) -> ActorRenderResult:
-        config, _ = self.active_config()
-        self._require_actor(config)
-        return render_actor_result(
-            config,
-            cluster_id,
-            input_path,
-            output_path,
+        return cast(
+            ActorRenderResult,
+            self.execute(
+                "actor",
+                "render",
+                {
+                    "cluster_id": cluster_id,
+                    "input_path": input_path,
+                    "output_path": output_path,
+                },
+            ),
         )
 
     def clear_index(self) -> bool:
@@ -304,6 +304,8 @@ class VidXPService:
             return False
         base_config = IndexConfig.local(
             storage_directory=self.index_directory,
+            enabled_modalities=index_capability_names(),
+            collection_names=collection_names(),
         )
         if indexing_in_progress(base_config):
             raise IndexingInProgressError(
@@ -321,8 +323,15 @@ class VidXPService:
                 config = base_config
         else:
             config = base_config
-        with IndexStorage(config) as storage:
-            storage.clear()
+        try:
+            with IndexStorage(config) as storage:
+                storage.clear()
+        except ModuleNotFoundError as exc:
+            dependency = exc.name or "optional storage dependency"
+            raise RuntimeError(
+                f"{dependency} is unavailable. "
+                + capability_install_hint("storage")
+            ) from exc
 
         for name in (
             INDEX_STATUS_FILE,
@@ -343,14 +352,7 @@ class VidXPService:
         return True
 
     @staticmethod
-    def _require_actor(config: IndexConfig) -> None:
-        if "actor" not in config.enabled_modalities:
-            raise ValueError("The actor modality is not present in this index.")
-
-    @staticmethod
     def _validate_modalities(
         modalities: Iterable[str],
     ) -> tuple[str, ...]:
-        selected = tuple(dict.fromkeys(str(item) for item in modalities))
-        IndexConfig(enabled_modalities=selected)
-        return selected
+        return validate_capability_names(modalities)
