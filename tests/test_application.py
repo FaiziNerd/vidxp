@@ -113,6 +113,37 @@ class ApplicationServiceTests(unittest.TestCase):
             {"query": "yellow taxi", "top_k": 7},
         )
 
+    def test_execute_translates_missing_optional_dependency(self):
+        def missing_dependency(_context, _request):
+            raise ModuleNotFoundError("No module named 'clip'", name="clip")
+
+        operation = OperationDefinition(
+            input_model=SearchInput,
+            output_model=SearchResult,
+            handler=missing_dependency,
+            requires_index=False,
+        )
+        capability = CapabilityDefinition(
+            name="scene",
+            description="Search visual scenes.",
+            extra="scene",
+            operations={"search": operation},
+        )
+        service = VidXPService()
+        with patch(
+            "vidxp.application.get_capability",
+            return_value=capability,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r'clip is unavailable.*pip install "vidxp\[scene\]"',
+            ):
+                service.execute(
+                    "scene",
+                    "search",
+                    {"query": "yellow taxi"},
+                )
+
     def test_create_index_centralizes_storage_and_runtime_configuration(self):
         service = VidXPService("selected-index", device="cuda")
         with patch(
@@ -237,6 +268,32 @@ class ApplicationServiceTests(unittest.TestCase):
                 (index_directory / "index_status.json").exists()
             )
             self.assertFalse(checkpoint_directory.exists())
+
+    def test_clear_translates_missing_storage_dependency(self):
+        with TemporaryDirectory() as directory:
+            service = VidXPService(directory)
+            with (
+                patch(
+                    "vidxp.application.indexing_in_progress",
+                    return_value=False,
+                ),
+                patch(
+                    "vidxp.application.read_index_status",
+                    return_value=None,
+                ),
+                patch(
+                    "vidxp.application.IndexStorage",
+                    side_effect=ModuleNotFoundError(
+                        "No module named 'chromadb'",
+                        name="chromadb",
+                    ),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    r'chromadb is unavailable.*pip install "vidxp\[storage\]"',
+                ):
+                    service.clear_index()
 
 
 if __name__ == "__main__":

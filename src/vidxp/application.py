@@ -237,10 +237,17 @@ class VidXPService:
                 raise ValueError(
                     f"The {capability} capability is not present in this index."
                 )
-        return selected_operation.invoke(
-            CapabilityContext(config=config),
-            payload,
-        )
+        try:
+            return selected_operation.invoke(
+                CapabilityContext(config=config),
+                payload,
+            )
+        except ModuleNotFoundError as exc:
+            dependency = exc.name or "optional dependency"
+            raise RuntimeError(
+                f"{dependency} is unavailable. "
+                + capability_install_hint(definition.extra)
+            ) from exc
 
     def search(
         self,
@@ -316,8 +323,15 @@ class VidXPService:
                 config = base_config
         else:
             config = base_config
-        with IndexStorage(config) as storage:
-            storage.clear()
+        try:
+            with IndexStorage(config) as storage:
+                storage.clear()
+        except ModuleNotFoundError as exc:
+            dependency = exc.name or "optional storage dependency"
+            raise RuntimeError(
+                f"{dependency} is unavailable. "
+                + capability_install_hint("storage")
+            ) from exc
 
         for name in (
             INDEX_STATUS_FILE,
