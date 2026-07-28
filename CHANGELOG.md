@@ -1,6 +1,13 @@
 # CHANGELOG
 
 <!-- towncrier release notes start -->
+## v0.2.0 (2026-07-28)
+
+### Features
+
+- Add a structured command-line interface and reusable application service with named repository configuration. ([#11](https://github.com/grayhatdevelopers/vidxp/pull/11))
+- Add registry-driven capabilities with selective installation extras, an explicit benchmark add-on, and stable container images. ([#12](https://github.com/grayhatdevelopers/vidxp/pull/12))
+
 
 ## v0.1.0 (2026-07-27)
 
