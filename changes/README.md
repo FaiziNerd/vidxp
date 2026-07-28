@@ -25,5 +25,6 @@ Dependency updates marked `dependencies` do not require a fragment. Other
 internal changes may omit one when a maintainer applies `skip-changelog` and
 the pull request explains why.
 
-Towncrier collects and removes fragments when a stable release is created.
-Do not edit `CHANGELOG.md` directly.
+Towncrier renders the pending fragments for prerelease notes, then collects and
+removes them when a stable release is created. Do not edit `CHANGELOG.md`
+directly.
