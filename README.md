@@ -53,14 +53,19 @@
 Finding one moment in a video should not require scrubbing through the entire
 timeline. VidXP builds a searchable index from three kinds of evidence:
 
-- **Dialogue:** semantic search over timestamped WhisperX transcripts.
-- **Scenes:** text-to-frame search using CLIP.
-- **Actors:** groups similar detected faces and exports a highlighted video for
-  a selected cluster.
+- **Dialogue:** semantic search over timestamped transcripts.
+- **Scenes:** text-to-frame search.
+- **Actors:** groups similar detected faces and exports a highlighted video for a selected cluster.
 
-After the required model weights are available, video processing and search run
-locally. VidXP also saves index state so an incomplete run is not mistaken for a
-searchable result.
+After the required model weights are available, video processing and search run completely locally, for your privacy and security.
+
+Some ideas on how to use VidXP:
+- Use it as way to find your favorite relatives in a huge folder of wedding videos (been there, done that)
+- Use it in your application, allow users to search videos (an idea: use it alongside a video-editing application)
+- Use it as an "understanding" layer so your LLM / agent can understand videos
+
+[![Video Screenshot](./docs/images/video-screenshot.jpeg)](https://www.linkedin.com/feed/update/urn:li:activity:7343569473720725505/)
+
 
 ## Current capabilities
 
@@ -197,24 +202,9 @@ documents configuration, stored metadata, result fields, and run layout.
 
 ---
 
-
-## Current scope
-
-- The standard CLI and browser interface manage one local searchable video
-  index at a time. The Python layer supports isolated multi-video runs.
-- Actor clusters represent visually similar detected faces; VidXP does not
-  automatically know or assign a person's name.
-- Model weights are cached separately from the Python package and require
-  additional disk space.
-- CPU is the current default. Visual indexing processes every frame unless
-  `--frame-stride` is configured.
-- Search quality depends on the selected models, video domain, speech quality,
-  and frame sampling.
-
 ## Roadmap
 
-VidXP is an evolving beta. The roadmap extends the current engine rather than
-replacing its working search paths.
+VidXP is an evolving beta. We'd love to hear your feedback and where you'd like to see the project go.
 
 | Area | Current foundation | Direction |
 |---|---|---|
@@ -225,8 +215,6 @@ replacing its working search paths.
 | Speaker context | Timestamped dialogue search | Active-speaker detection and links between speech and visible people |
 | Product experience | CLI and browser indexing/search | Clearer progress, result navigation, recovery, and long-running job controls |
 | Evaluation | DiDeMo and HiREST baselines | Combined and component benchmarks, beginning with a LongVALE pilot |
-
-Roadmap items describe intended direction, not a release guarantee.
 
 ## Models and local data
 
