@@ -9,6 +9,12 @@ on:
       - labeled
       - unlabeled
   workflow_call:
+    inputs:
+      container:
+        description: Build and smoke-test the stable container surface.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -46,15 +52,27 @@ jobs:
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTAINER_REQUESTED: ${{ inputs.container }}
         run: |
+          run_container=false
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "run_suite=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE_SHA" HEAD |
-            grep -Eq '^(\.github/workflows/ci\.yml|src/|tests/|utils/|Dockerfile$|LICENSE$|MANIFEST\.in$|README\.md$|pyproject\.toml$)'; then
-            echo "run_suite=true" >> "$GITHUB_OUTPUT"
+            run_suite=true
+            if [[ "$CONTAINER_REQUESTED" == "true" ]]; then
+              run_container=true
+            fi
           else
-            echo "run_suite=false" >> "$GITHUB_OUTPUT"
+            changed_files="$(git diff --name-only "$BASE_SHA" HEAD)"
+            if grep -Eq '^(\.github/workflows/ci\.yml|src/|tests/|utils/|Dockerfile$|LICENSE$|MANIFEST\.in$|README\.md$|pyproject\.toml$)' <<< "$changed_files"; then
+              run_suite=true
+            else
+              run_suite=false
+            fi
+            if grep -Eq '^(\.dockerignore$|\.github/workflows/ci\.yml$|Dockerfile$|compose\.yaml$|pyproject\.toml$|src/vidxp/(requirements/.*\.txt|capabilities/[^/]+/requirements\.txt)$)' <<< "$changed_files"; then
+              run_container=true
+            fi
           fi
+          echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT"
+          echo "run_container=$run_container" >> "$GITHUB_OUTPUT"
 
       - name: Install test surface
         if: steps.scope.outputs.run_suite == 'true'
@@ -108,3 +126,38 @@ jobs:
           ):
               assert find_spec(module) is None, module
           PY
+
+      - name: Validate Compose configuration
+        if: steps.scope.outputs.run_container == 'true'
+        run: docker compose config --quiet
+
+      - name: Build container
+        if: steps.scope.outputs.run_container == 'true'
+        run: docker build --tag vidxp:ci .
+
+      - name: Smoke container
+        if: steps.scope.outputs.run_container == 'true'
+        shell: bash
+        run: |
+          docker run --detach --name vidxp-ci \
+            --publish 127.0.0.1:8501:8501 vidxp:ci
+          trap 'docker rm --force vidxp-ci >/dev/null 2>&1 || true' EXIT
+
+          docker exec vidxp-ci vidxp --version
+          docker exec vidxp-ci python -c \
+            'import clip, face_recognition, whisperx'
+          docker exec vidxp-ci sh -c \
+            'test ! -d "$HOME/.cache/huggingface" && test ! -d "$HOME/.cache/clip"'
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            if [[ "$(docker inspect --format='{{.State.Running}}' vidxp-ci)" != "true" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker logs vidxp-ci
+          exit 1
