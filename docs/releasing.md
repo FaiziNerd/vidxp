@@ -11,7 +11,8 @@ calculate the next version, creates a `b` prerelease tag and GitHub prerelease,
 builds the distributions, and publishes them to TestPyPI. Commits that do not
 require a semantic version bump do not publish a package.
 
-Pending Towncrier fragments remain in `changes/` during prereleases.
+Towncrier renders the pending fragments into the GitHub prerelease body without
+consuming them. The fragments remain in `changes/` for the stable release.
 
 ## Stable releases
 
@@ -22,11 +23,12 @@ Pending Towncrier fragments remain in `changes/` during prereleases.
 5. Confirm the new tag, GitHub release, PyPI package, and emptied pending
    fragment set.
 
-The workflow only runs its validation and release jobs for a `main` dispatch.
-Both jobs use the same immutable dispatch revision. Python Semantic Release is
-the only version authority. During its build step, Towncrier receives that
-calculated version, updates `CHANGELOG.md`, and removes the released fragments
-before the release commit and tag are created.
+The workflow only runs from a `main` dispatch, and every publication job uses
+the release commit created from that immutable revision. Python Semantic
+Release is the only version authority. Towncrier is the only release-note
+renderer. During the stable build it receives the calculated version, renders
+the GitHub release body, updates `CHANGELOG.md` with the same section, and
+removes the released fragments before the release commit and tag are created.
 
 Release and CI tools are declared once in `utils/build-requirements.txt`. Do not
 duplicate their versions in workflow files.

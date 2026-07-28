@@ -107,13 +107,14 @@ The fragment should be one sentence written for users. Do not include a heading,
 version number, commit message, or implementation details. See
 [`changes/README.md`](../changes/README.md) for an example.
 
-Internal-only maintenance does not need an empty fragment. Explain the reason in
-the pull request and ask a maintainer to apply the `skip-changelog` label. CI
-requires either a fragment or that label.
+Dependency updates carrying GitHub's `dependencies` label do not require a
+fragment. For other internal-only maintenance, explain the reason in the pull
+request and ask a maintainer to apply `skip-changelog`. CI requires a fragment
+unless one of those labels is present.
 
-Towncrier collects the pending fragments into `CHANGELOG.md` and removes them
-when a stable release is made. Do not edit the changelog or package version in a
-feature pull request.
+Towncrier renders pending fragments as prerelease notes, then collects them into
+`CHANGELOG.md` and removes them when a stable release is made. Do not edit the
+changelog or package version in a feature pull request.
 
 ## Questions
 

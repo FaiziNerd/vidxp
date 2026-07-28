@@ -53,11 +53,14 @@ jobs:
           .release-smoke/bin/python -m pip check
           .release-smoke/bin/vidxp --version
 
-      - name: Upload GitHub release assets
+      - name: Publish GitHub release
         if: steps.release.outputs.released == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: semantic-release publish --tag "${{ steps.release.outputs.tag }}"
+        run: |
+          semantic-release publish --tag "${{ steps.release.outputs.tag }}"
+          gh release edit "${{ steps.release.outputs.tag }}" \
+            --notes-file .release-notes.md
 
       - name: Preserve distribution
         if: steps.release.outputs.released == 'true'
