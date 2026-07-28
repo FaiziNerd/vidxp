@@ -5,12 +5,18 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import typer
-from rich import print
+from rich import print as rich_print
 
 from vidxp.benchmarks.didemo import run_didemo
 from vidxp.benchmarks.hirest import (
     HIREST_DEFAULT_WINDOW_FRACTION,
     run_hirest,
+)
+from vidxp.cli_support import (
+    OutputFormat,
+    effective_output_format,
+    emit_json,
+    state_from_context,
 )
 
 
@@ -62,6 +68,7 @@ def _pair_file(path: Path | None) -> list[tuple[str, str]] | None:
 
 @app.command("didemo")
 def didemo_command(
+    ctx: typer.Context,
     annotations: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
     evaluator: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
     media_directory: Annotated[
@@ -91,9 +98,14 @@ def didemo_command(
     ] = "max",
     frame_stride: Annotated[int, typer.Option(min=1)] = 1,
     reset: Annotated[bool, typer.Option()] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
 ) -> None:
     """Run DiDeMo scene retrieval and its official evaluator."""
 
+    state = state_from_context(ctx)
     metrics = run_didemo(
         annotations_path=annotations,
         evaluator_path=evaluator,
@@ -105,12 +117,17 @@ def didemo_command(
         split=split,
         chunk_pooling=chunk_pooling,
         reset=reset,
+        device=state.service.device or "cpu",
     )
-    print(metrics)
+    if effective_output_format(state, json_output) == OutputFormat.json:
+        emit_json(metrics)
+    else:
+        rich_print(metrics)
 
 
 @app.command("hirest")
 def hirest_command(
+    ctx: typer.Context,
     ground_truth: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
     categories: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
     evaluator: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
@@ -145,9 +162,14 @@ def hirest_command(
         ),
     ] = HIREST_DEFAULT_WINDOW_FRACTION,
     reset: Annotated[bool, typer.Option()] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
 ) -> None:
     """Run HiREST released-ASR retrieval; score validation predictions."""
 
+    state = state_from_context(ctx)
     metrics = run_hirest(
         ground_truth_path=ground_truth,
         categories_path=categories,
@@ -160,5 +182,9 @@ def hirest_command(
         split=split,
         temporal_window_fraction=temporal_window_fraction,
         reset=reset,
+        device=state.service.device or "cpu",
     )
-    print(metrics)
+    if effective_output_format(state, json_output) == OutputFormat.json:
+        emit_json(metrics)
+    else:
+        rich_print(metrics)

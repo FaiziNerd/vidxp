@@ -1,0 +1,13 @@
+services:
+  vidxp:
+    image: ${VIDXP_IMAGE:-ghcr.io/grayhatdevelopers/vidxp:latest}
+    ports:
+      - "${VIDXP_PORT:-8501}:8501"
+    environment:
+      VIDXP_DEVICE: ${VIDXP_DEVICE:-cpu}
+    volumes:
+      - vidxp-data:/var/lib/vidxp
+    init: true
+
+volumes:
+  vidxp-data:

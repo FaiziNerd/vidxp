@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from vidxp.capabilities.dialogue.config import dialogue_config
+from vidxp.capabilities.dialogue.models import (
+    get_alignment_model,
+    get_embedder,
+    get_whisper_model,
+)
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
@@ -13,11 +19,6 @@ from vidxp.core.contracts import (
     stable_source_id,
 )
 from vidxp.core.indexing_common import ProgressCallback, report_progress
-from vidxp.core.models import (
-    get_alignment_model,
-    get_embedder,
-    get_whisper_model,
-)
 from vidxp.core.storage import IndexStorage
 from vidxp.core.video import extract_audio
 
@@ -123,6 +124,7 @@ def transcribe_video(
 ) -> tuple[list[Mapping[str, Any]], str]:
     import whisperx
 
+    settings = dialogue_config(config)
     cancellation.raise_if_cancelled()
     audio_name = hashlib.sha256(
         str(config.video_id).encode("utf-8")
@@ -139,9 +141,12 @@ def transcribe_video(
         report_progress(
             progress,
             "preparing_transcription_model",
-            f"Preparing transcription model: WhisperX {config.whisper_model}.",
+            f"Preparing transcription model: WhisperX {settings.whisper_model}.",
         )
-        whisper_model = get_whisper_model(config.whisper_model, config.device)
+        whisper_model = get_whisper_model(
+            settings.whisper_model,
+            config.device,
+        )
         audio = whisperx.load_audio(str(audio_path))
         report_progress(
             progress,
@@ -150,7 +155,7 @@ def transcribe_video(
         )
         transcription = whisper_model.transcribe(
             audio,
-            batch_size=config.transcription_batch_size,
+            batch_size=settings.transcription_batch_size,
         )
         language = str(transcription["language"])
 
@@ -222,6 +227,7 @@ def index_dialogue(
 ) -> dict[str, Any]:
     if config.video_id is None:
         raise ValueError("IndexConfig.video_id is required for indexing.")
+    settings = dialogue_config(config)
 
     language = None
     if source.transcript is not None:
@@ -241,7 +247,7 @@ def index_dialogue(
 
     phrases = build_dialogue_phrases(
         segments,
-        words_per_phrase=config.dialogue_words_per_phrase,
+        words_per_phrase=settings.words_per_phrase,
     )
     if not phrases:
         return {"dialogue_phrases": 0, "language": language}
@@ -249,11 +255,11 @@ def index_dialogue(
     report_progress(
         progress,
         "preparing_dialogue_model",
-        f"Preparing dialogue model: {config.sentence_model}.",
+        f"Preparing dialogue model: {settings.sentence_model}.",
         0,
         len(phrases),
     )
-    encoder = get_embedder(config.sentence_model, config.device)
+    encoder = get_embedder(settings.sentence_model, config.device)
     report_progress(
         progress,
         "dialogue_indexing",
@@ -262,14 +268,14 @@ def index_dialogue(
         len(phrases),
     )
     stored = 0
-    for offset in range(0, len(phrases), config.dialogue_batch_size):
+    for offset in range(0, len(phrases), settings.embedding_batch_size):
         cancellation.raise_if_cancelled()
-        group = phrases[offset:offset + config.dialogue_batch_size]
+        group = phrases[offset:offset + settings.embedding_batch_size]
         vectors = encoder.encode(
             [phrase.text for phrase in group],
             batch_size=len(group),
             convert_to_numpy=True,
-            normalize_embeddings=config.normalize_dialogue_embeddings,
+            normalize_embeddings=settings.normalize_embeddings,
         )
         stored += storage.upsert(
             "dialogue",

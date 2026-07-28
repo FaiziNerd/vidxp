@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from vidxp.capabilities.actor.config import actor_config
 from vidxp.core.contracts import (
     CancellationToken,
     IndexConfig,
@@ -10,6 +11,7 @@ from vidxp.core.contracts import (
     batched,
     stable_source_id,
 )
+from vidxp.core.indexing_common import ProgressCallback
 from vidxp.core.storage import IndexStorage
 
 
@@ -79,7 +81,8 @@ def process_actor_samples(
     import face_recognition
     import numpy as np
 
-    for group in batched(samples, config.actor_batch_size):
+    settings = actor_config(config)
+    for group in batched(samples, settings.batch_size):
         cancellation.raise_if_cancelled()
         detections = []
         for sample in group:
@@ -88,7 +91,7 @@ def process_actor_samples(
             encodings = face_recognition.face_encodings(
                 sample.frame,
                 locations,
-                num_jitters=config.face_num_jitters,
+                num_jitters=settings.num_jitters,
             )
             for ordinal, (encoding, location) in enumerate(
                 zip(encodings, locations)
@@ -97,7 +100,7 @@ def process_actor_samples(
                     face_recognition,
                     state.known_encodings,
                     encoding,
-                    config.face_match_threshold,
+                    settings.match_threshold,
                 )
                 if match is None:
                     cluster_id = str(len(state.known_ids) + 1)
@@ -140,16 +143,75 @@ def finalize_actor_index(
     config: IndexConfig,
     storage: IndexStorage,
 ) -> tuple[int, int]:
+    settings = actor_config(config)
     rejected = [
         cluster_id
         for cluster_id, size in state.cluster_sizes.items()
-        if size < config.actor_min_detections
+        if size < settings.minimum_detections
     ]
     for cluster_id in rejected:
-        storage.delete_actor_cluster(str(config.video_id), cluster_id)
+        storage.delete_records(
+            "actor",
+            video_id=str(config.video_id),
+            filters={"cluster_id": cluster_id},
+        )
     retained = {
         cluster_id: size
         for cluster_id, size in state.cluster_sizes.items()
-        if size >= config.actor_min_detections
+        if size >= settings.minimum_detections
     }
     return sum(retained.values()), len(retained)
+
+
+class ActorVisualProcessor:
+    def batch_size(self, config: IndexConfig) -> int:
+        return actor_config(config).batch_size
+
+    def prepare(
+        self,
+        config: IndexConfig,
+        progress: ProgressCallback | None,
+    ) -> ActorIndexState:
+        return ActorIndexState()
+
+    def process(
+        self,
+        samples,
+        *,
+        state: ActorIndexState,
+        info,
+        config: IndexConfig,
+        storage: IndexStorage,
+        cancellation: CancellationToken,
+    ) -> None:
+        process_actor_samples(
+            samples,
+            state=state,
+            config=config,
+            storage=storage,
+            cancellation=cancellation,
+        )
+
+    def finalize(
+        self,
+        state: ActorIndexState,
+        *,
+        config: IndexConfig,
+        storage: IndexStorage,
+    ) -> tuple[dict[str, Any], int]:
+        detections, clusters = finalize_actor_index(
+            state,
+            config=config,
+            storage=storage,
+        )
+        return (
+            {
+                "actor_frames": state.processed_frames,
+                "actor_detections": detections,
+                "actor_clusters": clusters,
+            },
+            state.processed_frames,
+        )
+
+
+VISUAL_PROCESSOR = ActorVisualProcessor()

@@ -7,6 +7,10 @@ from typing import Any, Callable, Sequence
 
 from filelock import FileLock, Timeout
 
+from vidxp.capabilities.registry import (
+    get_capability,
+    require_dependencies,
+)
 from vidxp.core.contracts import (
     INDEX_SCHEMA_VERSION,
     CancellationToken,
@@ -15,15 +19,12 @@ from vidxp.core.contracts import (
     IndexSchemaError,
     VideoSource,
 )
-from vidxp.core.indexing_dialogue import index_dialogue
-from vidxp.core.indexing_visual import index_visuals
 from vidxp.core.manifest import (
     ManifestStore,
     combined_checksum,
     source_checksum,
     source_checksums,
 )
-from vidxp.core.models import require_dependencies
 from vidxp.core.storage import IndexStorage
 from vidxp.index_state import (
     IndexingInProgressError,
@@ -74,7 +75,11 @@ def indexing_in_progress(config: IndexConfig | None = None) -> bool:
     return _run_lock_held(active_config.run_directory)
 
 
-def local_config_from_status(status: dict[str, Any]) -> IndexConfig:
+def local_config_from_status(
+    status: dict[str, Any],
+    *,
+    storage_directory: str | Path | None = None,
+) -> IndexConfig:
     summary = status.get("summary") or {}
     if summary.get("index_schema_version") != INDEX_SCHEMA_VERSION:
         raise IndexSchemaError(
@@ -93,13 +98,16 @@ def local_config_from_status(status: dict[str, Any]) -> IndexConfig:
             "split": str(summary["split"]),
             "run_id": str(summary["run_id"]),
             "video_id": str(summary["video_id"]),
-            "storage_directory": "chroma_data",
         }
     )
+    if storage_directory is not None:
+        stored["storage_directory"] = str(storage_directory)
+    else:
+        stored.setdefault("storage_directory", "chroma_data")
     if "enabled_modalities" in stored:
         stored["enabled_modalities"] = tuple(stored["enabled_modalities"])
     if "collection_names" in stored:
-        stored["collection_names"] = tuple(stored["collection_names"])
+        stored["collection_names"] = dict(stored["collection_names"])
     return IndexConfig(**stored)
 
 
@@ -128,8 +136,8 @@ def _report(
         callback(event)
 
 
-def _run_modality(
-    modality: str,
+def _run_capability_group(
+    names: tuple[str, ...],
     source: VideoSource,
     config: IndexConfig,
     storage: IndexStorage,
@@ -137,6 +145,21 @@ def _run_modality(
     cancellation: CancellationToken,
     progress_callback: ProgressCallback | None,
 ) -> dict[str, Any]:
+    definitions = tuple(get_capability(name) for name in names)
+    indexer = definitions[0].indexer
+    index_stage = definitions[0].index_stage
+    if indexer is None or index_stage is None:
+        raise ValueError(
+            f"Capability {names[0]!r} does not support indexing."
+        )
+    if any(definition.indexer is not indexer for definition in definitions):
+        raise RuntimeError("Grouped capabilities must share one indexer.")
+    if any(
+        definition.index_stage != index_stage
+        for definition in definitions
+    ):
+        raise RuntimeError("Grouped capabilities must share one index stage.")
+
     started = perf_counter()
     active_substage: str | None = None
     substage_started = started
@@ -162,94 +185,83 @@ def _run_modality(
         )
 
     try:
-        if modality != "dialogue":
-            raise ValueError(f"Unsupported non-visual modality: {modality}")
-        stats = index_dialogue(
+        result = indexer(
             source,
             config=config,
             storage=storage,
             cancellation=cancellation,
             progress=stage_progress,
+            modalities=names,
         )
     except BaseException:
-        if active_substage is not None:
+        if active_substage is not None and active_substage != index_stage:
             manifest.record_stage(
                 str(config.video_id),
                 active_substage,
                 perf_counter() - substage_started,
                 {"state": "incomplete"},
             )
+        manifest.record_stage(
+            str(config.video_id),
+            index_stage,
+            perf_counter() - started,
+            {"state": "incomplete", "capabilities": list(names)},
+        )
         raise
-    if active_substage is not None:
+    if active_substage is not None and active_substage != index_stage:
         manifest.record_stage(
             str(config.video_id),
             active_substage,
             perf_counter() - substage_started,
             {},
         )
-    manifest.record_stage(
-        str(config.video_id),
-        modality,
-        perf_counter() - started,
-        stats,
-    )
-    return stats
-
-
-def _run_visual_modalities(
-    modalities: tuple[str, ...],
-    source: VideoSource,
-    config: IndexConfig,
-    storage: IndexStorage,
-    manifest: ManifestStore,
-    cancellation: CancellationToken,
-    progress_callback: ProgressCallback | None,
-) -> dict[str, Any]:
-    started = perf_counter()
-
-    def report(event: dict[str, Any]) -> None:
-        _report(
-            progress_callback,
-            {**event, "video_id": config.video_id},
-        )
-
-    try:
-        result = index_visuals(
-            source,
-            config=config,
-            storage=storage,
-            cancellation=cancellation,
-            progress=report,
-            modalities=modalities,
-        )
-    except BaseException:
+    for stage_name, duration in result.timings.items():
+        if stage_name.endswith("_total"):
+            continue
         manifest.record_stage(
             str(config.video_id),
-            "visual_indexing",
-            perf_counter() - started,
-            {"state": "incomplete", "modalities": list(modalities)},
+            stage_name,
+            float(duration),
+            {},
         )
-        raise
-
-    stats = dict(result.summary)
-    timings = dict(result.timings)
-    for stage_name in ("frame_stream", "scene", "actor"):
-        if stage_name in timings and (
-            stage_name == "frame_stream" or stage_name in modalities
-        ):
-            manifest.record_stage(
-                str(config.video_id),
-                stage_name,
-                float(timings[stage_name]),
-                {},
-            )
     manifest.record_stage(
         str(config.video_id),
-        "visual_indexing",
-        float(timings.get("visual_total", perf_counter() - started)),
-        stats,
+        index_stage,
+        float(
+            result.timings.get(
+                f"{index_stage.removesuffix('_indexing')}_total",
+                result.timings.get(
+                    "visual_total",
+                    perf_counter() - started,
+                ),
+            )
+        ),
+        result.summary,
     )
-    return stats
+    return dict(result.summary)
+
+
+def _index_groups(names: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    groups: list[list[str]] = []
+    handlers = []
+    for name in names:
+        handler = get_capability(name).indexer
+        if handler is None:
+            raise ValueError(
+                f"Capability {name!r} does not support indexing."
+            )
+        try:
+            group_index = next(
+                index
+                for index, existing in enumerate(handlers)
+                if existing is handler
+            )
+        except StopIteration:
+            handlers.append(handler)
+            groups.append([name])
+        else:
+            groups[group_index].append(name)
+    return tuple(tuple(group) for group in groups)
 
 
 def _run_enabled_modalities(
@@ -262,36 +274,12 @@ def _run_enabled_modalities(
     set_stage: Callable[[str], None],
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {}
-    visual_modalities = tuple(
-        modality
-        for modality in config.enabled_modalities
-        if modality in {"scene", "actor"}
-    )
-    visual_complete = False
-    for modality in config.enabled_modalities:
+    for names in _index_groups(config.enabled_modalities):
         cancellation.raise_if_cancelled()
-        if modality in visual_modalities:
-            if visual_complete:
-                continue
-            set_stage("visual_indexing")
-            summary.update(
-                _run_visual_modalities(
-                    visual_modalities,
-                    source,
-                    config,
-                    storage,
-                    manifest,
-                    cancellation,
-                    progress_callback,
-                )
-            )
-            visual_complete = True
-            continue
-
-        set_stage(f"{modality}_indexing")
+        set_stage(get_capability(names[0]).index_stage)
         summary.update(
-            _run_modality(
-                modality,
+            _run_capability_group(
+                names,
                 source,
                 config,
                 storage,
@@ -301,19 +289,6 @@ def _run_enabled_modalities(
             )
         )
     return summary
-
-
-def _normalize_frame_summary(summary: dict[str, Any]) -> None:
-    scene_frames = int(summary.get("scene_frames", 0))
-    actor_frames = int(summary.get("actor_frames", 0))
-    summary.setdefault("sampled_frames", max(scene_frames, actor_frames))
-    summary.setdefault("processed_frames", int(summary["sampled_frames"]))
-    summary.setdefault("frame_operations", scene_frames + actor_frames)
-    summary.setdefault(
-        "source_frames_advanced",
-        int(summary.get("decoded_frames", 0))
-        + int(summary.get("actor_decoded_frames", 0)),
-    )
 
 
 def _process_video(
@@ -344,10 +319,7 @@ def _process_video(
         cancellation.raise_if_cancelled()
         require_dependencies(
             config.enabled_modalities,
-            needs_transcription=(
-                "dialogue" in config.enabled_modalities
-                and source.transcript is None
-            ),
+            source=source,
         )
         stage = "preparing_storage"
         for modality in config.enabled_modalities:
@@ -364,7 +336,6 @@ def _process_video(
                 set_stage,
             )
         )
-        _normalize_frame_summary(summary)
         manifest.complete_video(
             video_id,
             checksum=checksum,
@@ -542,6 +513,7 @@ def index_video(
             total=event.get("total"),
             summary=event.get("summary"),
             error=event.get("error"),
+            index_directory=active_config.index_directory,
         )
         if progress_callback is not None:
             progress_callback(event)

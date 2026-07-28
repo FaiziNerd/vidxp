@@ -1,24 +1,32 @@
 import hashlib
 import sys
 from pathlib import Path
+from typing import Sequence
 
 import streamlit as st
 
-from vidxp.core.actor_results import render_actor_result
-from vidxp.core.runner import local_config_from_status
-from vidxp.core.search import search_dialogue, search_scene
-from vidxp.index_state import (
-    IndexNotReadyError,
-    read_index_status,
-)
+from vidxp.application import VidXPService
+from vidxp.capabilities.registry import index_capability_names
+from vidxp.index_state import IndexNotReadyError
 from vidxp.index_worker import (
     cancel_indexing,
     indexing_in_progress,
     start_indexing,
 )
+from vidxp.repositories import resolve_repository
 
-SAVED_VIDEO_PATH = Path("video.mp4")
-ACTOR_OUTPUT_PATH = Path("output.mp4")
+
+def _configured_service() -> VidXPService:
+    _, repository = resolve_repository()
+    return VidXPService(
+        repository.index_directory,
+        device=repository.device,
+    )
+
+
+SERVICE = _configured_service()
+SAVED_VIDEO_PATH = SERVICE.index_directory / "source-video.mp4"
+ACTOR_OUTPUT_PATH = SERVICE.index_directory / "actor-result.mp4"
 INDEX_REQUESTED_KEY = "_vidxp_index_requested"
 INDEX_ERROR_KEY = "_vidxp_index_error"
 SEARCH_RESULT_KEY = "_vidxp_search_result"
@@ -76,7 +84,7 @@ def _render_index_status(status, active, uploaded_video, request_error=None):
             "message": "Indexing is running.",
         }
         _render_progress(event)
-    elif not status:
+    elif not status or status.get("state") == "missing":
         st.caption("First indexing may download missing runtime model weights.")
     elif status["state"] == "ready":
         if _is_search_ready(status, uploaded_video):
@@ -115,9 +123,18 @@ def _request_cancellation():
         )
 
 
-def _run_indexing(uploaded_video, status):
+def _available_index_modalities() -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in index_capability_names()
+        if SERVICE.check_dependencies((name,))["ok"]
+    )
+
+
+def _run_indexing(uploaded_video, status, modalities):
     try:
         if uploaded_video is not None:
+            SAVED_VIDEO_PATH.parent.mkdir(parents=True, exist_ok=True)
             SAVED_VIDEO_PATH.write_bytes(uploaded_video.getvalue())
             source_name = uploaded_video.name
         else:
@@ -126,7 +143,12 @@ def _run_indexing(uploaded_video, status):
                 if status
                 else SAVED_VIDEO_PATH.name
             )
-        start_indexing(str(SAVED_VIDEO_PATH), source_name)
+        start_indexing(
+            str(SAVED_VIDEO_PATH),
+            source_name,
+            SERVICE,
+            modalities=modalities,
+        )
     except Exception as exc:
         st.session_state[INDEX_ERROR_KEY] = f"{type(exc).__name__}: {exc}"
     else:
@@ -138,14 +160,12 @@ def _run_indexing(uploaded_video, status):
 
 def _run_search(search_type, query):
     try:
-        status = read_index_status()
-        if not status or status.get("state") != "ready":
+        status = SERVICE.index_status()
+        if status.get("state") != "ready":
             raise IndexNotReadyError("The video index is not ready.")
-        config = local_config_from_status(status)
         if search_type == "actor":
             ACTOR_OUTPUT_PATH.unlink(missing_ok=True)
-            render_actor_result(
-                config,
+            SERVICE.render_actor(
                 query,
                 SAVED_VIDEO_PATH,
                 ACTOR_OUTPUT_PATH,
@@ -161,12 +181,10 @@ def _run_search(search_type, query):
                 "video_path": str(ACTOR_OUTPUT_PATH),
             }
 
-        finder = search_dialogue if search_type == "dialogue" else search_scene
-        result = finder(
+        result = SERVICE.search(
+            search_type,
             query,
-            config=config,
             top_k=1,
-            video_id=config.video_id,
         )
         if not result.hits:
             return {"error": f"No {search_type} match was found."}
@@ -275,13 +293,15 @@ def run():
     st.set_page_config(page_title="VidXP", page_icon="🎬", layout="wide")
     st.title("VidXP")
     st.caption("Index and search video by dialogue, scene, and actor.")
+    st.caption(f"Index repository: {SERVICE.index_directory}")
 
-    active = indexing_in_progress()
+    active = indexing_in_progress(SERVICE)
     if not active:
         st.session_state.pop(CANCEL_REQUESTED_KEY, None)
     requested = st.session_state.get(INDEX_REQUESTED_KEY, False)
     busy = active or requested
-    status = read_index_status()
+    status = SERVICE.index_status()
+    installed_modalities = _available_index_modalities()
     video_column, workflow_column = st.columns(
         [0.95, 1.05],
         gap="large",
@@ -293,10 +313,25 @@ def run():
 
     with workflow_column:
         st.subheader("Build index")
+        selected_modalities = tuple(
+            st.multiselect(
+                "Capabilities",
+                installed_modalities,
+                default=installed_modalities,
+                disabled=busy,
+                help="Install another capability extra to make it available here.",
+            )
+        )
+        if not installed_modalities:
+            st.warning(
+                "No indexing capabilities are installed. "
+                'Install one, for example: pip install "vidxp[scene]"'
+            )
         st.button(
             "Index video",
             type="primary",
             disabled=busy
+            or not selected_modalities
             or (uploaded_video is None and not SAVED_VIDEO_PATH.is_file()),
             help=(
                 "Indexing is already running."
@@ -323,9 +358,9 @@ def run():
 
             @st.fragment(run_every="1s")
             def poll_index_status():
-                latest_active = indexing_in_progress()
+                latest_active = indexing_in_progress(SERVICE)
                 _render_index_status(
-                    read_index_status(),
+                    SERVICE.index_status(),
                     latest_active,
                     uploaded_video,
                     st.session_state.get(INDEX_ERROR_KEY),
@@ -366,13 +401,18 @@ def run():
         _render_search_result(st.session_state.get(SEARCH_RESULT_KEY))
 
     if requested:
-        _run_indexing(uploaded_video, status)
+        _run_indexing(uploaded_video, status, selected_modalities)
 
 
-def main():
+def main(arguments: Sequence[str] = ()):
     from streamlit.web import cli as streamlit_cli
 
-    sys.argv = ["streamlit", "run", str(Path(__file__).resolve()), *sys.argv[1:]]
+    sys.argv = [
+        "streamlit",
+        "run",
+        str(Path(__file__).resolve()),
+        *arguments,
+    ]
     raise SystemExit(streamlit_cli.main())
 
 

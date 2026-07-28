@@ -1,6 +1,9 @@
 # CHANGELOG
 
-<!-- version list -->
+<!-- towncrier release notes start -->
+
+## v0.1.0 (2026-07-27)
+
 
 ## v0.1.0-b.3 (2026-07-27)
 

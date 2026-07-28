@@ -16,10 +16,11 @@ from vidxp.benchmarks.common import (
     run_logged_evaluator,
     verify_artifact,
 )
-from vidxp.core.contracts import IndexConfig, SearchHit, VideoSource
+from vidxp.capabilities.scene.operations import search_scene
+from vidxp.capabilities.schemas import SearchHit
+from vidxp.core.contracts import IndexConfig, VideoSource
 from vidxp.core.manifest import write_json_atomic
 from vidxp.core.runner import run_index
-from vidxp.core.search import search_scene
 
 
 DIDEMO_REVISION = "b6a555c8134581305d0ed4716fbc192860e0b88c"
@@ -354,6 +355,7 @@ def run_didemo(
     annotation_indices: Sequence[int] | None = None,
     media_overrides: Mapping[str, str | Path] | None = None,
     frame_stride: int = 1,
+    device: str = "cpu",
     split: Literal["validation", "test"] = "test",
     chunk_pooling: Literal["max", "mean"] = "max",
     reset: bool = False,
@@ -377,6 +379,7 @@ def run_didemo(
         run_id=run_id,
         enabled_modalities=("scene",),
         frame_stride=frame_stride,
+        device=device,
         output_root=output_root,
     )
     run_directory = config.run_directory

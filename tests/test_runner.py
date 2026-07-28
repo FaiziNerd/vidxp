@@ -5,17 +5,20 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from vidxp.core.contracts import (
-    CancellationToken,
+    INDEX_SCHEMA_VERSION,
     IndexCancelledError,
     IndexConfig,
+    IndexSchemaError,
     VideoSource,
 )
 from vidxp.core.manifest import COMPLETION_FILE
-from vidxp.core.indexing_visual import VisualIndexResult
+from vidxp.capabilities.contracts import CapabilityIndexResult
+from vidxp.capabilities.dialogue.config import dialogue_config
 from vidxp.core.runner import (
     _RunLock,
     index_video,
     indexing_in_progress,
+    local_config_from_status,
     run_index,
 )
 from vidxp.index_state import IndexingInProgressError
@@ -32,7 +35,18 @@ EXECUTION_STATE = {
 
 
 def visual_result(summary, timings=None):
-    return VisualIndexResult(summary=summary, timings=timings or {})
+    normalized = dict(summary)
+    scene_frames = int(normalized.get("scene_frames", 0))
+    actor_frames = int(normalized.get("actor_frames", 0))
+    sampled_frames = max(scene_frames, actor_frames)
+    normalized.setdefault("sampled_frames", sampled_frames)
+    normalized.setdefault("processed_frames", sampled_frames)
+    normalized.setdefault("frame_operations", scene_frames + actor_frames)
+    normalized.setdefault("source_frames_advanced", sampled_frames)
+    return CapabilityIndexResult(
+        summary=normalized,
+        timings=timings or {},
+    )
 
 
 class FakeStorage:
@@ -63,6 +77,16 @@ class RunnerTests(unittest.TestCase):
             output_root=root,
         )
 
+    def test_local_config_rejects_an_older_index_schema(self):
+        status = {
+            "summary": {
+                "index_schema_version": INDEX_SCHEMA_VERSION - 1,
+            }
+        }
+
+        with self.assertRaisesRegex(IndexSchemaError, "Re-index"):
+            local_config_from_status(status)
+
     def test_two_videos_complete_one_isolated_resumable_run(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -92,7 +116,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     side_effect=scene_indexer,
                 ),
                 patch(
@@ -147,7 +171,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     visual,
                 ),
                 patch(
@@ -195,7 +219,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     side_effect=cancelling_indexer,
                 ),
                 patch(
@@ -216,7 +240,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     side_effect=successful_indexer,
                 ),
                 patch(
@@ -247,7 +271,7 @@ class RunnerTests(unittest.TestCase):
                     dependency_check,
                 ),
                 patch(
-                    "vidxp.core.runner.index_dialogue",
+                    "vidxp.capabilities.dialogue.operations.index_dialogue",
                     return_value={"dialogue_phrases": 1},
                 ),
                 patch(
@@ -257,10 +281,10 @@ class RunnerTests(unittest.TestCase):
             ):
                 run_index([source], config, storage=FakeStorage())
 
-            dependency_check.assert_called_once_with(
-                ("dialogue",),
-                needs_transcription=False,
-            )
+        dependency_check.assert_called_once_with(
+            ("dialogue",),
+            source=source,
+        )
 
     def test_manifest_adds_transcription_model_when_run_later_needs_it(self):
         with TemporaryDirectory() as directory:
@@ -277,7 +301,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_dialogue",
+                    "vidxp.capabilities.dialogue.operations.index_dialogue",
                     return_value={"dialogue_phrases": 1},
                 ),
                 patch(
@@ -299,7 +323,7 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("transcription", first["models"])
             self.assertEqual(
                 second["models"]["transcription"],
-                config.whisper_model,
+                dialogue_config(config).whisper_model,
             )
 
     def test_changed_input_is_not_silently_accepted_by_checkpoint(self):
@@ -314,7 +338,7 @@ class RunnerTests(unittest.TestCase):
             common = (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     indexer,
                 ),
                 patch(
@@ -357,7 +381,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_dialogue",
+                    "vidxp.capabilities.dialogue.operations.index_dialogue",
                     return_value={"dialogue_phrases": 1},
                 ),
                 patch(
@@ -385,7 +409,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_dialogue",
+                    "vidxp.capabilities.dialogue.operations.index_dialogue",
                     return_value={"dialogue_phrases": 1},
                 ),
                 patch(
@@ -419,7 +443,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     side_effect=indexer,
                 ),
                 patch(
@@ -453,7 +477,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     return_value=visual_result({"scene_frames": 1}),
                 ),
                 patch(
@@ -495,7 +519,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     indexer,
                 ),
                 patch(
@@ -547,13 +571,22 @@ class RunnerTests(unittest.TestCase):
                     "vidxp.core.runner.run_index",
                     return_value=manifest,
                 ) as run,
-                patch("vidxp.core.runner.write_index_status"),
+                patch(
+                    "vidxp.core.runner.write_index_status",
+                ) as write_status,
             ):
                 index_video(str(path), config=config)
 
             hash_source.assert_called_once()
             indexed_source = run.call_args.args[0][0]
             self.assertEqual(indexed_source.checksum, checksum)
+            self.assertTrue(
+                all(
+                    call.kwargs["index_directory"]
+                    == config.index_directory
+                    for call in write_status.call_args_list
+                )
+            )
 
     def test_manifest_and_timing_files_are_valid_json(self):
         with TemporaryDirectory() as directory:
@@ -563,7 +596,7 @@ class RunnerTests(unittest.TestCase):
             with (
                 patch("vidxp.core.runner.require_dependencies"),
                 patch(
-                    "vidxp.core.runner.index_visuals",
+                    "vidxp.capabilities.visual.index_visuals",
                     return_value=visual_result({"scene_frames": 1}),
                 ),
                 patch(

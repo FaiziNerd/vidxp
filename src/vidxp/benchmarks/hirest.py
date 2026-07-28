@@ -18,10 +18,12 @@ from vidxp.benchmarks.common import (
     run_logged_evaluator,
     verify_artifact,
 )
-from vidxp.core.contracts import IndexConfig, SearchHit, VideoSource
+from vidxp.capabilities.dialogue.config import dialogue_config
+from vidxp.capabilities.dialogue.operations import search_dialogue
+from vidxp.capabilities.schemas import SearchHit
+from vidxp.core.contracts import IndexConfig, VideoSource
 from vidxp.core.manifest import sha256_file, write_json_atomic
 from vidxp.core.runner import run_index
-from vidxp.core.search import search_dialogue
 
 
 HIREST_REVISION = "deffc169b4e8d51c1589d5512ad05da61e81bcee"
@@ -401,6 +403,7 @@ def run_hirest(
     pairs: Sequence[tuple[str, str]] | None = None,
     split: Literal["validation", "test"] = "test",
     temporal_window_fraction: float = HIREST_DEFAULT_WINDOW_FRACTION,
+    device: str = "cpu",
     reset: bool = False,
 ) -> dict[str, Any]:
     if split not in {"validation", "test"}:
@@ -425,6 +428,7 @@ def run_hirest(
         split=split,
         run_id=run_id,
         enabled_modalities=("dialogue",),
+        device=device,
         output_root=output_root,
     )
     run_directory = config.run_directory
@@ -476,7 +480,7 @@ def run_hirest(
             "prediction_format_validated": True,
             "input_mode": "released_timestamped_asr",
             "dialogue_words_per_phrase": (
-                config.dialogue_words_per_phrase
+                dialogue_config(config).words_per_phrase
             ),
             "segment_word_timestamps": (
                 "linear_interpolation_within_srt_cue"

@@ -28,25 +28,27 @@
     <li>As an indexing and retrieval layer inside another application</li>
   </ul>
 
-
-<div align="center">
-
-<a href="https://grayhat.studio/discord">
-    <img src="https://img.shields.io/discord/867124708473700363?style=for-the-badge&logo=discord&logoColor=white" alt="discord">
-  </a>
-  
-</div>
-
-
 <p align="center">
-    <a href="https://github.com/grayhatdevelopers/vidxp/releases/latest" target="_blank">
-    <img src="https://img.shields.io/badge/download-desktop%20app-black?style=for-the-badge" alt="download">
-  </a>
-  <a href="https://pypi.org/projects/vidxp" target="_blank">
-    <img src="https://img.shields.io/pypi/v/vidxp?style=for-the-badge" alt="download">
-  </a>
+  <strong>Dialogue search · Scene search · Actor grouping · CLI · Browser UI · Python API</strong>
 </p>
 
+<p align="center">
+  <a href="https://pypi.org/project/vidxp/">
+    <img src="https://img.shields.io/pypi/v/vidxp" alt="PyPI version">
+  </a>
+  <a href="https://pypi.org/project/vidxp/">
+    <img src="https://img.shields.io/pypi/pyversions/vidxp" alt="Supported Python versions">
+  </a>
+  <a href="https://github.com/grayhatdevelopers/vidxp/actions/workflows/ci.yml?query=branch%3Amain">
+    <img src="https://github.com/grayhatdevelopers/vidxp/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/grayhatdevelopers/vidxp" alt="MIT license">
+  </a>
+  <a href="https://grayhat.studio/discord">
+    <img src="https://img.shields.io/discord/867124708473700363?logo=discord&logoColor=white" alt="Discord">
+  </a>
+</p>
 
 ## Why VidXP
 
@@ -83,31 +85,20 @@ VidXP supports Python 3.10 through 3.13 and requires FFmpeg. See the
 [installation guide](INSTALLATION_GUIDE.md) for the `dlib` compiler
 requirements, source installation, model preparation, and troubleshooting.
 
-Create and activate a virtual environment:
+Install the command line and browser interface with
+[pipx](https://packaging.python.org/en/latest/guides/installing-stand-alone-command-line-tools/).
+The command is available on your `PATH` while VidXP and its dependencies remain
+isolated:
 
 ```bash
-python -m venv venv
+pipx install "vidxp[all,frontend]"
 ```
 
-```bash
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-Install the command-line package:
-
-```bash
-python -m pip install vidxp
-```
-
-Include the browser interface:
-
-```bash
-python -m pip install "vidxp[frontend]"
-```
+Install only the capabilities you need with a smaller selection such as
+`pipx install "vidxp[scene,frontend]"` or
+`pipx install "vidxp[dialogue,scene]"`. To import VidXP from another Python
+project, install it into that project's environment instead; the
+[installation guide](INSTALLATION_GUIDE.md) covers that path.
 
 Confirm the installed package and its runtime dependencies:
 
@@ -128,39 +119,61 @@ vidxp prepare
 Build an index containing dialogue, scene, and actor information:
 
 ```bash
-vidxp videoindex samplevideo.mp4
+vidxp index create samplevideo.mp4
 ```
 
 Search the completed index:
 
 ```bash
-vidxp dialogue "the bread just came out of the oven"
-vidxp scene "a yellow taxi on a city street"
-vidxp actor 1 samplevideo.mp4
+vidxp search dialogue "the bread just came out of the oven"
+vidxp search scene "a yellow taxi on a city street" --top-k 5
+vidxp actors list
+vidxp actors render 1 samplevideo.mp4
 ```
 
 Index only selected capabilities or sample fewer visual frames:
 
 ```bash
-vidxp videoindex samplevideo.mp4 --modalities scene --frame-stride 5
+vidxp index create samplevideo.mp4 --modality scene --frame-stride 5
 ```
 
-`--modalities` accepts any combination of `dialogue`, `scene`, and `actor`.
+Repeat `--modality` to combine `dialogue`, `scene`, and `actor`.
 Run `vidxp --help` or any command followed by `--help` for the complete command
 reference.
+
+Use named repositories to keep index locations and devices centrally
+configured:
+
+```bash
+vidxp repositories add team --index-dir ./indexes/team --device cuda --use
+vidxp repositories list
+```
 
 ## Browser interface
 
 Install the `frontend` extra and start:
 
 ```bash
-vidxp-ui
+vidxp ui
 ```
 
-The command starts a local Streamlit server and remains active until stopped.
+The command uses the active named repository, starts a local Streamlit server,
+and remains active until stopped.
 The interface can upload a video, start or cancel indexing, restore saved
 progress after a page reload, and search the capabilities available in the
 completed index.
+
+## Container
+
+Stable releases are available from GitHub Container Registry. Start the local
+interface with persistent index and model storage by running:
+
+```bash
+docker compose up
+```
+
+See the [installation guide](INSTALLATION_GUIDE.md#run-the-container) for model
+preparation, configuration, and direct `docker run` usage.
 
 ## Use VidXP as a Python package
 
@@ -170,7 +183,7 @@ transcripts, resumable per-video checkpoints, and metadata-rich top-k results.
 ```python
 from vidxp.core import IndexConfig, VideoSource
 from vidxp.core.runner import run_index
-from vidxp.core.search import search_scene
+from vidxp.capabilities.scene.operations import search_scene
 
 config = IndexConfig(
     dataset="my-library",
@@ -233,7 +246,7 @@ caches normally live outside this directory and outside the virtual environment.
 
 - [Installation and troubleshooting](INSTALLATION_GUIDE.md)
 - [Benchmarking status and results](docs/benchmarking/README.md)
-- [Contribution guidelines](docs/CONTRIBUTING.md)
+- [Adding a capability](docs/adding-a-capability.md)
 - [Changelog](CHANGELOG.md)
 - [Issue tracker](https://github.com/grayhatdevelopers/vidxp/issues)
 - [MIT license](LICENSE)

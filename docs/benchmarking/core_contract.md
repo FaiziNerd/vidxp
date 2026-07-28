@@ -33,9 +33,9 @@ does not change merely because the same run is relocated to another output or
 storage directory. Checkpoint filenames are hashes of video IDs, so official IDs
 cannot accidentally become platform-specific paths.
 
-The existing CLI and Streamlit interface use `chroma_data/` as their single local
-run for compatibility. Indexes created before schema version 2 must be rebuilt;
-VidXP does not invent missing end timestamps, video IDs, or source IDs.
+The CLI and Streamlit interface use `chroma_data/` as their local run. Indexes
+created with an older schema must be rebuilt; VidXP does not invent missing end
+timestamps, video IDs, or source IDs.
 
 ## Indexing API
 
@@ -49,7 +49,7 @@ config = IndexConfig(
     run_id="clip-stride-5",
     enabled_modalities=("scene",),
     frame_stride=5,
-    scene_batch_size=32,
+    capability_options={"scene": {"batch_size": 32}},
     storage_batch_size=256,
 )
 
@@ -126,7 +126,7 @@ an official ID cannot collide with the separator.
 ## Retrieval API
 
 ```python
-from vidxp.core.search import search_scene
+from vidxp.capabilities.scene.operations import search_scene
 
 result = search_scene(
     "a person cuts bread",

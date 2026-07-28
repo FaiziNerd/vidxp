@@ -34,7 +34,7 @@ python -m streamlit run .\src\vidxp\frontend.py
 For an installed wheel, the supported command remains:
 
 ```powershell
-vidxp-ui
+vidxp ui
 ```
 
 ### Real execution checks
@@ -49,7 +49,7 @@ selects the older installed TestPyPI package instead.
 | Check | Executed path | Observed result |
 |---|---|---|
 | Source Streamlit UI | Source selected through `PYTHONPATH`, real browser session | Page rendered with upload, index, status, and search controls; no import exception |
-| Built-wheel UI | Fresh wheel installed without VidXP source on its import path; `vidxp-ui` opened in a real browser session | Page rendered successfully and the Streamlit health endpoint returned `ok` |
+| Built-wheel UI | Fresh wheel installed without VidXP source on its import path; browser interface opened from the installed package | Page rendered successfully and the Streamlit health endpoint returned `ok` |
 | Built-wheel CLI | Final wheel installed into an isolated target while using the validated dependency environment; wheel target placed first on `PYTHONPATH` | Import resolved inside the wheel target and `python -m vidxp --help` listed the expected commands |
 | Dependency doctor | `vidxp doctor --modalities dialogue,scene,actor` | ChromaDB, MiniLM, CLIP, NumPy, OpenCV, Pillow, PyTorch, face recognition, MoviePy, WhisperX, and FFmpeg imports resolved |
 | Released-transcript path | Real MiniLM encoding, Chroma writes, and top-2 dialogue search over three timestamped segments | Run completed; two hits returned; first interval was `[0.0, 2.0]`; full run/source metadata present |

@@ -7,8 +7,8 @@ installation, model preparation, and common first-run issues.
 ## Prerequisites
 
 - Python 3.10 through 3.13
-- FFmpeg available on `PATH`
-- CMake and a C/C++ build toolchain for `dlib`
+- FFmpeg available on `PATH` when installing `dialogue`
+- CMake and a C/C++ build toolchain when installing `actor`
 
 The official `dlib` package is distributed through PyPI as source. Installing
 VidXP therefore compiles it locally unless a compatible build is already cached
@@ -43,19 +43,29 @@ python -m pip install --upgrade pip
 
 ## Install from PyPI
 
-Install the command-line package:
+Install the lightweight command and application layer:
 
 ```bash
 python -m pip install vidxp
 ```
 
-Install the command-line package and Streamlit interface:
+Add only the indexing capabilities you need:
 
 ```bash
-python -m pip install "vidxp[frontend]"
+python -m pip install "vidxp[dialogue]"
+python -m pip install "vidxp[scene,actor]"
+python -m pip install "vidxp[all]"
 ```
 
-`frontend` is an optional dependency group. The package name remains `vidxp`.
+`all` contains all runtime capabilities. It does not include the `frontend` or
+`benchmarks` extras:
+
+```bash
+python -m pip install "vidxp[all,frontend]"
+```
+
+The `benchmarks` extra contains evaluation tooling only. Combine it with the
+capability being evaluated, for example `vidxp[scene,benchmarks]`.
 
 ## Install from source
 
@@ -65,16 +75,44 @@ From the repository root:
 python -m pip install .
 ```
 
-Include the Streamlit interface:
+Include all capabilities and the Streamlit interface:
 
 ```bash
-python -m pip install ".[frontend]"
+python -m pip install ".[all,frontend]"
 ```
 
 Use an editable installation while developing:
 
 ```bash
-python -m pip install -e ".[frontend,benchmarks]"
+python -m pip install -e ".[all,frontend,benchmarks]"
+```
+
+## Run the container
+
+Stable container images include every runtime capability and the browser
+interface, but not downloaded model weights. Docker Compose keeps indexes,
+repository configuration, and model caches in the `vidxp-data` volume:
+
+```bash
+docker compose pull
+docker compose run --rm vidxp vidxp prepare
+docker compose up
+```
+
+The interface is available at `http://localhost:8501`. Set `VIDXP_PORT` in a
+local `.env` file to publish a different host port. Set `VIDXP_IMAGE` to select
+an immutable release instead of `latest`:
+
+```dotenv
+VIDXP_IMAGE=ghcr.io/grayhatdevelopers/vidxp:0.2.0
+VIDXP_PORT=8502
+VIDXP_DEVICE=cpu
+```
+
+Run the image without Compose when persistent storage is not required:
+
+```bash
+docker run --rm -p 8501:8501 ghcr.io/grayhatdevelopers/vidxp:latest
 ```
 
 ## Verify the installation
@@ -85,21 +123,23 @@ Display the installed package version:
 vidxp --version
 ```
 
-Check FFmpeg and the Python dependencies needed by all indexing capabilities:
+Check the Python and system dependencies needed by all indexing capabilities:
 
 ```bash
 vidxp doctor
 ```
 
 `vidxp doctor` imports the selected dependencies but does not download model
-weights. Restrict the check when diagnosing one capability:
+weights. A base-only install therefore reports which capability extras are
+missing. Restrict the check when diagnosing one capability:
 
 ```bash
 vidxp doctor --modalities scene
 ```
 
-If the frontend extra was installed, start the interface with `vidxp-ui`. It
-runs until stopped with `Ctrl+C`.
+If the frontend extra was installed, start the interface with `vidxp ui`. It
+uses the active repository configured by `vidxp repositories use` and runs
+until stopped with `Ctrl+C`.
 
 ## Prepare models
 
@@ -123,7 +163,7 @@ WhisperX selects its alignment model after detecting the video's language. Cache
 a known language explicitly when required:
 
 ```bash
-vidxp prepare --language en
+vidxp prepare --option dialogue.alignment_language=en
 ```
 
 SentenceTransformer and WhisperX use the Hugging Face cache; CLIP uses its own
@@ -139,7 +179,7 @@ If `vidxp prepare` was not run first, the initial indexing command downloads any
 missing models before processing the video:
 
 ```bash
-vidxp videoindex samplevideo.mp4
+vidxp index create samplevideo.mp4
 ```
 
 Keep the terminal and internet connection open until VidXP reports that the
@@ -167,11 +207,12 @@ directory to `PATH`, then rerun `vidxp doctor`.
 ### A search says the index is not ready
 
 Wait for the active indexing command to finish. If the previous process ended
-or failed, run `vidxp videoindex` again to rebuild the incomplete local index.
+or failed, run `vidxp index create` again to rebuild the incomplete local
+index.
 
 ### The first indexing run appears slow
 
 Check the terminal for model-download or indexing progress. Model preparation,
 transcription, scene analysis, and actor detection are separate stages. Use
 `vidxp prepare` before indexing or select fewer capabilities with
-`--modalities`.
+one or more `--modality` options.

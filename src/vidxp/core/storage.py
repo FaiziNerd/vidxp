@@ -48,7 +48,7 @@ class IndexStorage:
         self.path = config.index_directory
         self.path.mkdir(parents=True, exist_ok=True)
         self.client = _client_for_path(str(self.path.resolve()))
-        self._names = dict(zip(("dialogue", "scene", "actor"), config.collection_names))
+        self._names = dict(config.collection_names)
         self._collections: dict[str, Any] = {}
 
     def close(self) -> None:
@@ -104,12 +104,18 @@ class IndexStorage:
             where=metadata_filter(self.config, video_id=video_id),
         )
 
-    def delete_actor_cluster(self, video_id: str, cluster_id: str) -> None:
-        self.collection("actor").delete(
+    def delete_records(
+        self,
+        modality: str,
+        *,
+        video_id: str,
+        filters: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.collection(modality).delete(
             where=metadata_filter(
                 self.config,
                 video_id=video_id,
-                extra={"cluster_id": cluster_id},
+                extra=filters,
             ),
         )
 
@@ -179,29 +185,26 @@ class IndexStorage:
             for source_id, metadata, distance in zip(ids, metadatas, distances)
         ]
 
-    def actor_detections(
+    def records(
         self,
+        modality: str,
         *,
-        video_id: str,
-        cluster_id: str,
+        video_id: str | None = None,
+        filters: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        result = self.collection("actor").get(
+        result = self.collection(modality).get(
             where=metadata_filter(
                 self.config,
                 video_id=video_id,
-                extra={"cluster_id": cluster_id},
+                extra=filters,
             ),
             include=["metadatas"],
         )
-        records = [
+        return [
             dict(metadata)
             for metadata in (result.get("metadatas") or [])
             if metadata
         ]
-        return sorted(
-            records,
-            key=lambda item: (int(item["frame_index"]), item["detection_id"]),
-        )
 
     def size_bytes(self) -> int:
         return directory_size(self.path)

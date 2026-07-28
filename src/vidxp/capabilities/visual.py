@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from time import perf_counter
+from typing import Any, Protocol, Sequence
+
+from vidxp.capabilities.contracts import CapabilityIndexResult
+from vidxp.core.contracts import (
+    CancellationToken,
+    IndexConfig,
+    VideoSource,
+)
+from vidxp.core.indexing_common import ProgressCallback, report_progress
+from vidxp.core.storage import IndexStorage
+from vidxp.core.video import (
+    FrameSample,
+    FrameStreamStats,
+    iter_frame_batches,
+    probe_video,
+)
+
+
+class VisualProcessor(Protocol):
+    def batch_size(self, config: IndexConfig) -> int: ...
+
+    def prepare(
+        self,
+        config: IndexConfig,
+        progress: ProgressCallback | None,
+    ) -> Any: ...
+
+    def process(
+        self,
+        samples: Sequence[FrameSample],
+        *,
+        state: Any,
+        info: Any,
+        config: IndexConfig,
+        storage: IndexStorage,
+        cancellation: CancellationToken,
+    ) -> None: ...
+
+    def finalize(
+        self,
+        state: Any,
+        *,
+        config: IndexConfig,
+        storage: IndexStorage,
+    ) -> tuple[dict[str, Any], int]: ...
+
+
+@dataclass
+class _Participant:
+    name: str
+    processor: VisualProcessor
+    state: Any
+
+
+def _rgb_samples(samples) -> list[FrameSample]:
+    import cv2
+
+    return [
+        FrameSample(
+            frame_index=sample.frame_index,
+            timestamp=sample.timestamp,
+            frame=cv2.cvtColor(sample.frame, cv2.COLOR_BGR2RGB),
+        )
+        for sample in samples
+    ]
+
+
+def _participants(
+    names: Sequence[str],
+    *,
+    config: IndexConfig,
+    progress: ProgressCallback | None,
+    timings: dict[str, float],
+) -> list[_Participant]:
+    from vidxp.capabilities.registry import get_capability
+
+    participants = []
+    for name in names:
+        processor = get_capability(name).index_processor
+        if processor is None:
+            raise ValueError(
+                f"Capability {name!r} does not provide a visual processor."
+            )
+        started = perf_counter()
+        state = processor.prepare(config, progress)
+        timings[name] = perf_counter() - started
+        participants.append(_Participant(name, processor, state))
+    return participants
+
+
+def _consume_visual_stream(
+    source: VideoSource,
+    *,
+    participants: Sequence[_Participant],
+    expected: int,
+    info: Any,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+    progress: ProgressCallback | None,
+    timings: dict[str, float],
+) -> FrameStreamStats:
+    stream_stats = FrameStreamStats()
+    stream = iter(
+        iter_frame_batches(
+            source.path,
+            frame_stride=config.frame_stride,
+            batch_size=max(
+                participant.processor.batch_size(config)
+                for participant in participants
+            ),
+            cancellation=cancellation,
+            stats=stream_stats,
+        )
+    )
+    while True:
+        stream_started = perf_counter()
+        try:
+            samples = next(stream)
+        except StopIteration:
+            timings["frame_stream"] += perf_counter() - stream_started
+            break
+        rgb_samples = _rgb_samples(samples)
+        timings["frame_stream"] += perf_counter() - stream_started
+
+        for participant in participants:
+            processor_started = perf_counter()
+            participant.processor.process(
+                rgb_samples,
+                state=participant.state,
+                info=info,
+                config=config,
+                storage=storage,
+                cancellation=cancellation,
+            )
+            timings[participant.name] += (
+                perf_counter() - processor_started
+            )
+
+        report_progress(
+            progress,
+            "visual_indexing",
+            "Indexing the shared sampled-frame stream.",
+            stream_stats.frames_materialized,
+            expected,
+        )
+    return stream_stats
+
+
+def _finalize(
+    participants: Sequence[_Participant],
+    *,
+    config: IndexConfig,
+    storage: IndexStorage,
+    timings: dict[str, float],
+) -> tuple[dict[str, Any], int]:
+    summary: dict[str, Any] = {}
+    frame_operations = 0
+    for participant in participants:
+        started = perf_counter()
+        result, operations = participant.processor.finalize(
+            participant.state,
+            config=config,
+            storage=storage,
+        )
+        timings[participant.name] += perf_counter() - started
+        duplicate = set(summary).intersection(result)
+        if duplicate:
+            raise ValueError(
+                "Visual capability summaries contain duplicate keys: "
+                + ", ".join(sorted(duplicate))
+            )
+        summary.update(result)
+        frame_operations += operations
+    return summary, frame_operations
+
+
+def index_visuals(
+    source: VideoSource,
+    *,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+    progress: ProgressCallback | None = None,
+    modalities: Sequence[str] | None = None,
+) -> CapabilityIndexResult:
+    if config.video_id is None:
+        raise ValueError("IndexConfig.video_id is required for indexing.")
+    if source.path is None:
+        raise ValueError("Visual indexing requires a video path.")
+
+    selected = tuple(
+        config.enabled_modalities if modalities is None else modalities
+    )
+    if not selected:
+        raise ValueError("At least one visual capability must be selected.")
+
+    started = perf_counter()
+    info = probe_video(source.path)
+    expected = (
+        info.frame_count + config.frame_stride - 1
+    ) // config.frame_stride
+    timings = {
+        "frame_stream": 0.0,
+    }
+    participants = _participants(
+        selected,
+        config=config,
+        progress=progress,
+        timings=timings,
+    )
+    report_progress(
+        progress,
+        "visual_indexing",
+        "Decoding sampled frames for "
+        + " and ".join(selected)
+        + " indexing.",
+        0,
+        expected,
+    )
+    stream_stats = _consume_visual_stream(
+        source,
+        participants=participants,
+        expected=expected,
+        info=info,
+        config=config,
+        storage=storage,
+        cancellation=cancellation,
+        progress=progress,
+        timings=timings,
+    )
+    capability_summary, frame_operations = _finalize(
+        participants,
+        config=config,
+        storage=storage,
+        timings=timings,
+    )
+    sampled_frames = stream_stats.frames_materialized
+    timings["visual_total"] = perf_counter() - started
+    return CapabilityIndexResult(
+        summary={
+            "source_frames_advanced": stream_stats.frames_advanced,
+            "sampled_frames": sampled_frames,
+            "processed_frames": sampled_frames,
+            "frame_operations": frame_operations,
+            "duration": info.duration,
+            "fps": info.fps,
+            **capability_summary,
+        },
+        timings=timings,
+    )
+
+
+def index_capabilities(
+    source: VideoSource,
+    *,
+    config: IndexConfig,
+    storage: IndexStorage,
+    cancellation: CancellationToken,
+    progress: ProgressCallback | None = None,
+    modalities: Sequence[str] | None = None,
+) -> CapabilityIndexResult:
+    return index_visuals(
+        source,
+        config=config,
+        storage=storage,
+        cancellation=cancellation,
+        progress=progress,
+        modalities=modalities,
+    )

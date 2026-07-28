@@ -142,25 +142,34 @@ class StorageTests(unittest.TestCase):
         self.assertIn({"video_id": "video-1"}, clauses)
         self.assertIn({"run_id": "run-1"}, clauses)
 
-    def test_actor_detections_are_chronologically_ordered(self):
+    def test_records_apply_capability_filters(self):
         collection = FakeCollection()
         storage = fake_storage(self.config, collection)
 
-        detections = storage.actor_detections(
+        records = storage.records(
+            "actor",
             video_id="video-1",
-            cluster_id="1",
+            filters={"cluster_id": "1"},
         )
 
         self.assertEqual(
-            [item["detection_id"] for item in detections],
-            ["d1", "d3"],
+            [item["detection_id"] for item in records],
+            ["d3", "d1"],
         )
+        clauses = collection.get_options["where"]["$and"]
+        self.assertIn({"run_id": "run-1"}, clauses)
+        self.assertIn({"video_id": "video-1"}, clauses)
+        self.assertIn({"cluster_id": "1"}, clauses)
 
-    def test_actor_cluster_cleanup_remains_scoped_to_video_and_run(self):
+    def test_record_cleanup_remains_scoped_to_capability_and_run(self):
         collection = FakeCollection()
         storage = fake_storage(self.config, collection)
 
-        storage.delete_actor_cluster("video-1", "3")
+        storage.delete_records(
+            "actor",
+            video_id="video-1",
+            filters={"cluster_id": "3"},
+        )
 
         clauses = collection.deletes[0]["where"]["$and"]
         self.assertIn({"run_id": "run-1"}, clauses)

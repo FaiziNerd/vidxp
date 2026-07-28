@@ -23,7 +23,7 @@ from vidxp.benchmarks.hirest import (
     select_ground_truth,
     validate_predictions as validate_hirest_predictions,
 )
-from vidxp.core.contracts import SearchHit
+from vidxp.capabilities.schemas import SearchHit
 
 
 def scene_hit(chunk, score):

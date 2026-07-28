@@ -7,8 +7,11 @@ Thanks for contributing to VidXP (Video eXPlain).
 | File / path | Role |
 |-------------|------|
 | `src/vidxp/cli.py` | Typer commands and installed `vidxp` entry point |
-| `src/vidxp/frontend.py` | Streamlit interface and installed `vidxp-ui` entry point |
-| `src/vidxp/core/` | Indexing, retrieval, storage, models, run state, and shared contracts |
+| `src/vidxp/application.py` | Reusable application boundary for CLI and future adapters |
+| `src/vidxp/capabilities/` | Capability registry, schemas, operations, dependencies, and optional CLI modules |
+| `src/vidxp/repositories.py` | Persistent named local-index configuration |
+| `src/vidxp/frontend.py` | Streamlit interface launched by `vidxp ui` |
+| `src/vidxp/core/` | Capability-neutral storage, media, run state, and execution contracts |
 | `src/vidxp/benchmarks/` | Benchmark-specific loaders, prediction adapters, and evaluator calls |
 | `pyproject.toml` | Package metadata and Python dependencies |
 | `docs/` | Installation-linked guidance, benchmark research, and contribution notes |
@@ -17,7 +20,7 @@ Thanks for contributing to VidXP (Video eXPlain).
 | Model caches | Managed by WhisperX, SentenceTransformer, and CLIP outside the repository |
 
 The full local CLI/UI index uses up to three collections:
-`voiceEmbeddings`, `sceneEmbeddings`, and `actorCollection`. Runs containing
+`dialogue`, `scene`, and `actor`. Runs containing
 selected capabilities create only the collections they need.
 
 ## Setup
@@ -29,7 +32,7 @@ package metadata directly.
 python -m venv venv
 # Windows: venv\Scripts\activate
 # macOS/Linux: source venv/bin/activate
-python -m pip install -e ".[frontend,benchmarks]"
+python -m pip install -e ".[all,frontend,benchmarks]"
 ```
 
 Verify the environment:
@@ -40,7 +43,7 @@ vidxp doctor
 ```
 
 CLI: `vidxp --help`  
-UI: `vidxp-ui`
+UI: `vidxp ui`
 
 Models default to CPU and download into their libraries' standard caches on
 first use. If a model identifier changes, update the setup documentation and
@@ -48,14 +51,17 @@ record the exact identifier in benchmark results.
 
 ## Where to put work
 
-- Indexing, retrieval, storage, metadata, and face clustering:
+- Capability-specific indexing, retrieval, models, schemas, and dependencies:
+  the matching folder under `src/vidxp/capabilities/`.
+- Shared storage, media handling, run state, and execution mechanics:
   `src/vidxp/core/`.
+- Transport-neutral application operations: `src/vidxp/application.py`.
 - Command-line behavior: `src/vidxp/cli.py`.
 - Upload and search UX: `src/vidxp/frontend.py`; keep product logic in the
-  shared core.
+  shared application and core modules.
 - Official benchmark formats and evaluator calls: `src/vidxp/benchmarks/`.
-- New dependencies: `pyproject.toml`, with the reason stated in the pull
-  request.
+- Capability dependencies: that capability's `requirements.txt`; wire a new
+  install extra into `pyproject.toml`.
 - Product direction: the roadmap in the main [README](../README.md).
 
 Prefer small, focused pull requests. If you change how embeddings or metadata
@@ -85,7 +91,34 @@ python -m unittest discover -s tests
 - Note any new env vars, model downloads, or breaking index format changes.
 - Link a related issue when there is one.
 
+### Changelog fragments
+
+Add one `changes/<pr-number>.<type>.md` file for every user-visible pull
+request. Use one of these types:
+
+- `breaking` for incompatible behavior or API changes.
+- `feature` for new behavior.
+- `bugfix` for corrected behavior.
+- `deprecation` for behavior scheduled for removal.
+- `docs` for user-facing documentation improvements.
+- `security` for security fixes or hardening users should know about.
+
+The fragment should be one sentence written for users. Do not include a heading,
+version number, commit message, or implementation details. See
+[`changes/README.md`](../changes/README.md) for an example.
+
+Internal-only maintenance does not need an empty fragment. Explain the reason in
+the pull request and ask a maintainer to apply the `skip-changelog` label. CI
+requires either a fragment or that label.
+
+Towncrier collects the pending fragments into `CHANGELOG.md` and removes them
+when a stable release is made. Do not edit the changelog or package version in a
+feature pull request.
+
 ## Questions
 
-Open an issue before large refactors or new modalities so scope stays aligned
-with the roadmap.
+Follow [Adding a capability](adding-a-capability.md) for the complete extension
+contract. Open an issue before large cross-capability refactors so scope stays
+aligned with the roadmap.
+
+Maintainers should follow the [release process](releasing.md).

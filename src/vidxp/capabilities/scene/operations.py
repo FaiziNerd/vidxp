@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from vidxp.capabilities.contracts import CapabilityContext
+from vidxp.capabilities.scene.config import scene_config
+from vidxp.capabilities.scene.models import get_clip_model
+from vidxp.capabilities.schemas import SearchInput, SearchResult
+from vidxp.capabilities.search import search_embeddings
+from vidxp.core.contracts import IndexConfig
+from vidxp.core.storage import IndexStorage
+
+
+REQUIRED_METADATA = frozenset(
+    {
+        "dataset",
+        "split",
+        "run_id",
+        "video_id",
+        "source_id",
+        "start",
+        "end",
+        "frame_index",
+        "timestamp",
+        "fps",
+        "duration",
+        "modality",
+    }
+)
+
+
+def scene_embedding(query: str, config: IndexConfig) -> list[float]:
+    import clip
+    import torch
+
+    settings = scene_config(config)
+    model, _ = get_clip_model(settings.model, config.device)
+    tokens = clip.tokenize([query]).to(config.device)
+    with torch.no_grad():
+        features = model.encode_text(tokens)
+        features /= features.norm(dim=-1, keepdim=True)
+    return features.cpu().numpy().tolist()[0]
+
+
+def search_scene(
+    query: str,
+    *,
+    config: IndexConfig,
+    top_k: int = 10,
+    video_id: str | None = None,
+    query_id: str | None = None,
+    filters: Mapping[str, Any] | None = None,
+    storage: IndexStorage | None = None,
+) -> SearchResult:
+    cleaned = query.strip()
+    if not cleaned:
+        raise ValueError("Search query must not be empty.")
+    if top_k <= 0:
+        raise ValueError("top_k must be greater than zero.")
+    return search_embeddings(
+        cleaned,
+        "scene",
+        scene_embedding(cleaned, config),
+        config=config,
+        required_metadata=REQUIRED_METADATA,
+        top_k=top_k,
+        video_id=video_id,
+        query_id=query_id,
+        filters=filters,
+        storage=storage,
+    )
+
+
+def search_operation(
+    context: CapabilityContext,
+    request: SearchInput,
+) -> SearchResult:
+    config = context.require_config()
+    return search_scene(
+        request.query,
+        config=config,
+        top_k=request.top_k,
+        video_id=config.video_id,
+    )

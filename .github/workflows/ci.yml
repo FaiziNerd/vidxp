@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+      - unlabeled
+  workflow_call:
+    inputs:
+      container:
+        description: Build and smoke-test the stable container surface.
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install repository tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r utils/build-requirements.txt
+
+      - name: Require a changelog fragment
+        if: >-
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+        run: towncrier check --compare-with "${{ github.event.pull_request.base.sha }}"
+
+      - name: Determine validation scope
+        id: scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTAINER_REQUESTED: ${{ inputs.container }}
+        run: |
+          run_container=false
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            run_suite=true
+            if [[ "$CONTAINER_REQUESTED" == "true" ]]; then
+              run_container=true
+            fi
+          else
+            changed_files="$(git diff --name-only "$BASE_SHA" HEAD)"
+            if grep -Eq '^(\.github/workflows/ci\.yml|src/|tests/|utils/|Dockerfile$|LICENSE$|MANIFEST\.in$|README\.md$|pyproject\.toml$)' <<< "$changed_files"; then
+              run_suite=true
+            else
+              run_suite=false
+            fi
+            if grep -Eq '^(\.dockerignore$|\.github/workflows/ci\.yml$|Dockerfile$|compose\.yaml$|pyproject\.toml$|src/vidxp/(requirements/.*\.txt|capabilities/[^/]+/requirements\.txt)$)' <<< "$changed_files"; then
+              run_container=true
+            fi
+          fi
+          echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT"
+          echo "run_container=$run_container" >> "$GITHUB_OUTPUT"
+
+      - name: Install test surface
+        if: steps.scope.outputs.run_suite == 'true'
+        run: python -m pip install ".[scene,frontend,benchmarks]"
+
+      - name: Lint
+        if: steps.scope.outputs.run_suite == 'true'
+        run: ruff check src tests
+
+      - name: Test
+        if: steps.scope.outputs.run_suite == 'true'
+        run: python -m unittest discover -s tests -q
+        env:
+          PYTHONPATH: src
+
+      - name: Build wheel and source distribution
+        if: steps.scope.outputs.run_suite == 'true'
+        run: python -m build
+
+      - name: Verify minimal wheel
+        if: steps.scope.outputs.run_suite == 'true'
+        shell: bash
+        run: |
+          python -m venv .wheel-smoke
+          .wheel-smoke/bin/python -m pip install --upgrade pip
+          .wheel-smoke/bin/python -m pip install dist/*.whl
+          .wheel-smoke/bin/python -m pip check
+          .wheel-smoke/bin/python - <<'PY'
+          from importlib.util import find_spec
+          from subprocess import check_output
+
+          import vidxp
+          from vidxp.capabilities.registry import capability_names
+
+          assert capability_names() == ("dialogue", "scene", "actor")
+          help_text = check_output(
+              [".wheel-smoke/bin/vidxp", "--help"],
+              text=True,
+          )
+          assert "benchmark" not in help_text
+          for module in (
+              "chromadb",
+              "clip",
+              "cv2",
+              "face_recognition",
+              "sentence_transformers",
+              "srt",
+              "streamlit",
+              "torch",
+              "whisperx",
+          ):
+              assert find_spec(module) is None, module
+          PY
+
+      - name: Validate Compose configuration
+        if: steps.scope.outputs.run_container == 'true'
+        run: docker compose config --quiet
+
+      - name: Build container
+        if: steps.scope.outputs.run_container == 'true'
+        run: docker build --tag vidxp:ci .
+
+      - name: Smoke container
+        if: steps.scope.outputs.run_container == 'true'
+        shell: bash
+        run: |
+          docker run --detach --name vidxp-ci \
+            --publish 127.0.0.1:8501:8501 vidxp:ci
+          trap 'docker rm --force vidxp-ci >/dev/null 2>&1 || true' EXIT
+
+          docker exec vidxp-ci vidxp --version
+          docker exec vidxp-ci python -c \
+            'import clip, face_recognition, whisperx'
+          docker exec vidxp-ci sh -c \
+            'test ! -d "$HOME/.cache/huggingface" && test ! -d "$HOME/.cache/clip"'
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            if [[ "$(docker inspect --format='{{.State.Running}}' vidxp-ci)" != "true" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker logs vidxp-ci
+          exit 1
