@@ -10,35 +10,23 @@
   <em>Search video by what was said, what appeared on screen, and recurring faces.</em>
 </p>
 
-<div align="center">
-  <p>
-    VidXP is a local-first video indexing and search engine distributed as a Python
-    package.
-    <br/>You can use it:
-  </p>
-
-  <ul style="display:inline-block; text-align:left;">
-    <li>From the command line</li>
-    <li>Through its browser interface</li>
-    <li>As a desktop app</li>
-    <li>As an API</li>
-    <li>As an indexing and retrieval layer inside another application</li>
-  </ul>
-</div>
-
-
 <p align="center">
-  <a href="https://github.com/grayhatdevelopers/vidxp/releases/latest" target="_blank">
-    <img src="https://img.shields.io/badge/download-desktop%20app-black?style=for-the-badge" alt="download">
+  <a href="https://pypi.org/project/vidxp/">
+    <img src="https://img.shields.io/pypi/v/vidxp" alt="PyPI version">
   </a>
-</p>
-
-<p align="center">
+  <a href="https://pypi.org/project/vidxp/">
+    <img src="https://img.shields.io/pypi/pyversions/vidxp" alt="Supported Python versions">
+  </a>
+  <a href="https://github.com/grayhatdevelopers/vidxp/actions/workflows/ci.yml?query=branch%3Amain">
+    <img src="https://github.com/grayhatdevelopers/vidxp/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/grayhatdevelopers/vidxp" alt="MIT license">
+  </a>
   <a href="https://grayhat.studio/discord">
-    <img src="https://img.shields.io/discord/867124708473700363?style=for-the-badge&logo=discord&logoColor=white" alt="discord">
+    <img src="https://img.shields.io/discord/867124708473700363?logo=discord&logoColor=white" alt="Discord">
   </a>
 </p>
-
 
 ## Why VidXP
 
@@ -70,34 +58,20 @@ VidXP supports Python 3.10 through 3.13 and requires FFmpeg. See the
 [installation guide](INSTALLATION_GUIDE.md) for the `dlib` compiler
 requirements, source installation, model preparation, and troubleshooting.
 
-Create and activate a virtual environment:
+Install the command line and browser interface with
+[pipx](https://packaging.python.org/en/latest/guides/installing-stand-alone-command-line-tools/).
+The command is available on your `PATH` while VidXP and its dependencies remain
+isolated:
 
 ```bash
-python -m venv venv
+pipx install "vidxp[all,frontend]"
 ```
 
-```bash
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-Install the command line and all indexing capabilities:
-
-```bash
-python -m pip install "vidxp[all]"
-```
-
-Include the browser interface:
-
-```bash
-python -m pip install "vidxp[all,frontend]"
-```
-
-Install only the capabilities you need with extras such as
-`vidxp[dialogue]`, `vidxp[scene]`, or `vidxp[scene,actor]`.
+Install only the capabilities you need with a smaller selection such as
+`pipx install "vidxp[scene,frontend]"` or
+`pipx install "vidxp[dialogue,scene]"`. To import VidXP from another Python
+project, install it into that project's environment instead; the
+[installation guide](INSTALLATION_GUIDE.md) covers that path.
 
 Confirm the installed package and its runtime dependencies:
 
@@ -250,7 +224,6 @@ caches normally live outside this directory and outside the virtual environment.
 
 - [Installation and troubleshooting](INSTALLATION_GUIDE.md)
 - [Benchmarking status and results](docs/benchmarking/README.md)
-- [Contribution guidelines](docs/CONTRIBUTING.md)
 - [Adding a capability](docs/adding-a-capability.md)
 - [Changelog](CHANGELOG.md)
 - [Issue tracker](https://github.com/grayhatdevelopers/vidxp/issues)
