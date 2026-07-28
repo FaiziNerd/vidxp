@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <strong>Dialogue search · Scene search · Actor grouping · CLI · Browser UI · Python API</strong>
+</p>
+
+<p align="center">
   <a href="https://pypi.org/project/vidxp/">
     <img src="https://img.shields.io/pypi/v/vidxp" alt="PyPI version">
   </a>
