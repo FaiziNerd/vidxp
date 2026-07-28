@@ -156,6 +156,20 @@ class StorageTests(unittest.TestCase):
             ["d1", "d3"],
         )
 
+    def test_actor_cluster_records_are_scoped_and_ordered(self):
+        collection = FakeCollection()
+        storage = fake_storage(self.config, collection)
+
+        records = storage.actor_cluster_records(video_id="video-1")
+
+        self.assertEqual(
+            [item["detection_id"] for item in records],
+            ["d1", "d3"],
+        )
+        clauses = collection.get_options["where"]["$and"]
+        self.assertIn({"run_id": "run-1"}, clauses)
+        self.assertIn({"video_id": "video-1"}, clauses)
+
     def test_actor_cluster_cleanup_remains_scoped_to_video_and_run(self):
         collection = FakeCollection()
         storage = fake_storage(self.config, collection)

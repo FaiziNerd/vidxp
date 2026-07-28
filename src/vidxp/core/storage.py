@@ -203,6 +203,32 @@ class IndexStorage:
             key=lambda item: (int(item["frame_index"]), item["detection_id"]),
         )
 
+    def actor_cluster_records(
+        self,
+        *,
+        video_id: str,
+    ) -> list[dict[str, Any]]:
+        result = self.collection("actor").get(
+            where=metadata_filter(
+                self.config,
+                video_id=video_id,
+            ),
+            include=["metadatas"],
+        )
+        records = [
+            dict(metadata)
+            for metadata in (result.get("metadatas") or [])
+            if metadata and metadata.get("cluster_id") is not None
+        ]
+        return sorted(
+            records,
+            key=lambda item: (
+                str(item["cluster_id"]),
+                int(item["frame_index"]),
+                str(item["detection_id"]),
+            ),
+        )
+
     def size_bytes(self) -> int:
         return directory_size(self.path)
 

@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from vidxp.core.actor_results import (
     ActorClusterNotFoundError,
+    actor_clusters,
     actor_detections,
     render_actor_result,
 )
@@ -39,6 +40,24 @@ class ActorResultTests(unittest.TestCase):
             cluster_id="3",
         )
         storage.close.assert_not_called()
+
+    def test_actor_clusters_summarize_detection_ranges(self):
+        storage = Mock()
+        storage.actor_cluster_records.return_value = [
+            {"cluster_id": "1", "timestamp": 4.5},
+            {"cluster_id": "1", "timestamp": 1.5},
+            {"cluster_id": "2", "timestamp": 9.0},
+        ]
+
+        clusters = actor_clusters(self.config, storage=storage)
+
+        self.assertEqual(
+            [cluster.cluster_id for cluster in clusters],
+            ["1", "2"],
+        )
+        self.assertEqual(clusters[0].detection_count, 2)
+        self.assertEqual(clusters[0].first_timestamp, 1.5)
+        self.assertEqual(clusters[0].last_timestamp, 4.5)
 
     def test_render_actor_result_rejects_an_empty_cluster(self):
         storage = Mock()

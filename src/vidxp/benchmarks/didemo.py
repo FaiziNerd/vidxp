@@ -354,6 +354,7 @@ def run_didemo(
     annotation_indices: Sequence[int] | None = None,
     media_overrides: Mapping[str, str | Path] | None = None,
     frame_stride: int = 1,
+    device: str = "cpu",
     split: Literal["validation", "test"] = "test",
     chunk_pooling: Literal["max", "mean"] = "max",
     reset: bool = False,
@@ -377,6 +378,7 @@ def run_didemo(
         run_id=run_id,
         enabled_modalities=("scene",),
         frame_stride=frame_stride,
+        device=device,
         output_root=output_root,
     )
     run_directory = config.run_directory

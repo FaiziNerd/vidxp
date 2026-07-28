@@ -1,50 +1,54 @@
 from __future__ import annotations
 
+import json
+import os
+import sys
+from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich import print
 
 from vidxp import __version__
+from vidxp.application import VidXPService
 from vidxp.benchmarks.cli import app as benchmark_app
-from vidxp.core.actor_results import (
-    ActorClusterNotFoundError,
-    render_actor_result,
-)
-from vidxp.core.contracts import IndexConfig, IndexSchemaError
-from vidxp.core.models import (
-    INDEXING_DEPENDENCIES,
-    dependency_failures,
-    get_alignment_model,
-    get_clip_model,
-    get_embedder,
-    get_whisper_model,
-)
-from vidxp.core.runner import (
-    index_video,
-    local_config_from_status,
-)
-from vidxp.core.search import search_dialogue, search_scene
-from vidxp.core.video import ffmpeg_binary
+from vidxp.cli_commands.actors import app as actors_app
+from vidxp.cli_commands.index import app as index_app
+from vidxp.cli_commands.repositories import app as repositories_app
+from vidxp.cli_commands.runtime import doctor, prepare, ui
+from vidxp.cli_commands.search import app as search_app
+from vidxp.cli_support import CLIState, OutputFormat
+from vidxp.core.actor_results import ActorClusterNotFoundError
+from vidxp.core.contracts import IndexSchemaError
 from vidxp.index_state import (
     IndexingInProgressError,
     IndexNotReadyError,
-    require_ready_index,
 )
+from vidxp.repositories import resolve_repository
 
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Index and search video by dialogue, scene, and actor.",
+)
+app.add_typer(index_app, name="index")
+app.add_typer(search_app, name="search")
+app.add_typer(actors_app, name="actors")
+app.add_typer(repositories_app, name="repositories")
 app.add_typer(benchmark_app, name="benchmark")
+app.command()(doctor)
+app.command()(prepare)
+app.command()(ui)
 
 
 def _show_version(value: bool) -> None:
     if value:
-        print(f"VidXP {__version__}")
+        typer.echo(f"VidXP {__version__}")
         raise typer.Exit()
 
 
 @app.callback()
 def app_options(
+    ctx: typer.Context,
     version: Annotated[
         bool,
         typer.Option(
@@ -55,264 +59,143 @@ def app_options(
             help="Show the installed VidXP version and exit.",
         ),
     ] = False,
-) -> None:
-    """Index and search video by dialogue, scene, and actor."""
-
-
-def _modalities(value: str) -> tuple[str, ...]:
-    modalities = tuple(
-        item.strip().lower()
-        for item in value.split(",")
-        if item.strip()
-    )
-    try:
-        IndexConfig(enabled_modalities=modalities)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    return modalities
-
-
-def _active_config() -> tuple[IndexConfig, dict]:
-    status = require_ready_index()
-    try:
-        return local_config_from_status(status), status
-    except IndexSchemaError as exc:
-        raise IndexNotReadyError(str(exc)) from exc
-
-
-def _require_modality(config: IndexConfig, modality: str) -> None:
-    if modality not in config.enabled_modalities:
-        raise IndexNotReadyError(
-            f"The {modality} modality is not present in this index."
-        )
-
-
-@app.command()
-def videoindex(
-    path: str,
-    modalities: Annotated[
-        str,
-        typer.Option(
-            "--modalities",
-            "-m",
-            help="Comma-separated dialogue, scene, and actor modalities.",
-        ),
-    ] = "dialogue,scene,actor",
-    frame_stride: Annotated[
-        int,
-        typer.Option(
-            "--frame-stride",
-            min=1,
-            help=(
-                "Materialize every Nth frame for scene and actor modalities."
-            ),
-        ),
-    ] = 1,
-):
-    """Index one local video, replacing the previous local index."""
-
-    config = IndexConfig.local(
-        enabled_modalities=_modalities(modalities),
-        frame_stride=frame_stride,
-    )
-    last_stage = None
-    last_percent = None
-
-    def progress(event):
-        nonlocal last_percent, last_stage
-        stage = event["stage"]
-        current, total = event.get("current"), event.get("total")
-        percent = (
-            int(current * 100 / total)
-            if current is not None and total
-            else None
-        )
-        if stage != last_stage:
-            print(f"[cyan]{event['message']}[/cyan]")
-            last_stage = stage
-            last_percent = percent
-        elif percent is not None and (
-            last_percent is None or percent >= last_percent + 10
-        ):
-            print(f"[cyan]{event['message']} {percent}%[/cyan]")
-            last_percent = percent
-
-    summary = index_video(path, progress_callback=progress, config=config)
-    print("[bold green]Video indexing completed successfully.[/bold green]")
-    return summary
-
-
-@app.command()
-def doctor(
-    modalities: Annotated[
-        str,
-        typer.Option(
-            "--modalities",
-            "-m",
-            help="Only validate dependencies for these modalities.",
-        ),
-    ] = "dialogue,scene,actor",
-):
-    """Validate selected indexing dependencies without downloading models."""
-
-    selected = _modalities(modalities)
-    failures = dict(
-        dependency_failures(
-            selected,
-            needs_transcription="dialogue" in selected,
-        )
-    )
-    checked_labels = []
-    for modality in selected:
-        for dependency in INDEXING_DEPENDENCIES[modality]:
-            if dependency.label not in checked_labels:
-                checked_labels.append(dependency.label)
-    if "dialogue" in selected:
-        for dependency in INDEXING_DEPENDENCIES["transcription"]:
-            if dependency.label not in checked_labels:
-                checked_labels.append(dependency.label)
-
-    for label in checked_labels:
-        if label in failures:
-            print(f"[bold red]FAILED[/bold red] {label}: {failures[label]}")
-        else:
-            print(f"[green]OK[/green] {label}")
-
-    if "dialogue" in selected:
-        try:
-            resolved_ffmpeg = ffmpeg_binary()
-            print(f"[green]OK[/green] FFmpeg: {resolved_ffmpeg}")
-        except Exception as exc:
-            failures["FFmpeg"] = f"{type(exc).__name__}: {exc}"
-            print(f"[bold red]FAILED[/bold red] FFmpeg: {failures['FFmpeg']}")
-
-    if failures:
-        raise typer.Exit(1)
-    print("[bold green]Selected VidXP dependencies are available.[/bold green]")
-
-
-@app.command()
-def prepare(
-    modalities: Annotated[
-        str,
-        typer.Option(
-            "--modalities",
-            "-m",
-            help="Only prepare models for these modalities.",
-        ),
-    ] = "dialogue,scene",
-    language: Annotated[
+    repository_name: Annotated[
         str | None,
         typer.Option(
-            "--language",
-            "-l",
-            help="Also cache the WhisperX alignment model for this language.",
+            "--repository",
+            "-r",
+            help="Named repository to use.",
         ),
     ] = None,
-):
-    """Download and cache selected runtime models before indexing."""
-
-    selected = _modalities(modalities)
-    config = IndexConfig.local(enabled_modalities=selected)
-    try:
-        failures = dependency_failures(
-            selected,
-            needs_transcription="dialogue" in selected,
-        )
-        if failures:
-            details = "; ".join(
-                f"{label}: {error}" for label, error in failures
-            )
-            raise RuntimeError(details)
-        if "dialogue" in selected:
-            print(f"[cyan]Preparing dialogue model: {config.sentence_model}[/cyan]")
-            get_embedder(config.sentence_model, config.device)
-            print(
-                f"[cyan]Preparing transcription model: "
-                f"WhisperX {config.whisper_model}[/cyan]"
-            )
-            get_whisper_model(config.whisper_model, config.device)
-            if language:
-                print(f"[cyan]Preparing the {language} alignment model.[/cyan]")
-                get_alignment_model(language, config.device)
-        if "scene" in selected:
-            print(f"[cyan]Preparing scene model: CLIP {config.clip_model}[/cyan]")
-            get_clip_model(config.clip_model, config.device)
-    except Exception as exc:
-        print(
-            f"[bold red]Model preparation failed: "
-            f"{type(exc).__name__}: {exc}[/bold red]"
-        )
-        raise typer.Exit(1) from exc
-    print("[bold green]Selected VidXP runtime models are prepared.[/bold green]")
-
-
-@app.command()
-def dialogue(query: str):
-    config, _ = _active_config()
-    _require_modality(config, "dialogue")
-    print("[green]Searching dialogue...[/green]")
-    result = search_dialogue(
-        query,
-        config=config,
-        top_k=1,
-        video_id=config.video_id,
+    config_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--config",
+            dir_okay=False,
+            help="Repository configuration file.",
+        ),
+    ] = None,
+    index_directory: Annotated[
+        Path | None,
+        typer.Option(
+            "--index-dir",
+            file_okay=False,
+            help="Override the selected repository index directory.",
+        ),
+    ] = None,
+    device: Annotated[
+        str | None,
+        typer.Option(
+            "--device",
+            help="Override the selected repository runtime device.",
+        ),
+    ] = None,
+    output_format: Annotated[
+        OutputFormat,
+        typer.Option(
+            "--format",
+            envvar="VIDXP_OUTPUT_FORMAT",
+            help="Default command output format.",
+        ),
+    ] = OutputFormat.rich,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", "-q", help="Suppress progress output."),
+    ] = False,
+) -> None:
+    registry, repository = resolve_repository(
+        registry_path=config_file,
+        name=repository_name,
+        index_directory=index_directory,
+        device=device,
     )
-    if not result.hits:
-        raise IndexNotReadyError(
-            "The completed index contains no searchable dialogue phrases."
-        )
-    print("[green]Dialogue found !!![/green]")
-    timestamp = result.hits[0].start
-    print(f"[bold green]{timestamp:.3f} seconds[/bold green]")
-    return timestamp
-
-
-@app.command()
-def scene(query: str):
-    config, _ = _active_config()
-    _require_modality(config, "scene")
-    print("[green]Searching scene...[/green]")
-    result = search_scene(
-        query,
-        config=config,
-        top_k=1,
-        video_id=config.video_id,
+    ctx.obj = CLIState(
+        service=VidXPService(
+            repository.index_directory,
+            device=repository.device,
+        ),
+        registry=registry,
+        repository=repository,
+        output_format=output_format,
+        quiet=quiet,
     )
-    if not result.hits:
-        raise IndexNotReadyError(
-            "The completed index contains no searchable scene frames."
+
+
+def _wants_json(arguments: list[str] | None = None) -> bool:
+    values = list(sys.argv[1:] if arguments is None else arguments)
+    if "--json" in values:
+        return True
+    for index, value in enumerate(values):
+        if value == "--format" and index + 1 < len(values):
+            return values[index + 1].lower() == "json"
+        if value.startswith("--format="):
+            return value.split("=", 1)[1].lower() == "json"
+    return os.environ.get("VIDXP_OUTPUT_FORMAT", "").lower() == "json"
+
+
+def _error_message(exc: Exception) -> str:
+    formatter = getattr(exc, "format_message", None)
+    return str(formatter()) if formatter is not None else str(exc)
+
+
+def _exit_code(exc: Exception) -> int:
+    return int(getattr(exc, "exit_code", 1) or 1)
+
+
+def _emit_error(exc: Exception, *, json_output: bool) -> None:
+    message = _error_message(exc)
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": {
+                        "type": type(exc).__name__,
+                        "message": message,
+                        "exit_code": _exit_code(exc),
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            err=True,
         )
-    print("[green]Scene found...[/green]")
-    timestamp = result.hits[0].start
-    print(f"[bold green]{timestamp:.3f} seconds[/bold green]")
-    return timestamp
+    elif show := getattr(exc, "show", None):
+        show(file=sys.stderr)
+    else:
+        typer.secho(message, fg=typer.colors.RED, err=True)
 
 
-@app.command()
-def actor(cluster_id: str, input_path: str, output_path: str = "output.mp4"):
-    config, _ = _active_config()
-    _require_modality(config, "actor")
+def main() -> None:
     try:
-        render_actor_result(
-            config,
-            cluster_id,
-            input_path,
-            output_path,
-        )
-    except ActorClusterNotFoundError as exc:
-        raise IndexNotReadyError(
-            str(exc)
-        ) from exc
-    print(f"[green]Video saved as {output_path}[/green]")
-
-
-def main():
-    try:
-        app()
-    except (IndexNotReadyError, IndexingInProgressError) as exc:
-        print(f"[bold red]{exc}[/bold red]")
+        app(standalone_mode=False)
+    except typer.Exit as exc:
+        raise SystemExit(exc.exit_code) from None
+    except typer.Abort as exc:
+        _emit_error(exc, json_output=_wants_json())
         raise SystemExit(1) from exc
+    except Exception as exc:
+        is_command_error = hasattr(exc, "exit_code") and hasattr(
+            exc,
+            "format_message",
+        )
+        is_expected_runtime_error = isinstance(
+            exc,
+            (
+                ActorClusterNotFoundError,
+                FileNotFoundError,
+                IndexNotReadyError,
+                IndexingInProgressError,
+                IndexSchemaError,
+                RuntimeError,
+                ValueError,
+            ),
+        )
+        if not is_command_error and not is_expected_runtime_error:
+            raise
+        _emit_error(exc, json_output=_wants_json())
+        raise SystemExit(_exit_code(exc)) from exc
 
 
 if __name__ == "__main__":
