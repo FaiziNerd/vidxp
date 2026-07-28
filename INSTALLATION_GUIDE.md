@@ -87,6 +87,34 @@ Use an editable installation while developing:
 python -m pip install -e ".[all,frontend,benchmarks]"
 ```
 
+## Run the container
+
+Stable container images include every runtime capability and the browser
+interface, but not downloaded model weights. Docker Compose keeps indexes,
+repository configuration, and model caches in the `vidxp-data` volume:
+
+```bash
+docker compose pull
+docker compose run --rm vidxp vidxp prepare
+docker compose up
+```
+
+The interface is available at `http://localhost:8501`. Set `VIDXP_PORT` in a
+local `.env` file to publish a different host port. Set `VIDXP_IMAGE` to select
+an immutable release instead of `latest`:
+
+```dotenv
+VIDXP_IMAGE=ghcr.io/grayhatdevelopers/vidxp:0.2.0
+VIDXP_PORT=8502
+VIDXP_DEVICE=cpu
+```
+
+Run the image without Compose when persistent storage is not required:
+
+```bash
+docker run --rm -p 8501:8501 ghcr.io/grayhatdevelopers/vidxp:latest
+```
+
 ## Verify the installation
 
 Display the installed package version:

@@ -40,6 +40,7 @@ class ModelTests(unittest.TestCase):
             "numpy": "2.1",
             "opencv-python": "4.10",
             "Pillow": "10.0",
+            "setuptools": "80.10.2",
             "torch": "2.5",
         }
 

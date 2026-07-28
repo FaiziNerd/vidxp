@@ -140,6 +140,18 @@ The interface can upload a video, start or cancel indexing, restore saved
 progress after a page reload, and search the capabilities available in the
 completed index.
 
+## Container
+
+Stable releases are available from GitHub Container Registry. Start the local
+interface with persistent index and model storage by running:
+
+```bash
+docker compose up
+```
+
+See the [installation guide](INSTALLATION_GUIDE.md#run-the-container) for model
+preparation, configuration, and direct `docker run` usage.
+
 ## Use VidXP as a Python package
 
 The programmatic API supports isolated multi-video runs, supplied timestamped
