@@ -6,6 +6,7 @@ README="README.md"
 README_BAK="$README.bak"
 BUILD_DIR="build"
 DIST_DIR="dist"
+RELEASE_NOTES=".release-notes.md"
 
 restore_readme() {
   if [[ -f "$README_BAK" ]]; then
@@ -15,14 +16,29 @@ restore_readme() {
 
 trap restore_readme EXIT
 
-if [[ "${BUILD_CHANGELOG:-0}" == "1" ]]; then
+echo "🧹 Removing stale package artifacts..."
+rm -rf -- "$BUILD_DIR" "$DIST_DIR" "$RELEASE_NOTES"
+
+if [[ "${BUILD_CHANGELOG:-0}" == "1" || "${BUILD_RELEASE_NOTES:-0}" == "1" ]]; then
   if [[ -z "${NEW_VERSION:-}" ]]; then
-    echo "NEW_VERSION is required when BUILD_CHANGELOG=1" >&2
+    echo "NEW_VERSION is required when rendering release notes" >&2
     exit 1
   fi
 
+  RELEASE_DATE="$(date -u +%Y-%m-%d)"
+  echo "📰 Rendering release notes for v${NEW_VERSION}..."
+  towncrier build \
+    --draft \
+    --version "$NEW_VERSION" \
+    --date "$RELEASE_DATE" > "$RELEASE_NOTES"
+fi
+
+if [[ "${BUILD_CHANGELOG:-0}" == "1" ]]; then
   echo "📰 Building changelog for v${NEW_VERSION}..."
-  towncrier build --yes --version "$NEW_VERSION"
+  towncrier build \
+    --yes \
+    --version "$NEW_VERSION" \
+    --date "$RELEASE_DATE"
 fi
 
 echo "📝 Backing up original README..."
@@ -30,9 +46,6 @@ cp "$README" "$README_BAK"
 
 echo "🔧 Processing README.md for PyPI rendering..."
 python utils/fix_readme_links.py "$BASE_URL" "$README" --inplace
-
-echo "🧹 Removing stale package artifacts..."
-rm -rf -- "$BUILD_DIR" "$DIST_DIR"
 
 echo "📦 Building package..."
 python -m build

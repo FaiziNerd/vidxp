@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidxp"
-version = "0.2.0-b.2"
+version = "0.2.1-b.1"
 authors = [
   { name = "Muhammad Haroon" },
   { name = "Talha Momin" },
@@ -97,7 +97,7 @@ select = ["E4", "E7", "E9", "F"]
 version_toml = ["pyproject.toml:project.version"]
 tag_format = "v{version}"
 build_command = "bash ./utils/build_package.sh"
-build_command_env = ["BUILD_CHANGELOG"]
+build_command_env = ["BUILD_CHANGELOG", "BUILD_RELEASE_NOTES"]
 assets = ["CHANGELOG.md"]
 commit_parser = "conventional"
 major_on_zero = true

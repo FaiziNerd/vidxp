@@ -9,5 +9,5 @@
 ## Changelog
 
 - [ ] Added `changes/<pr-number>.<type>.md`
-- [ ] This change is internal-only; explain why a maintainer should apply the
-      `skip-changelog` label:
+- [ ] This is dependency maintenance, or it is internal-only and the PR
+      explains why a maintainer should apply `skip-changelog`:
