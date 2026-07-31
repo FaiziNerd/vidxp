@@ -199,6 +199,43 @@ class ModelUnavailableError(ApplicationError):
         )
 
 
+class ModelDownloadError(ApplicationError):
+    def __init__(
+        self,
+        capability: str,
+        model_id: str,
+        *,
+        attempts: int,
+        reason: str,
+        resumable: bool,
+        retryable: bool,
+    ) -> None:
+        modality = capability.split(".", 1)[0]
+        remediation = f"vidxp prepare --modalities {modality}"
+        retry_message = (
+            "Partial files were kept and the next preparation attempt will "
+            "resume them."
+            if resumable
+            else "The next preparation attempt will restart this file."
+        )
+        super().__init__(
+            "model_download_failed",
+            ErrorCategory.unavailable,
+            f"Downloading {model_id} failed after {attempts} attempt(s) "
+            f"({reason}). {retry_message} Run "
+            f"`{remediation}` again when the connection is available.",
+            details={
+                "capability": capability,
+                "model": model_id,
+                "attempts": attempts,
+                "reason": reason,
+                "partial_files_preserved": resumable,
+                "remediation": remediation,
+            },
+            retryable=retryable,
+        )
+
+
 class InvalidRequestError(ApplicationError):
     def __init__(
         self,
