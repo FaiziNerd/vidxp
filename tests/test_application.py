@@ -21,6 +21,7 @@ from vidxp.application_models import (
     IndexResult,
     IndexSnapshotReference,
     ModelUnavailableError,
+    ModelDownloadError,
     PrepareModelsCommand,
     QueryAnswerMode,
     QueryVideoCommand,
@@ -30,7 +31,10 @@ from vidxp.application_models import (
 from vidxp.core.media import MediaUnavailableError
 from vidxp.core.contracts import IndexConfig, IndexSchemaError
 from vidxp.infrastructure.local_index import LocalIndexBackend
-from vidxp.model_contracts import ModelArtifactUnavailableError
+from vidxp.model_contracts import (
+    ModelArtifactDownloadError,
+    ModelArtifactUnavailableError,
+)
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     CapabilityExecutor,
@@ -816,6 +820,54 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotIn(
             "pip install",
             json.dumps(raised.exception.to_dict()),
+        )
+
+    def test_model_download_failure_preserves_retry_details(self):
+        definition = CapabilityDefinition(
+            name="prepare-only",
+            description="Prepare a provider.",
+            extra="prepare-only",
+            operations={
+                "noop": OperationDefinition(
+                    input_model=SearchInput,
+                    output_model=SearchResult,
+                    requires_index=False,
+                )
+            },
+            prepares_models=True,
+        )
+        failure = ModelArtifactDownloadError(
+            "prepare-only.embedding",
+            "publisher/model",
+            attempts=3,
+            reason="ConnectionError",
+            resumable=True,
+            retryable=True,
+        )
+        plugin = CapabilityPlugin(
+            definition=definition,
+            executor_factory=lambda: CapabilityExecutor(
+                operations={"noop": Mock()},
+                prepare=Mock(side_effect=failure),
+            ),
+        )
+        registry = CapabilityRegistry((plugin,))
+        registry.dependency_checks = Mock(return_value=())
+        application, _ = self.application("unused", registry=registry)
+
+        with self.assertRaises(ModelDownloadError) as raised:
+            application.prepare_models(
+                PrepareModelsCommand(modalities=("prepare-only",))
+            )
+
+        payload = raised.exception.to_dict()
+        self.assertEqual(payload["code"], "model_download_failed")
+        self.assertTrue(payload["retryable"])
+        self.assertEqual(payload["details"]["attempts"], 3)
+        self.assertTrue(payload["details"]["partial_files_preserved"])
+        self.assertEqual(
+            payload["details"]["remediation"],
+            "vidxp prepare --modalities prepare-only",
         )
 
     def test_unexpected_handler_error_is_not_misclassified(self):

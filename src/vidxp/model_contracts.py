@@ -24,6 +24,29 @@ class ModelArtifactUnavailableError(RuntimeError):
         super().__init__(f"Model artifacts for {capability} are unavailable.")
 
 
+class ModelArtifactDownloadError(RuntimeError):
+    def __init__(
+        self,
+        capability: str,
+        model_id: str,
+        *,
+        attempts: int,
+        reason: str,
+        resumable: bool,
+        retryable: bool,
+    ) -> None:
+        self.capability = capability
+        self.model_id = model_id
+        self.attempts = attempts
+        self.reason = reason
+        self.resumable = resumable
+        self.retryable = retryable
+        super().__init__(
+            f"Downloading {model_id} failed after {attempts} attempt(s): "
+            f"{reason}."
+        )
+
+
 @dataclass(frozen=True)
 class ModelKey:
     capability: str

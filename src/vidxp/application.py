@@ -27,6 +27,7 @@ from vidxp.application_models import (
     ImportMediaCommand,
     IndexSnapshotReference,
     MediaAsset,
+    ModelDownloadError,
     ModelUnavailableError,
     PrepareModelsCommand,
     PrepareModelsResult,
@@ -59,7 +60,10 @@ from vidxp.execution import ExecutionContext, execution_context
 from vidxp.ports import IndexBackend, ModelRuntimePort, QueryModelPort
 from vidxp.query_service import GroundedQueryService
 from vidxp.search_fusion import fuse_search_results
-from vidxp.model_contracts import ModelArtifactUnavailableError
+from vidxp.model_contracts import (
+    ModelArtifactDownloadError,
+    ModelArtifactUnavailableError,
+)
 from vidxp.repository_layout import RepositoryLayout
 from vidxp.settings import VidXPSettings
 from vidxp.control_plane import ControlPlaneApplication
@@ -118,6 +122,15 @@ class VidXPApplication(ControlPlaneApplication):
             raise DependencyUnavailableError(
                 capabilities,
                 self.registry.install_hint(capabilities),
+            ) from exc
+        except ModelArtifactDownloadError as exc:
+            raise ModelDownloadError(
+                exc.capability,
+                exc.model_id,
+                attempts=exc.attempts,
+                reason=exc.reason,
+                resumable=exc.resumable,
+                retryable=exc.retryable,
             ) from exc
         except ModelArtifactUnavailableError as exc:
             raise ModelUnavailableError(exc.capability) from exc

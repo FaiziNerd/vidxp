@@ -24,6 +24,7 @@ from vidxp.application_models import (
     ApplicationError,
     Artifact,
     ErrorCategory,
+    ErrorDetail,
     IndexStatus,
     Job,
     JobKind,
@@ -400,6 +401,42 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             7,
         )
         self.assertEqual(context.jobs.list.call_args.args[0].page_size, 9)
+
+    async def test_failed_model_preparation_job_is_structured_over_mcp(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory))
+            context.jobs.get.return_value = Job(
+                job_id=JOB_ID,
+                kind=JobKind.prepare_models,
+                state=JobState.failed,
+                queue=JobQueue.cpu,
+                error=ErrorDetail(
+                    code="model_download_failed",
+                    category=ErrorCategory.unavailable,
+                    message="The model download failed after three attempts.",
+                    details={
+                        "model": "publisher/model",
+                        "partial_files_preserved": True,
+                        "remediation": "vidxp prepare --modalities dialogue",
+                    },
+                    retryable=True,
+                ),
+            )
+            server = create_mcp_server(
+                context,
+                default_principal=Principal(
+                    subject="agent",
+                    scopes=frozenset({"vidxp.read"}),
+                ),
+            )
+            async with Client(server) as client:
+                result = await client.call_tool("get_job", {"job_id": JOB_ID})
+
+        self.assertFalse(result.is_error)
+        error = result.structured_content["error"]
+        self.assertEqual(error["code"], "model_download_failed")
+        self.assertTrue(error["retryable"])
+        self.assertTrue(error["details"]["partial_files_preserved"])
 
     async def test_retry_job_uses_shared_stable_idempotency(self):
         with TemporaryDirectory() as directory:

@@ -19,6 +19,7 @@ from vidxp.api_routes.dependencies import scoped_job_id
 from vidxp.application_models import (
     ApplicationError,
     ErrorCategory,
+    ErrorDetail,
     ComponentReadiness,
     Job,
     JobKind,
@@ -404,6 +405,35 @@ class ApiTests(unittest.TestCase):
                 idempotency_key=IDEMPOTENCY_KEY,
             ),
         )
+
+    def test_failed_model_preparation_job_is_structured_over_http(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory))
+            context.jobs.get.return_value = Job(
+                job_id=JOB_ID,
+                kind=JobKind.prepare_models,
+                state=JobState.failed,
+                queue=JobQueue.cpu,
+                error=ErrorDetail(
+                    code="model_download_failed",
+                    category=ErrorCategory.unavailable,
+                    message="The model download failed after three attempts.",
+                    details={
+                        "model": "publisher/model",
+                        "partial_files_preserved": True,
+                        "remediation": "vidxp prepare --modalities dialogue",
+                    },
+                    retryable=True,
+                ),
+            )
+            with TestClient(create_app(context=context)) as client:
+                response = client.get(f"/api/v1/jobs/{JOB_ID}")
+
+        self.assertEqual(response.status_code, 200)
+        error = response.json()["error"]
+        self.assertEqual(error["code"], "model_download_failed")
+        self.assertTrue(error["retryable"])
+        self.assertTrue(error["details"]["partial_files_preserved"])
 
     def test_missing_models_fail_before_job_submission(self):
         with TemporaryDirectory() as directory:

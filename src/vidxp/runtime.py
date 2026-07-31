@@ -6,13 +6,14 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from threading import BoundedSemaphore, Lock, RLock
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any, Callable, Iterator
 from pathlib import Path
 
 from vidxp.application_models import RuntimeProfile
 from vidxp.model_contracts import (
     ArtifactSpec,
+    ModelArtifactDownloadError,
     ModelArtifactUnavailableError,
     ModelKey,
     ModelSpec,
@@ -22,6 +23,64 @@ from vidxp.settings import VidXPSettings
 
 class RuntimeBackendUnavailableError(RuntimeError):
     """Raised when an explicitly requested compute backend cannot be used."""
+
+
+class _ModelDownloadVerificationError(RuntimeError):
+    """Raised internally when a completed transfer is missing pinned weights."""
+
+
+_MODEL_DOWNLOAD_ATTEMPTS = 3
+_DOWNLOAD_HEARTBEAT_SECONDS = 5.0
+_MINIMUM_PROGRESS_BYTES = 1024 * 1024
+
+
+def _download_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, _ModelDownloadVerificationError):
+        return "artifact verification failed"
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return f"HTTP {status} {type(exc).__name__}"
+    return type(exc).__name__
+
+
+def _download_failure_retryable(
+    exc: Exception,
+    *,
+    hash_mismatch_is_retryable: bool = False,
+) -> bool | None:
+    if isinstance(exc, _ModelDownloadVerificationError):
+        return True
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return status in {408, 409, 425, 429} or status >= 500
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    try:
+        import httpx
+    except ModuleNotFoundError:
+        pass
+    else:
+        if isinstance(exc, httpx.TransportError):
+            return True
+    try:
+        from requests import exceptions as requests_exceptions
+    except ModuleNotFoundError:
+        pass
+    else:
+        if isinstance(
+            exc,
+            (requests_exceptions.ConnectionError, requests_exceptions.Timeout),
+        ):
+            return True
+    if hash_mismatch_is_retryable and isinstance(exc, ValueError):
+        return True
+    if isinstance(exc, OSError):
+        return False
+    if type(exc).__module__.startswith(("huggingface_hub", "pooch")):
+        return False
+    return None
 
 
 def _torch_accelerators() -> tuple[bool, bool]:
@@ -190,60 +249,121 @@ class ModelRuntime:
                 result = super().update(n)
                 if self.unit == "B":
                     with state_lock:
-                        state.update(
-                            {
-                                "current": int(self.n),
-                                "total": (
-                                    int(self.total)
-                                    if self.total
-                                    else None
-                                ),
-                                "message": f"Downloading {spec.model_id}.",
-                            }
+                        previous = getattr(self, "_vidxp_reported_bytes", 0)
+                        current = int(self.n)
+                        self._vidxp_reported_bytes = current
+                        state["current"] = min(
+                            spec.download_size_bytes,
+                            int(state["current"]) + max(0, current - previous),
                         )
+                        state["message"] = f"Downloading {spec.model_id}."
                 return result
 
         def download() -> str:
-            return snapshot_download(
-                repo_id=spec.model_id,
-                revision=spec.revision,
-                cache_dir=str(cache),
-                local_files_only=False,
-                tqdm_class=ReportingTqdm,
+            snapshot = Path(
+                snapshot_download(
+                    repo_id=spec.model_id,
+                    revision=spec.revision,
+                    cache_dir=str(cache),
+                    local_files_only=False,
+                    tqdm_class=ReportingTqdm,
+                )
             )
+            weights = snapshot / spec.weights_file
+            if (
+                not weights.is_file()
+                or _sha256(weights) != spec.weights_sha256
+            ):
+                raise _ModelDownloadVerificationError
+            return str(snapshot)
 
         reported_at = 0.0
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(download)
-            while True:
-                try:
-                    snapshot = future.result(timeout=0.5)
-                    if progress is not None:
-                        with state_lock:
-                            event = dict(state)
-                        progress(
-                            {
-                                "state": "preparing",
-                                "stage": "downloading_model",
-                                **event,
-                            }
-                        )
-                    break
-                except FutureTimeout:
-                    now = monotonic()
-                    if progress is None or now - reported_at < 1:
-                        continue
-                    with state_lock:
-                        event = dict(state)
-                    progress(
-                        {
-                            "state": "preparing",
-                            "stage": "downloading_model",
-                            **event,
-                        }
+        reported_current = -1
+        progress_step = max(
+            _MINIMUM_PROGRESS_BYTES,
+            spec.download_size_bytes // 100,
+        )
+
+        def report(*, force: bool = False):
+            nonlocal reported_at, reported_current
+            if progress is None:
+                return
+            now = monotonic()
+            with state_lock:
+                event = dict(state)
+            current = int(event["current"])
+            advanced = current - reported_current >= progress_step
+            heartbeat = now - reported_at >= _DOWNLOAD_HEARTBEAT_SECONDS
+            if not force and reported_current >= 0 and not advanced and not heartbeat:
+                return
+            progress(
+                {
+                    "state": "preparing",
+                    "stage": "downloading_model",
+                    **event,
+                }
+            )
+            reported_at = now
+            reported_current = current
+
+        last_error: Exception | None = None
+        last_retryable = False
+        attempts = 0
+        for attempt in range(1, _MODEL_DOWNLOAD_ATTEMPTS + 1):
+            attempts = attempt
+            with state_lock:
+                state["message"] = (
+                    f"Connecting to download {spec.model_id}."
+                    if attempt == 1
+                    else (
+                        f"Retrying download of {spec.model_id} "
+                        f"(attempt {attempt} of {_MODEL_DOWNLOAD_ATTEMPTS})."
                     )
-                    reported_at = now
-        return Path(snapshot)
+                )
+            report(force=True)
+            try:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(download)
+                    while True:
+                        try:
+                            snapshot = future.result(timeout=0.5)
+                            break
+                        except FutureTimeout:
+                            report()
+            except Exception as exc:
+                last_error = exc
+                retryable = _download_failure_retryable(exc)
+                if retryable is None:
+                    raise
+                last_retryable = retryable
+                if (
+                    attempt >= _MODEL_DOWNLOAD_ATTEMPTS
+                    or not retryable
+                ):
+                    break
+                with state_lock:
+                    state["message"] = (
+                        f"Download interrupted for {spec.model_id}; cached "
+                        "partial files will be resumed."
+                    )
+                report(force=True)
+                sleep(2 ** (attempt - 1))
+                continue
+            with state_lock:
+                state["current"] = spec.download_size_bytes
+                state["message"] = f"Downloaded {spec.model_id}."
+            report(force=True)
+            return Path(snapshot)
+
+        assert last_error is not None
+        raise ModelArtifactDownloadError(
+            spec.capability,
+            spec.model_id,
+            attempts=attempts,
+            reason=_download_failure_reason(last_error),
+            resumable=True,
+            retryable=last_retryable,
+        ) from last_error
 
     def resolve_model(
         self,
@@ -257,8 +377,9 @@ class ModelRuntime:
         from huggingface_hub import snapshot_download
 
         try:
+            snapshot: Path | None
             try:
-                snapshot = Path(
+                local_snapshot = Path(
                     snapshot_download(
                         repo_id=spec.model_id,
                         revision=spec.revision,
@@ -266,7 +387,16 @@ class ModelRuntime:
                         local_files_only=True,
                     )
                 )
+                local_weights = local_snapshot / spec.weights_file
+                snapshot = (
+                    local_snapshot
+                    if local_weights.is_file()
+                    and _sha256(local_weights) == spec.weights_sha256
+                    else None
+                )
             except Exception:
+                snapshot = None
+            if snapshot is None:
                 if not download or not self.settings.allow_model_downloads:
                     raise ModelArtifactUnavailableError(spec.capability)
                 snapshot = self._download_snapshot(
@@ -274,10 +404,7 @@ class ModelRuntime:
                     cache=self.settings.model_cache,
                     progress=progress,
                 )
-            weights = snapshot / spec.weights_file
-            if not weights.is_file() or _sha256(weights) != spec.weights_sha256:
-                raise ModelArtifactUnavailableError(spec.capability)
-        except ModelArtifactUnavailableError:
+        except (ModelArtifactDownloadError, ModelArtifactUnavailableError):
             raise
         except Exception as exc:
             raise ModelArtifactUnavailableError(spec.capability) from exc
@@ -306,24 +433,80 @@ class ModelRuntime:
                             "state": "preparing",
                             "stage": "downloading_model",
                             "message": f"Downloading {spec.model_id}.",
+                            "current": 0,
+                            "total": spec.download_size_bytes,
                         }
                     )
                 import pooch
 
-                resolved = Path(
-                    pooch.retrieve(
-                        url=spec.url,
-                        known_hash=f"sha256:{spec.sha256}",
-                        fname=spec.filename,
-                        path=destination,
-                        progressbar=False,
-                    )
-                )
+                last_error = None
+                for attempt in range(1, _MODEL_DOWNLOAD_ATTEMPTS + 1):
+                    try:
+                        resolved = Path(
+                            pooch.retrieve(
+                                url=spec.url,
+                                known_hash=f"sha256:{spec.sha256}",
+                                fname=spec.filename,
+                                path=destination,
+                                progressbar=False,
+                            )
+                        )
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                        retryable = _download_failure_retryable(
+                            exc,
+                            hash_mismatch_is_retryable=True,
+                        )
+                        if retryable is None:
+                            raise
+                        if (
+                            attempt >= _MODEL_DOWNLOAD_ATTEMPTS
+                            or not retryable
+                        ):
+                            raise ModelArtifactDownloadError(
+                                spec.capability,
+                                spec.model_id,
+                                attempts=attempt,
+                                reason=_download_failure_reason(exc),
+                                resumable=False,
+                                retryable=retryable,
+                            ) from exc
+                        if progress is not None:
+                            progress(
+                                {
+                                    "state": "preparing",
+                                    "stage": "downloading_model",
+                                    "message": (
+                                        f"Download interrupted for "
+                                        f"{spec.model_id}; retrying attempt "
+                                        f"{attempt + 1} of "
+                                        f"{_MODEL_DOWNLOAD_ATTEMPTS}. This "
+                                        "file will restart from zero."
+                                    ),
+                                    "current": 0,
+                                    "total": spec.download_size_bytes,
+                                }
+                            )
+                        sleep(2 ** (attempt - 1))
+                else:
+                    assert last_error is not None
+                    raise last_error
             else:
                 resolved = path
             if not resolved.is_file() or _sha256(resolved) != spec.sha256:
                 raise ModelArtifactUnavailableError(spec.capability)
-        except ModelArtifactUnavailableError:
+            if progress is not None:
+                progress(
+                    {
+                        "state": "preparing",
+                        "stage": "downloading_model",
+                        "message": f"Verified {spec.model_id}.",
+                        "current": spec.download_size_bytes,
+                        "total": spec.download_size_bytes,
+                    }
+                )
+        except (ModelArtifactDownloadError, ModelArtifactUnavailableError):
             raise
         except Exception as exc:
             raise ModelArtifactUnavailableError(spec.capability) from exc

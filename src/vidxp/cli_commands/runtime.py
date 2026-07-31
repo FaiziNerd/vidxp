@@ -471,9 +471,8 @@ def prepare(
         typer.confirm("Download these models?", abort=True)
     show_progress = not state.quiet and output_format == OutputFormat.rich
     if show_progress:
-        emit_progress(
-            "Starting model preparation for " + ", ".join(selected) + "."
-        )
+        action = "Downloading and validating" if missing else "Validating cached"
+        emit_progress(f"{action} models for " + ", ".join(selected) + ".")
     job = state.jobs.submit_prepare_models(
         PrepareModelsCommand(
             modalities=selected,

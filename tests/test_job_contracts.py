@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from vidxp.application_models import (
     ActorOverlayJobRequest,
     ApplicationError,
+    ErrorCategory,
+    ErrorDetail,
     CreateActorOverlayCommand,
     CreateIndexCommand,
     Job,
@@ -302,6 +304,45 @@ class JobContractTests(unittest.TestCase):
         with self.assertRaises(ApplicationError) as raised:
             service.get(JOB_ID)
         self.assertEqual(raised.exception.code, "job_backend_unavailable")
+
+    def test_failed_model_preparation_error_round_trips_through_job_service(self):
+        error = ErrorDetail(
+            code="model_download_failed",
+            category=ErrorCategory.unavailable,
+            message="The model download failed after three attempts.",
+            details={
+                "capability": "dialogue.transcription",
+                "model": "publisher/model",
+                "attempts": 3,
+                "reason": "ConnectionError",
+                "partial_files_preserved": True,
+                "remediation": "vidxp prepare --modalities dialogue",
+            },
+            retryable=True,
+        )
+        backend = Mock()
+        backend.get.return_value = Job(
+            job_id=JOB_ID,
+            kind=JobKind.prepare_models,
+            state=JobState.failed,
+            queue=JobQueue.cpu,
+            error=error,
+        )
+        service = JobService(
+            settings=VidXPSettings(
+                repository_root=Path("repository"),
+                runtime_backend="cpu",
+            ),
+            backend=backend,
+        )
+
+        with self.assertRaises(ApplicationError) as raised:
+            service.result(JOB_ID)
+
+        self.assertEqual(
+            raised.exception.to_dict(),
+            error.model_dump(mode="json"),
+        )
 
 
 if __name__ == "__main__":
