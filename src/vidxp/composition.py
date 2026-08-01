@@ -3,11 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from typing import Callable
 
 from pydantic import ValidationError
 
 from vidxp.application import VidXPApplication
-from vidxp.application_models import ApplicationError, ErrorCategory
+from vidxp.application_models import (
+    ApplicationError,
+    CreateIndexCommand,
+    ErrorCategory,
+)
 from vidxp.artifact_service import ArtifactQueryService, ArtifactService
 from vidxp.authentication import Authenticator, create_authenticator
 from vidxp.authorization import AuthorizationPolicy
@@ -94,7 +99,10 @@ class LocalApplicationContext:
     @cached_property
     def jobs(self) -> JobService:
         assert self._settings is not None
-        return create_job_service(self._settings)
+        return create_job_service(
+            self._settings,
+            index_preflight=self.application.preflight_index,
+        )
 
     def close(self) -> None:
         jobs = self.__dict__.get("jobs")
@@ -159,12 +167,9 @@ def _server_chroma_url(settings: VidXPSettings) -> str | None:
     return BUNDLED_CHROMA_SERVER_URL
 
 
-def _create_control_plane_components(
-    settings: VidXPSettings,
-) -> _ControlPlaneComponents:
-    settings.layout.ensure_local_directories()
+def _capability_registry(settings: VidXPSettings) -> CapabilityRegistry:
     server_mode = settings.mode == ApplicationMode.server
-    registry = create_capability_registry(
+    return create_capability_registry(
         external=settings.external_capabilities,
         allowlist=settings.capability_allowlist,
         platform_runtime_checks=(
@@ -183,6 +188,13 @@ def _create_control_plane_components(
             else None
         ),
     )
+
+
+def _create_control_plane_components(
+    settings: VidXPSettings,
+) -> _ControlPlaneComponents:
+    settings.layout.ensure_local_directories()
+    registry = _capability_registry(settings)
     catalog = (
         SQLCatalog(
             workflow_database_url(settings),
@@ -305,6 +317,7 @@ def create_application(
         media=components.media,
         artifacts=artifacts,
         index_status=backend.repository.status,
+        active_snapshot=components.snapshots.read_active,
         completed_upload_importer=(
             upload_service.import_completed
             if upload_service is not None
@@ -319,6 +332,8 @@ def create_job_service(
     *,
     catalog: SQLCatalog | None = None,
     snapshots: LocalSnapshotRepository | None = None,
+    registry: CapabilityRegistry | None = None,
+    index_preflight: Callable[[CreateIndexCommand], None] | None = None,
     include_read_planner: bool = True,
 ) -> JobService:
     settings.layout.ensure_local_directories()
@@ -332,6 +347,7 @@ def create_job_service(
         stop_executor = supervisor.stop
     return JobService(
         settings=settings,
+        index_preflight=index_preflight,
         backend=DBOSJobBackend(
             system_database_url=(
                 None
@@ -353,6 +369,7 @@ def create_job_service(
         read_planner=(
             LocalReadJobPlanner(
                 layout=settings.layout,
+                registry=registry or _capability_registry(settings),
                 index=LocalIndexReader(
                     settings.layout,
                     chroma_server_url=_server_chroma_url(settings),
@@ -380,11 +397,14 @@ def create_control_plane_application(
         ),
         index_status=components.snapshots.status,
         model_cache=active_settings.model_cache,
+        active_snapshot=components.snapshots.read_active,
     )
     jobs = create_job_service(
         active_settings,
         catalog=components.catalog,
         snapshots=components.snapshots,
+        registry=components.registry,
+        index_preflight=application.preflight_index,
     )
     uploads = (
         RemoteUploadService(
