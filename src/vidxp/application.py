@@ -38,6 +38,9 @@ from vidxp.application_models import (
     QueryVideoCommand,
     SearchCommand,
     SearchMomentsPlanStep,
+    EvidenceBoardJobRequest,
+    EvidenceBoardResult,
+    EvidenceDeliveryPolicy,
 )
 from vidxp.capabilities.actor.schemas import (
     ActorClusterSummary,
@@ -75,6 +78,7 @@ from vidxp.media_service import (
     MediaService,
 )
 from vidxp.evidence_delivery import EvidenceDeliveryService
+from vidxp.evidence_board import EvidenceBoardService
 
 
 class VidXPApplication(ControlPlaneApplication):
@@ -114,6 +118,11 @@ class VidXPApplication(ControlPlaneApplication):
             artifacts=artifacts,
             media=media,
             max_clip_duration_seconds=settings.max_snippet_duration_seconds,
+        )
+        self.evidence_boards = EvidenceBoardService(
+            artifacts=artifacts,
+            media=media,
+            settings=settings,
         )
 
     @contextmanager
@@ -548,7 +557,7 @@ class VidXPApplication(ControlPlaneApplication):
         )
         policy = command.evidence_delivery
         if policy is not None:
-            return self.evidence_delivery.deliver_search(
+            return self._deliver_initial_evidence(
                 result,
                 policy,
                 execution=active_execution,
@@ -718,13 +727,53 @@ class VidXPApplication(ControlPlaneApplication):
         active_execution.checkpoint()
         policy = command.evidence_delivery
         if policy is not None:
-            answer = self.evidence_delivery.deliver_query(
+            answer = self._deliver_initial_evidence(
                 answer,
                 policy,
                 execution=active_execution,
             )
             active_execution.checkpoint()
         return answer
+
+    def _deliver_initial_evidence(
+        self,
+        result: FusedSearchResult | QueryAnswer,
+        policy: EvidenceDeliveryPolicy,
+        *,
+        execution: ExecutionContext,
+    ) -> FusedSearchResult | QueryAnswer:
+        delivered = (
+            self.evidence_delivery.deliver_search(
+                result,
+                policy,
+                execution=execution,
+            )
+            if isinstance(result, FusedSearchResult)
+            else self.evidence_delivery.deliver_query(
+                result,
+                policy,
+                execution=execution,
+            )
+        )
+        candidates = self.evidence_delivery.candidates(delivered)
+        if not policy.include_board or execution.job_id is None or not candidates:
+            return delivered
+        request = self.evidence_delivery.prepare_board_request(
+            source_job_id=execution.job_id,
+            evidence_ids=None,
+            start_rank=1,
+            result=delivered,
+        )
+        board = self.evidence_boards.create(request, execution=execution)
+        evidence_delivery = delivered.evidence_delivery
+        assert evidence_delivery is not None
+        return delivered.model_copy(
+            update={
+                "evidence_delivery": evidence_delivery.model_copy(
+                    update={"board": board}
+                )
+            }
+        )
 
     @application_boundary
     def actor_clusters(
@@ -882,6 +931,15 @@ class VidXPApplication(ControlPlaneApplication):
             job_id=active_execution.job_id,
             execution=active_execution,
         )
+
+    @application_boundary
+    def create_evidence_board(
+        self,
+        request: EvidenceBoardJobRequest,
+        *,
+        execution: ExecutionContext | None = None,
+    ) -> EvidenceBoardResult:
+        return self.evidence_boards.create(request, execution=execution)
 
     @application_boundary
     def clear_index(self) -> bool:
