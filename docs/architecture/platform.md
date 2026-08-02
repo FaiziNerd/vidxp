@@ -1,7 +1,7 @@
 # VidXP Platform Architecture
 
 Status: accepted
-Last validated: 2026-07-28
+Last validated: 2026-08-02
 Scope: CLI, API, MCP, Streamlit, desktop, media ingestion, indexing, search,
 artifacts, natural-language query, CPU/GPU execution, and deployment
 
@@ -20,7 +20,8 @@ VidXP must support:
 3. A future packaged desktop UI using the same application layer.
 4. A remotely accessible HTTP API.
 5. A remotely accessible MCP server over Streamable HTTP.
-6. Local MCP over stdio for adjacent clients; stdio is not the media path.
+6. Local MCP over stdio for adjacent clients, including path-based local media
+   ingestion without transporting video bytes through MCP.
 7. Durable indexing and artifact jobs with progress and cancellation.
 8. CPU execution first and an explicit, tested GPU runtime afterwards.
 9. Natural-language questions over all indexed collectors with timestamped evidence.
@@ -36,7 +37,9 @@ VidXP must support:
 2. FastAPI and MCP are sibling adapters. MCP never calls VidXP's HTTP API internally.
 3. Public transports reuse the same Pydantic command and result models.
 4. Video bytes are never passed as MCP tool arguments or over stdio.
-5. Remote MCP clients reference previously registered media by `media_id`.
+5. MCP clients reference registered media by `media_id`; Streamable HTTP may first
+   create a browser handoff, while filesystem-accessible stdio may submit bounded
+   local path lists.
 6. A failed or cancelled indexing job cannot damage the last committed index.
 7. Search reads an immutable committed index generation.
 8. Job state and index state are separate.
@@ -312,37 +315,113 @@ configured import roots when a boundary is required.
 
 Local media does not need to travel through an HTTP upload endpoint.
 
-### 9.3 Remote upload
+### 9.3 Browser upload
 
-Remote upload is a four-stage protocol:
+The deployed resumable data plane is a four-stage protocol:
 
-1. An authenticated client creates an upload intent.
-2. tusd's blocking `pre-create` HTTP hook authenticates the request, validates the
-   declared size/type and intent, and assigns an opaque upload ID.
-3. tusd returns an HTTPS upload URL. That URL is an unscoped bearer credential for
-   subsequent HEAD/PATCH requests because tusd cannot bind resumptions to the user
-   who created the upload.
+1. VidXP creates a fully bound upload intent and reserves quota in one database
+   transaction.
+2. tusd's blocking `pre-create` HTTP hook consumes a one-time grant, verifies the
+   exact intent and declared size, and assigns an opaque upload ID.
+3. tusd returns an HTTPS upload URL (or secure loopback HTTP in local testing).
+   That URL is an unscoped bearer credential for subsequent HEAD/PATCH requests
+   because tusd cannot bind resumptions to the user who created the upload.
 4. The non-blocking `post-finish` hook idempotently upserts completion by upload ID
    and enqueues the durable ffprobe/import workflow.
+
+The hook process starts the durable job client needed for that atomic enqueue, but
+does not run background import or index advancement. The single API/MCP control
+plane owns the ingestion coordinator and recovers queued work after a restart.
+
+Streamable HTTP MCP uses a session-first browser handoff.
+`create_media_upload` accepts an idempotency key plus optional automatic-indexing
+policy, creates no child intent and reserves no quota, and returns a short-lived
+session capability link in ordinary structured and text tool output. It is not
+exposed on filesystem-accessible stdio. VidXP deliberately does not invoke native
+URL elicitation or retain transport session state for this workflow.
+
+The capability appears only in the URL fragment and possession of the complete
+link is the browser authorization. Bootstrap verifies the signed capability and
+its stored digest, removes the fragment from browser history, and establishes a
+digest-backed `HttpOnly`, `Secure`, `SameSite=Strict` cookie. There is no browser
+login, OIDC token field, OAuth exchange, or identity-pairing step. The initiating
+MCP subject and client ID are retained for audit and repository binding, not as a
+second browser-authentication requirement.
+
+One session accepts multiple files. Uppy reports each selected file's filename,
+byte size, and browser-declared MIME type with a stable browser-generated client
+file key. The MIME declaration is a display hint, not authoritative validation.
+VidXP then validates the metadata, per-file/session/repository limits and quota,
+creates the child intent, reserves its bytes, and binds the client key atomically.
+An exact repeated key is idempotent; conflicting reuse is rejected, while separate
+keys may use the same filename. In deployed server mode each child receives its own
+one-time, five-minute tus creation grant. Native local mode instead streams a
+bounded multipart body to quarantine after that same atomic metadata/quota step;
+it neither issues a tus grant nor claims resumability. Cancelling or failing one
+child does not cancel its siblings, and closing the session prevents new selections
+without interrupting already-authorized transfers.
+
+The packaged page uses Uppy Dashboard and Golden Retriever, selecting maintained
+Uppy Tus or XHR Upload adapters from the server-provided transfer contract.
+Dashboard owns selection, restrictions, progress, retry, accessibility, and ghost
+recovery; deployed tus sessions additionally provide pause/resume. Custom UI shows
+only aggregate and durable per-file VidXP state. Tus metadata is limited to the
+intent identifier and no custom chunk implementation exists. Scripts and
+stylesheets are self-hosted under a strict CSP. Style attributes are allowed
+because Dashboard computes dimensions, progress, colors, and transitions at
+runtime; inline scripts remain blocked. Native multipart is same-origin. Deployed
+tus CORS accepts only a startup-validated, grouped list of exact HTTPS origins (or
+HTTP only on loopback) using syntax shared by Python validation and Go's RE2 engine.
+
+The native adapter adds the exact dependency `@uppy/xhr-upload` 5.2.0 (MIT,
+published from the maintained
+[transloadit/uppy](https://github.com/transloadit/uppy) source). The existing
+`@uppy/tus` adapter implements the tus protocol and cannot send the bounded
+multipart form contract; using XHR Upload avoids a second custom JavaScript upload
+state machine. The dependency lock and packaged third-party notices record the
+resolved source and license.
+
+`get_media_upload` takes the stable session ID and returns a durable aggregate:
+session and aggregate state, configured limits, counts and bytes, and every child
+intent's state, identifiers, and next action. No secret capability, creation grant,
+or tus resume URL is exposed through MCP status. Its `terminal` flag applies to the
+currently accepted children, so agents stop polling once those files finish even
+if `session_state` remains `open`; accepting another file resumes the polling
+contract. Import failures remain failed ingestions. An automatic-index failure is
+instead terminal `index_failed`: the upload remains `ready`, retains its `media_id`,
+and can be submitted through `start_indexing` after the index error is corrected.
+That submission atomically relinks the upload to the durable retry job, clears the
+old failure, and lets the sole control-plane coordinator project either searchable
+success or the retry's terminal failure.
 
 Application responses carrying upload URLs use `private, no-store` and
 `no-referrer`; hook payloads and MCP results do not persist them. The opaque path is
 still a bearer credential and may appear in an upstream proxy's access log unless
 that deployment disables or redacts logging for `/uploads/`. Hook handlers assume
 duplicate and out-of-order delivery and never run ffprobe or encoding inline. A
-recovery sweep finds completed uploads whose finish hook was missed. A retention
-workflow removes abandoned intents and quarantine objects.
+recovery sweep finds completed uploads whose finish hook was missed. Operators
+retain explicit cancellation and manual cleanup for abandoned tus resources.
 
 The hook endpoint is private to the Compose network. Client authorization is read
 from the hook request body and redacted; client tokens are never stored in tus
-metadata. Only the tus upload route is public. A completed upload is not a
+metadata. Only the tus upload route is public. Hooks remain enqueue-only; recovery
+runs in the API's existing ingestion coordinator. A completed upload is not a
 `MediaAsset` until durable probe/import succeeds.
 
 The supported server topology uses tusd filestore on a named quarantine volume
-shared read-only with the hook service and worker. Managed media and artifacts use
-the stack's named content volume. The whole deployment is single-node and one
-deployed stack is one repository boundary. Clients upload directly to tusd;
-FastAPI does not proxy large video bodies.
+shared read-only with the hook service and worker. The API intentionally does not
+mount that volume: one centralized internal tusd `HEAD` probe supplies the
+authoritative upload length and offset for resume discovery and missed-finish
+recovery. When an incomplete upload passes its intent lifetime, VidXP expires the
+application intent and releases its quota while retaining the external tus
+resource for explicit operator cleanup. A missing expired resource may expire,
+and an unavailable tusd is never treated as absence.
+Managed media and artifacts use the stack's named content volume. The whole
+deployment is single-node and one deployed stack is one repository boundary.
+Deployed clients upload directly to tusd; FastAPI does not proxy large video
+bodies. Native local `vidxp-api` uses the existing small-body multipart boundary,
+with an effective per-file maximum equal to the lower of the local import and HTTP
+small-upload limits (256 MiB by default).
 
 S3-compatible storage is deferred and not implemented. If revisited, it would
 apply only to upload quarantine, source media, and generated artifacts—never to
@@ -358,10 +437,10 @@ locks and deletion.
 The blocking `pre-terminate` hook prevents deletion while import is processing and
 admits completed/expired cleanup only with the private cleanup credential.
 
-FastAPI retains one small multipart compatibility endpoint with a central hard
-maximum of 256 MiB. It rejects oversized declared `Content-Length` before reading
-and enforces the same maximum while streaming to quarantine. It is never used for
-multi-gigabyte media.
+FastAPI retains the central small multipart path used by native local browser
+sessions. It rejects oversized declared `Content-Length` before reading and
+enforces the same maximum while streaming to quarantine. It is never used for
+multi-gigabyte media; those remain on deployed tus.
 
 URL ingestion is deferred. If added later, it is an asynchronous downloader with
 SSRF controls, redirect and DNS revalidation, size/time limits, quarantine, and
@@ -369,14 +448,22 @@ ffprobe validation.
 
 ### 9.4 MCP and media
 
-Remote MCP workflow:
+MCP ingestion workflows:
 
 ```text
-HTTP upload/import service -> media_id -> MCP start_indexing(media_id)
+Streamable HTTP -> create_media_upload -> user page -> multipart (native) or tus (deployed)
+                -> get_media_upload -> import -> automatic index -> searchable
+Local stdio     -> ingest_local_media(paths) -> get_media_ingestion
+                -> import -> automatic index -> searchable
 ```
 
-MCP does not carry video bytes, base64 video, or arbitrary server paths. Stdio may
-operate on an existing local `media_id`, but is not a video injection protocol.
+MCP does not carry video bytes or base64 video. Filesystem-accessible stdio accepts
+one to ten canonicalized paths under configured import boundaries and never exposes
+that behavior on Streamable HTTP or isolated stdio. Both paths reuse the durable
+import and indexing jobs, default capabilities to the repository runtime contract,
+permit an explicit `index_after_import=false` opt-out, and project per-file import
+job, index job, media, generation, snapshot, searchable, and structured failure
+state through one status tool.
 
 ## 10. Index generations and repository snapshots
 
@@ -793,11 +880,17 @@ remains available when it is disabled.
 - creation/expiry
 
 Media and artifacts are served from the managed local content volume through
-protected Starlette `FileResponse`, including byte-range support.
+Starlette `FileResponse`, including GET, HEAD, byte ranges, resumable delivery,
+strong ETags, safe attachment filenames, and correct 206/416 responses.
 
-Every delivery request is handled only after repository authorization. Artifact
-delivery resolves an `ArtifactStore` key beneath its configured root, rejects
-symlink/path escapes, and only then constructs `FileResponse`.
+Ordinary REST delivery is handled after repository authorization. Public artifact
+downloads instead require a short-lived bearer capability bound to artifact ID,
+repository, media type/extension, digest, expiry, and versioned purpose. The
+fragment capability is exchanged on the existing API listener for a secure
+short-lived cookie; neither the fragment nor a server path enters a request URL.
+Both routes resolve the authoritative `ArtifactStore` key beneath its configured
+root, reject symlink/path escapes, verify size/digest, and only then construct the
+same `FileResponse`.
 
 Local source playback applies the identical configured-root and symlink/path-escape
 checks to the `MediaStore` key before constructing `FileResponse`.
@@ -812,8 +905,31 @@ written to a temporary key, validated, and atomically published.
 Actor overlays and other rendered media use the same artifact workflow. Public
 rendering commands never accept output paths. The separate CLI artifact-download
 command may copy an already-authorized managed artifact to an explicit user
-destination; API downloads remain protected responses and MCP returns a lazy
-resource link instead of embedding video bytes in the tool result.
+destination. MCP returns a lazy native resource link instead of embedding video
+bytes in JSON or text when the artifact fits `VIDXP_MCP_MAX_RESOURCE_BYTES`.
+Ordinary local stdio additionally returns the verified absolute artifact path and
+encoded `file://` URI because the agent and VidXP share a filesystem;
+`VIDXP_MCP_STDIO_FILESYSTEM_ACCESSIBLE=false` disables that hint for Docker, WSL,
+SSH-proxy, or other isolated stdio deployments. Remote Streamable HTTP never
+returns a server path: configured deployments return an expiring HTTPS capability
+URL, and native loopback HTTP automatically serves the same range-capable route on
+its listener. Filesystem-isolated or remote deployments with an oversized artifact
+and no public download origin report delivery as unavailable with configuration
+guidance.
+
+Search and query jobs can request bounded evidence delivery. MCP defaults to the
+strongest three keyframes; callers may select `none`, `keyframes`, or
+`keyframes_and_clips`, with a hard maximum of five items. Scene evidence extracts
+the authoritative indexed frame number. Other intervals and anonymous actor
+clusters use a clearly labeled representative full frame. Requested clips are
+range-clamped and rendered through the same snippet artifact service before the
+original search/query job succeeds, so the ordinary agent path is one submit plus
+polling that same job. `create_evidence_clip` derives a fallback clip solely from a
+completed source job and its stable evidence ID; callers cannot supply authoritative
+timestamps. Keyframe-only retrieval keeps the existing read scope; requesting clip
+rendering requires repository write scope, matching the low-level clip operation.
+Evidence artifacts are best-effort and may fail independently, so completed result
+sets can contain partial frame or clip delivery.
 
 ## 18. FastAPI adapter
 
@@ -892,6 +1008,12 @@ principal from subject/client ID, scopes, and allowlisted claims.
 Reverse-proxy authentication may be an additional gate but does not replace MCP
 resource-server behavior.
 
+The supported Compose surface selects this profile with
+`VIDXP_HTTP_AUTH_MODE=oidc` plus issuer, audience, JWKS, scopes, and the
+canonical `VIDXP_MCP_PUBLIC_URL`. Static bearer remains the default only for
+private single-tenant deployments; it is not presented as a compatible
+authentication mechanism for hosted ChatGPT or Claude connectors.
+
 ## 20. MCP adapter
 
 Use the official MCP Python SDK v2 high-level server.
@@ -899,7 +1021,8 @@ Use the official MCP Python SDK v2 high-level server.
 Primary remote transport:
 
 - Streamable HTTP
-- explicit `stateless_http=True`
+- stateless request handling; upload links are ordinary tool results and require
+  no server-to-client elicitation back-channel
 - `json_response=False` so disconnect cancellation uses the streaming/SSE path
 - application state persisted outside MCP sessions
 - explicit lifecycle through the application composition root
@@ -908,8 +1031,9 @@ Primary remote transport:
 Local transport:
 
 - stdio for clients running beside VidXP
-- identical tools and shared contracts
-- media referenced by `media_id`
+- shared contracts with a filesystem-aware ingestion surface
+- local paths accepted only by `ingest_local_media`; browser-upload tools omitted
+- media referenced by `media_id` after durable import
 
 Initial curated tools:
 
@@ -917,10 +1041,15 @@ Initial curated tools:
 - `get_capability`
 - `list_media`
 - `get_media`
+- Streamable HTTP: `create_media_upload`, `get_media_upload`
+- Filesystem-accessible stdio: `ingest_local_media`, `get_media_ingestion`
 - `get_index_status`
 - `start_indexing`
 - `search_moments`
 - `query_video`
+- `create_clip`
+- `create_evidence_clip`
+- `get_artifact_download`
 - `list_jobs`
 - `get_job`
 - `retry_job`
@@ -955,7 +1084,7 @@ sibling adapters.
 The MCP ASGI app is created with:
 
 - Streamable HTTP path `/mcp`
-- stateless HTTP enabled
+- stateless HTTP request handling
 - JSON-only responses disabled
 - configured MCP body limit
 - explicit transport-security settings
@@ -968,6 +1097,11 @@ The composition-root lifespan enters `mcp.session_manager.run()` exactly once an
 orders shared application startup, MCP startup, MCP shutdown, and application
 shutdown explicitly. A mounted Starlette child lifespan is not relied on, and MCP
 does not start a second copy of shared database/storage/model resources.
+
+Durable application and upload-session state lives in the database rather than an
+MCP transport session. The upload workflow therefore does not require sticky
+routing or a single API/MCP replica, though the wider deployment may impose its
+own singleton constraints for components not covered by this adapter contract.
 
 The public/proxy Host and Origin policy is configured explicitly. Binding to
 `0.0.0.0` must not disable DNS-rebinding protections. Deployment validation confirms
@@ -1022,7 +1156,9 @@ The same command and result contracts support three composition profiles:
 1. **Native local:** the CLI, Streamlit, or desktop adapter composes the application
    with a local worker, DBOS SQLite, embedded Chroma, and a platform app-data
    repository. Media can be imported from allowlisted local paths. This is the
-   default Apple Silicon experience and does not require Docker.
+   default Apple Silicon experience and does not require Docker. `vidxp-api` also
+   composes Streamable HTTP MCP and a same-process bounded multipart browser handoff
+   using the actual loopback listener; stdio uses direct local-path ingestion.
 2. **Remote client (planned):** a thin CLI, UI, or desktop adapter will connect
    to a self-hosted VidXP deployment without local models or a vector database.
    The current release rejects `VIDXP_MODE=remote` instead of silently composing
@@ -1050,10 +1186,11 @@ Supported Coolify/Compose server stack:
 ```text
 api-mcp
   ├── FastAPI routes
-  └── MCP Streamable HTTP mount
+  ├── MCP Streamable HTTP mount
+  └── ingestion recovery coordinator
 
 hooks
-  └── private tusd callback and recovery sweep
+  └── private tusd callback
 
 worker-cpu
   └── DBOS CPU queue, stable executor ID, concurrency 1
@@ -1220,7 +1357,7 @@ Test:
 - interrupted and expired uploads
 - duplicate/out-of-order hook delivery
 - missed-finish-hook recovery sweep
-- abandoned intent/quarantine cleanup
+- explicit cancellation and operational quarantine cleanup
 - completion remaining unpublished until durable ffprobe succeeds
 - import-root escape
 - retained external source disappearance
@@ -1253,7 +1390,9 @@ Capability discovery tests:
 - deterministic behavior on supported Python 3.11 through 3.14
 
 Managed artifact delivery tests cover authorization, path/symlink containment,
-missing or corrupt content, GET/HEAD/range headers, and MIME/disposition metadata.
+missing or corrupt content, stdio and Streamable HTTP resources, fragment/cookie
+capabilities, expiry and binding failures, GET/HEAD/repeated ranges, 206/416,
+ETag, and MIME/disposition metadata for MP4 and Matroska artifacts.
 
 ### 24.7 Platforms and installation profiles
 
@@ -1372,8 +1511,7 @@ Gate: API process performs no indexing/model work and owns no business persisten
 
 Gate: interrupted multi-part upload resumes and completed media can be indexed by ID.
 The gate also covers bearer upload-URL redaction, duplicate/out-of-order hooks,
-missed-finish recovery, abandoned-upload retention, and the ffprobe publication
-boundary.
+missed-finish recovery, and the ffprobe publication boundary.
 
 ### Phase 8: MCP
 

@@ -249,8 +249,20 @@ After installing `local-worker,mcp`:
 vidxp mcp-config
 ```
 
-The command prints a complete, import-ready `mcpServers` JSON object with the
-resolved absolute `vidxp-mcp` executable and default repository argument.
+The command prints `mcpServers` JSON for Claude Desktop and other clients that
+use that local-stdio format, with the resolved absolute `vidxp-mcp` executable
+and default repository argument. It is not a universal MCP configuration.
+
+Codex uses its own configuration. Either run:
+
+```bash
+codex mcp add vidxp -- vidxp-mcp --repository default
+```
+
+or add an `[mcp_servers.vidxp]` entry to `~/.codex/config.toml`. The ChatGPT
+desktop app and Codex share that local MCP configuration. ChatGPT web does not
+read this file or the generated JSON; connect it to a deployed HTTPS `/mcp`
+endpoint through a custom app/connector instead.
 
 ```bash
 vidxp-mcp --check --repository default
@@ -301,9 +313,36 @@ The unauthenticated local default is deliberately loopback-only:
 Native installs default to port `32191` to avoid the heavily reused development
 port `8000`. Use `vidxp-api --port <port>` when a specific port is required.
 
+The Streamable HTTP MCP endpoint includes `create_media_upload`. Its returned
+capability link uses the actual listener host and port; opening `/` manually is
+not an upload flow. Native mode serves the packaged Uppy page and receives bounded,
+non-resumable multipart uploads directly in the API process. It requires no Docker,
+PostgreSQL, Chroma server, tusd, or separately started helper. The session result
+reports the effective per-file and aggregate limits, and `get_media_upload` follows
+the durable import and automatic-indexing lifecycle through `indexed` and
+`searchable=true`.
+
+`vidxp-api --share` is different: it binds a bearer-protected, plain-HTTP LAN
+listener but cannot safely synthesize an advertised browser handoff origin.
+Consequently its MCP surface omits `create_media_upload` and
+`get_media_upload` unless an explicit HTTPS
+`VIDXP_UPLOAD_HANDOFF_PUBLIC_URL` is configured. The command reports that
+omission instead of exposing a tool that would fail when called.
+
+Local stdio exposes `ingest_local_media` instead. Pass one to ten paths that are
+inside the configured import boundaries and poll `get_media_ingestion`; file bytes
+do not cross MCP. Both ingestion tools default to the repository's advertised
+capability set. Supply `modalities` to narrow it or
+`index_after_import=false` for the advanced registration-only workflow.
+
 Do not bind an unauthenticated API to a non-loopback address. Public
 deployments require static bearer or OIDC authentication and should use the
-supported server Compose topology.
+supported server Compose topology. Hosted ChatGPT and Claude integrations
+should use OIDC because those clients cannot be configured with VidXP's private
+single-tenant static token. Set `VIDXP_HTTP_AUTH_MODE=oidc`, the issuer,
+audience, JWKS URL, required scopes, and canonical HTTPS
+`VIDXP_MCP_PUBLIC_URL`; VidXP publishes the MCP protected-resource metadata and
+validates those access tokens.
 
 ## Desktop application
 

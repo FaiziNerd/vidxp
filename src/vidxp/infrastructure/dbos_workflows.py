@@ -37,9 +37,7 @@ from vidxp.workflow_contracts import (
 )
 
 
-_ARTIFACT_REQUEST = TypeAdapter(
-    ActorOverlayJobRequest | SnippetJobRequest
-)
+_ARTIFACT_REQUEST = TypeAdapter(ActorOverlayJobRequest | SnippetJobRequest)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -178,8 +176,10 @@ class VidXPWorkerWorkflows(DBOSConfiguredInstance):
                     "message": "Validating and importing the completed upload.",
                 }
             )
-            result = self.application.import_completed_upload(
-                request.upload_id
+            result = (
+                self.application.import_media(request.command)
+                if request.command is not None
+                else self.application.import_completed_upload(request.upload_id or "")
             )
             _publish_progress(
                 {
@@ -229,6 +229,7 @@ class VidXPWorkerWorkflows(DBOSConfiguredInstance):
             result = self.application.search(
                 request.command,
                 snapshot=request.snapshot,
+                execution=execution,
             )
             execution.checkpoint()
             _publish_progress(

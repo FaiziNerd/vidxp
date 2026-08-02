@@ -1,18 +1,246 @@
 import json
+import subprocess
+import sys
+import tarfile
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import tomllib
+from urllib.parse import urlsplit
 
 from packaging.requirements import Requirement
 from packaging.version import Version
 
 from vidxp.capabilities.registry import create_capability_registry
+from vidxp.settings import VidXPSettings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_sdist_contains_every_upload_page_build_input(self):
+        with TemporaryDirectory() as directory:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "setup.py",
+                    "sdist",
+                    "--dist-dir",
+                    directory,
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            archives = tuple(Path(directory).glob("*.tar.gz"))
+            self.assertEqual(len(archives), 1)
+            with tarfile.open(archives[0], "r:gz") as archive:
+                members = {
+                    name.split("/", 1)[1]
+                    for name in archive.getnames()
+                    if "/" in name
+                }
+
+        required_sources = {
+            "web/upload-page/package.json",
+            "web/upload-page/package-lock.json",
+            "web/upload-page/scripts/build.mjs",
+            "web/upload-page/src/app.js",
+            "web/upload-page/src/app.css",
+            "web/upload-page/src/index.html",
+            "web/upload-page/src/recovery.js",
+        }
+        self.assertLessEqual(required_sources, members)
+        self.assertFalse(any("/node_modules/" in f"/{name}/" for name in members))
+
+    def test_coolify_handoff_origin_matches_tusd_cors_policy(self):
+        documentation = (
+            ROOT / "docs" / "deployment" / "coolify.md"
+        ).read_text(encoding="utf-8")
+        example = {}
+        for line in documentation.splitlines():
+            if line.startswith("VIDXP_UPLOAD_") and "=" in line:
+                key, value = line.split("=", 1)
+                example[key] = value
+
+        settings = VidXPSettings(
+            upload_public_endpoint=example["VIDXP_UPLOAD_PUBLIC_ENDPOINT"],
+            upload_internal_endpoint="http://tusd:8080/uploads/",
+            upload_cleanup_token="c" * 32,
+            upload_handoff_public_url=(
+                example["VIDXP_UPLOAD_HANDOFF_PUBLIC_URL"]
+            ),
+            upload_handoff_secret="h" * 32,
+            upload_cors_origin_regex=(
+                example["VIDXP_UPLOAD_CORS_ORIGIN_REGEX"]
+            ),
+        )
+        handoff = urlsplit(settings.upload_handoff_public_url)
+        self.assertEqual(handoff.hostname, "api.example.com")
+
+        compose = (ROOT / "compose.coolify.yaml").read_text(encoding="utf-8")
+        self.assertIn("VIDXP_UPLOAD_CORS_ORIGIN_REGEX:", compose)
+        self.assertIn(
+            "-cors-allow-origin=${VIDXP_UPLOAD_CORS_ORIGIN_REGEX:",
+            compose,
+        )
+        self.assertIn(
+            "VIDXP_HTTP_AUTH_MODE: ${VIDXP_HTTP_AUTH_MODE:-static}",
+            compose,
+        )
+        self.assertIn("VIDXP_HTTP_OIDC_ISSUER:", compose)
+        self.assertIn("VIDXP_MCP_PUBLIC_URL:", compose)
+
+    def test_upload_page_assets_are_pinned_self_hosted_and_packaged(self):
+        package = json.loads(
+            (ROOT / "web" / "upload-page" / "package.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            package["dependencies"],
+            {
+                "@uppy/core": "5.2.0",
+                "@uppy/dashboard": "5.1.1",
+                "@uppy/golden-retriever": "5.2.1",
+                "@uppy/tus": "5.1.1",
+                "@uppy/xhr-upload": "5.2.0",
+            },
+        )
+        self.assertEqual(package["devDependencies"], {"esbuild": "0.28.1"})
+
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertIn(
+            "assets/upload_page/*",
+            project["tool"]["setuptools"]["package-data"]["vidxp"],
+        )
+        manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+        self.assertIn("prune web/upload-page/node_modules", manifest)
+        self.assertNotIn("recursive-include web/upload-page", manifest)
+        assets = ROOT / "src" / "vidxp" / "assets" / "upload_page"
+        expected = {
+            "index.html",
+            "upload-page.js",
+            "upload-page.css",
+            "THIRD_PARTY_NOTICES.txt",
+        }
+        self.assertEqual(
+            {path.name for path in assets.iterdir() if path.is_file()},
+            expected,
+        )
+        html = (assets / "index.html").read_text(encoding="utf-8")
+        self.assertIn("./assets/upload-page.js", html)
+        self.assertIn("./assets/upload-page.css", html)
+        self.assertNotRegex(html, r"https?://")
+
+        source = (ROOT / "web" / "upload-page" / "src" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        for contract in (
+            "allowedMetaFields: ['intent_id']",
+            "limit: 1",
+            "parallelUploads: 1",
+            "overridePatchMethod: false",
+            "uploadDataDuringCreation: false",
+            "withCredentials: false",
+            "removeFingerprintOnSuccess: true",
+            "VidXP-Handoff",
+            "uppy.use(Dashboard",
+            "showProgressDetails: true",
+            "theme: 'dark'",
+            "history.replaceState",
+            "uppy.addPreProcessor(authorizeFiles)",
+            "uppy.use(XHRUpload",
+            "sessionStatus.transfer_backend === 'tus'",
+            "maxTotalFileSize: sessionStatus.maximum_aggregate_bytes",
+            "maxNumberOfFiles: sessionStatus.maximum_files",
+            "client_file_key",
+            "needsFileAuthorization(current, childByKey(key))",
+            "indexedDB: { maxFileSize: 0, maxTotalSize: 0 }",
+            "if (!shouldPollSession(sessionStatus)) return",
+            "resumePollingAfterFileAuthorization(",
+            "poll_after_seconds",
+            "document.hidden",
+            "visibilitychange",
+        ):
+            self.assertIn(contract, source)
+        self.assertNotIn("if (current?.meta?.intent_id) return", source)
+        self.assertIn(
+            '"check:bundle": "npm run build && git diff --exit-code -- '
+            '../../src/vidxp/assets/upload_page"',
+            (ROOT / "web" / "upload-page" / "package.json").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertGreater(
+            source.index("if (capability) clearFragment()"),
+            source.index("await requestJson(apiUrl('./bootstrap')"),
+        )
+        self.assertNotIn("8 * 1024 * 1024", source)
+        self.assertNotIn("./authenticate", source)
+        self.assertNotIn("OIDC access token", source)
+        self.assertNotIn("innerHTML", source)
+        self.assertNotIn("outerHTML", source)
+        self.assertIn(
+            "tus-js-client@4.3.1",
+            (assets / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "@uppy/dashboard@5.1.1",
+            (assets / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "@uppy/xhr-upload@5.2.0",
+            (assets / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8"),
+        )
+
+    def test_artifact_download_landing_assets_are_safe_and_packaged(self):
+        project = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        self.assertIn(
+            "assets/artifact_download/*",
+            project["tool"]["setuptools"]["package-data"]["vidxp"],
+        )
+        self.assertIn(
+            "recursive-include src/vidxp/assets/artifact_download *",
+            (ROOT / "MANIFEST.in").read_text(encoding="utf-8"),
+        )
+        assets = ROOT / "src" / "vidxp" / "assets" / "artifact_download"
+        self.assertEqual(
+            {path.name for path in assets.iterdir() if path.is_file()},
+            {
+                "index.html",
+                "artifact-download.css",
+                "artifact-download.js",
+                "vidxp-logo.png",
+            },
+        )
+        html = (assets / "index.html").read_text(encoding="utf-8")
+        stylesheet = (assets / "artifact-download.css").read_text(
+            encoding="utf-8"
+        )
+        script = (assets / "artifact-download.js").read_text(encoding="utf-8")
+        self.assertIn("./assets/artifact-download.js", html)
+        self.assertIn("./assets/artifact-download.css", html)
+        self.assertIn("./assets/vidxp-logo.png", html)
+        self.assertNotRegex(html, r"https?://")
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("style=", html)
+        self.assertIn("@media (max-width: 34rem)", stylesheet)
+        self.assertIn("window.history.replaceState", script)
+        self.assertIn("credentials: 'same-origin'", script)
+        self.assertIn("method: 'HEAD'", script)
+        self.assertIn("downloadAgain.click()", script)
+        self.assertIn("Download again", html)
+        self.assertEqual(
+            (assets / "vidxp-logo.png").read_bytes(),
+            (
+                ROOT / "desktop" / "src-tauri" / "icons" / "128x128.png"
+            ).read_bytes(),
+        )
+        self.assertNotIn("local_path", script)
+
     def test_canonical_icon_is_packaged_and_desktop_derivatives_are_wired(self):
         icon = ROOT / "docs" / "images" / "logo.png"
         self.assertTrue(icon.is_file())
@@ -221,6 +449,29 @@ class PackagingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("httpx>=0.28.1,<0.29", test_requirements)
         self.assertNotIn("httpx2", test_requirements)
+
+    def test_local_profiles_include_unconditional_jwt_runtime_without_mcp(self):
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        base = {
+            Requirement(value).name.lower(): Requirement(value)
+            for value in project["project"]["dependencies"]
+        }
+        jwt = base["pyjwt"]
+        self.assertEqual(jwt.specifier, Requirement("pyjwt>=2.13,<3").specifier)
+        self.assertEqual(jwt.extras, set())
+
+        profiles = project["tool"]["setuptools"]["dynamic"][
+            "optional-dependencies"
+        ]
+        for selected in (("local-worker",), ("local-worker", "frontend")):
+            requirement_files = {
+                path
+                for profile in selected
+                for path in profiles[profile]["file"]
+            }
+            self.assertNotIn("src/vidxp/requirements/mcp.txt", requirement_files)
+            self.assertNotIn("src/vidxp/requirements/server.txt", requirement_files)
+            self.assertIn("pyjwt", base)
 
     def test_optional_ollama_profile_never_pulls_a_model_implicitly(self):
         compose = (ROOT / "compose.coolify.yaml").read_text(

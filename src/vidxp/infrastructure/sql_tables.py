@@ -1,9 +1,11 @@
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     MetaData,
     String,
@@ -83,6 +85,63 @@ upload_intents = Table(
         ForeignKey("media.media_id"),
         nullable=True,
     ),
+    Column("transfer_backend", String(32), nullable=False, default="tus"),
+    Column("index_after_import", Boolean, nullable=False, default=True),
+    Column("index_modalities", JSON, nullable=False, default=list),
+    Column("index_job_id", String(36), nullable=True),
+    Column("index_command", JSON, nullable=True),
+    Column("source_path", Text, nullable=True),
+    Column("content_sha256", String(64), nullable=True),
+    Column("failure_code", String(128), nullable=True),
+    Column("failure_message", String(512), nullable=True),
+)
+Index("upload_intents_index_job_id", upload_intents.c.index_job_id)
+
+upload_sessions = Table(
+    "upload_sessions",
+    metadata,
+    Column("session_id", String(32), primary_key=True),
+    Column("request_key", String(64), nullable=False, unique=True),
+    Column("selector", String(32), nullable=False, unique=True),
+    Column("capability_digest", String(64), nullable=False, unique=True),
+    Column("initiating_subject", String(255), nullable=False),
+    Column("initiating_client_id", String(255), nullable=True),
+    Column("repository_binding", String(64), nullable=False),
+    Column("purpose", String(64), nullable=False),
+    Column("state", String(32), nullable=False),
+    Column("maximum_files", Integer, nullable=False),
+    Column("maximum_file_bytes", BigInteger, nullable=False),
+    Column("maximum_aggregate_bytes", BigInteger, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("expires_at", Text, nullable=False),
+    Column("browser_session_digest", String(64), nullable=True),
+    Column("transfer_backend", String(32), nullable=False, default="tus"),
+    Column("index_after_import", Boolean, nullable=False, default=True),
+    Column("index_modalities", JSON, nullable=False, default=list),
+)
+Index("upload_sessions_expiry", upload_sessions.c.expires_at, upload_sessions.c.state)
+
+upload_session_files = Table(
+    "upload_session_files",
+    metadata,
+    Column(
+        "session_id",
+        String(32),
+        ForeignKey("upload_sessions.session_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("client_file_key", String(255), primary_key=True),
+    Column(
+        "intent_id",
+        String(32),
+        ForeignKey("upload_intents.intent_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    ),
+    Column("created_at", Text, nullable=False),
+    Column("creation_grant_digest", String(64), nullable=True, unique=True),
+    Column("creation_grant_expires_at", Text, nullable=True),
+    Column("creation_grant_consumed_at", Text, nullable=True),
 )
 
 upload_quota = Table(

@@ -78,6 +78,14 @@ vidxp doctor
 vidxp mcp-config
 ```
 
+`vidxp mcp-config` emits the `mcpServers` JSON used by Claude Desktop and
+compatible local stdio clients. Codex has separate configuration: use
+`codex mcp add vidxp -- vidxp-mcp --repository default` or configure
+`[mcp_servers.vidxp]` in `~/.codex/config.toml`. ChatGPT Desktop and ChatGPT web
+use ChatGPT's own connector configuration and do not read Codex's config; hosted
+ChatGPT connections use a remote MCP endpoint, with VidXP deployed behind HTTPS
+and OIDC.
+
 The CLI works without MCP. Add the browser app with:
 
 ```bash
@@ -90,6 +98,11 @@ vidxp ui
 intend to expose the unauthenticated browser interface on the local network.
 Streamlit prints its Local and Network URLs when it starts. VidXP disables
 Streamlit's first-run email prompt and usage-statistics collection.
+
+`vidxp-api --share` exposes a bearer-protected HTTP API/MCP endpoint on a
+trusted LAN. Browser upload tools are omitted unless an explicit HTTPS upload
+handoff origin is configured, because a LAN listener alone cannot advertise a
+safe browser capability page.
 
 If the `vidxp` command is not found, run `uv tool update-shell` once and reopen
 the terminal.
@@ -134,6 +147,8 @@ See the [Coolify guide](docs/deployment/coolify.md) for the complete setup.
 - Group recurring faces in a video and render a highlighted actor overlay.
 - Search one selected video or every video in the active library.
 - Open matching timestamps and export downloadable clips and overlays.
+- Retrieve completed clips through native MCP resources, local stdio paths, or
+  short-lived resumable HTTPS downloads without embedding video bytes in tool JSON.
 - Keep personal, client, or project libraries separate.
 - Follow long indexing jobs, cancel them, and keep the last working index if a
   later run fails.
@@ -173,6 +188,17 @@ MCP clients can add and discover videos, start indexing, search dialogue and
 scenes, ask questions about a library, and create clips or actor overlays.
 Local agents can connect over stdio; remote agents can connect to a
 self-hosted VidXP server.
+
+Search and question results can include directly inspectable frames and clips, so
+agents can show the evidence behind an answer without making users translate raw
+timestamps. Evidence rendering is best-effort: a result can still be useful when
+an individual frame or clip cannot be produced.
+
+Remote agents can hand users a short-lived page for selecting and uploading
+multiple videos. Local agents can ingest approved filesystem paths without moving
+video bytes through MCP. VidXP normally indexes successful imports automatically;
+registration-only ingestion stops at `registered`, and indexing failures can be
+retried without uploading the video again.
 
 Agents can call `get_workspace` before acting to inspect registered media,
 active-index coverage, model readiness, and the searchable, queryable,

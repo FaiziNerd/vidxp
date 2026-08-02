@@ -27,6 +27,88 @@ from vidxp.repository_layout import RepositoryLayout
 
 
 DEFAULT_HTTP_PORT = 32191
+_TUSD_EXACT_ORIGIN = re.compile(
+    r"(?P<scheme>https|http)://(?P<host>"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*"
+    r")(?::(?P<port>[0-9]{1,5}))?"
+)
+
+
+def _tusd_cors_origins(pattern: str) -> tuple[str, ...]:
+    """Parse the deliberately small regex subset shared with Go's RE2."""
+    if not (pattern.startswith("^(") and pattern.endswith(")$")):
+        raise ValueError(
+            "The upload CORS origin regex must use the RE2-safe exact-origin "
+            r"form ^(https://api\.example|https://app\.example)$."
+        )
+    alternatives = pattern[2:-2].split("|")
+    if not alternatives or any(not value for value in alternatives):
+        raise ValueError("The upload CORS origin regex has an empty origin.")
+    origins: list[str] = []
+    for value in alternatives:
+        match = _TUSD_EXACT_ORIGIN.fullmatch(value)
+        if match is None:
+            raise ValueError(
+                "The upload CORS origin regex may contain only exact HTTPS "
+                "origins or loopback HTTP origins with escaped dots, grouped "
+                r"as ^(origin|origin)$."
+            )
+        decoded_host = match.group("host").replace(r"\.", ".").lower()
+        if match.group("scheme") == "http" and decoded_host not in {
+            "localhost",
+            "127.0.0.1",
+        }:
+            raise ValueError(
+                "The upload CORS origin regex may use HTTP only for loopback."
+            )
+        port_text = match.group("port")
+        if port_text is not None and not 1 <= int(port_text) <= 65535:
+            raise ValueError(
+                "The upload CORS origin regex contains an invalid port."
+            )
+        origins.append(value.replace(r"\.", ".").lower())
+    if len(set(origins)) != len(origins):
+        raise ValueError(
+            "The upload CORS origin regex contains a duplicate origin."
+        )
+    return tuple(origins)
+
+
+def _validate_browser_public_url(
+    value: str | None,
+    *,
+    field_name: str,
+    required_path: str,
+) -> str | None:
+    if value is None:
+        return None
+    if value != value.strip() or "\\" in value:
+        raise ValueError(f"{field_name} contains unsafe characters.")
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path.rstrip("/") != required_path
+    ):
+        raise ValueError(
+            f"{field_name} must be an HTTP(S) URL ending in {required_path}."
+        )
+    if parsed.scheme != "https" and parsed.hostname.lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
+        raise ValueError(f"{field_name} must use HTTPS outside loopback.")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{field_name} contains an invalid port.") from exc
+    return value.rstrip("/")
 
 
 class ApplicationMode(StrEnum):
@@ -129,6 +211,11 @@ class VidXPSettings(BaseSettings):
         gt=0,
         le=16 * 1024 * 1024,
     )
+    mcp_max_resource_bytes: int = Field(
+        default=16 * 1024 * 1024,
+        gt=0,
+        le=256 * 1024 * 1024,
+    )
     mcp_allowed_hosts: tuple[str, ...] = (
         "127.0.0.1:*",
         "[::1]:*",
@@ -136,6 +223,18 @@ class VidXPSettings(BaseSettings):
         "testserver",
     )
     mcp_allowed_origins: tuple[str, ...] = ()
+    mcp_stdio_filesystem_accessible: bool = True
+    artifact_download_public_url: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+    )
+    artifact_download_secret: SecretStr | None = None
+    artifact_download_ttl_seconds: int = Field(
+        default=15 * 60,
+        ge=60,
+        le=24 * 60 * 60,
+    )
     upload_public_endpoint: str | None = Field(
         default=None,
         min_length=1,
@@ -164,8 +263,48 @@ class VidXPSettings(BaseSettings):
         ge=10,
         le=3600,
     )
+
+    @field_validator(
+        "http_static_bearer_token",
+        "http_oidc_issuer",
+        "http_oidc_audience",
+        "http_oidc_jwks_url",
+        "mcp_public_url",
+        mode="before",
+    )
+    @classmethod
+    def _empty_auth_values_are_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     upload_quarantine_root: Path | None = None
     upload_cleanup_token: SecretStr | None = None
+    upload_handoff_public_url: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+    )
+    upload_handoff_secret: SecretStr | None = None
+    upload_cors_origin_regex: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=2048,
+    )
+    upload_session_max_files: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+    )
+    upload_session_max_bytes: int = Field(
+        default=100 * 1024 * 1024 * 1024,
+        gt=0,
+    )
+    upload_session_ttl_seconds: int = Field(
+        default=24 * 60 * 60,
+        ge=300,
+        le=7 * 24 * 60 * 60,
+    )
     slm_base_url: str | None = Field(
         default=None,
         min_length=1,
@@ -216,6 +355,18 @@ class VidXPSettings(BaseSettings):
         cls,
         value: str | None,
     ) -> str | None:
+        return None if value == "" else value
+
+    @field_validator(
+        "artifact_download_public_url",
+        "artifact_download_secret",
+        "upload_handoff_public_url",
+        "upload_handoff_secret",
+        "upload_cors_origin_regex",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_empty_handoff_setting(cls, value):
         return None if value == "" else value
 
     @field_validator("runtime_backend")
@@ -489,6 +640,30 @@ class VidXPSettings(BaseSettings):
             )
         return value.rstrip("/")
 
+    @field_validator("upload_handoff_public_url")
+    @classmethod
+    def _validate_upload_handoff_public_url(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        return _validate_browser_public_url(
+            value,
+            field_name="upload_handoff_public_url",
+            required_path="/upload-handoff",
+        )
+
+    @field_validator("artifact_download_public_url")
+    @classmethod
+    def _validate_artifact_download_public_url(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        return _validate_browser_public_url(
+            value,
+            field_name="artifact_download_public_url",
+            required_path="/artifact-download",
+        )
+
     @field_validator("trusted_local_import_roots")
     @classmethod
     def _clean_import_roots(
@@ -572,6 +747,69 @@ class VidXPSettings(BaseSettings):
                     "Remote uploads require an internal tusd endpoint and "
                     "a cleanup token of at least 32 characters."
                 )
+        handoff_configured = any(
+            value is not None
+            for value in (
+                self.upload_handoff_public_url,
+                self.upload_handoff_secret,
+            )
+        )
+        if handoff_configured and (
+            self.upload_handoff_public_url is None
+            or self.upload_handoff_secret is None
+            or len(self.upload_handoff_secret.get_secret_value()) < 32
+        ):
+            raise ValueError(
+                "Upload handoffs require an HTTPS public handoff URL (or "
+                "loopback HTTP) and a dedicated secret of at least 32 characters."
+            )
+        if (
+            handoff_configured
+            and self.mode == ApplicationMode.server
+            and (
+                self.upload_public_endpoint is None
+                or self.upload_cors_origin_regex is None
+            )
+        ):
+            raise ValueError(
+                "Server upload handoffs require the resumable upload endpoint "
+                "and matching tusd CORS origin policy."
+            )
+        download_configured = any(
+            value is not None
+            for value in (
+                self.artifact_download_public_url,
+                self.artifact_download_secret,
+            )
+        )
+        if download_configured and (
+            self.artifact_download_public_url is None
+            or self.artifact_download_secret is None
+            or len(self.artifact_download_secret.get_secret_value()) < 32
+        ):
+            raise ValueError(
+                "Public artifact downloads require an HTTPS download URL "
+                "(or loopback HTTP) and a dedicated secret of at least 32 "
+                "characters."
+            )
+        if self.upload_session_max_bytes < self.upload_max_bytes:
+            raise ValueError(
+                "The upload session aggregate limit must be at least the "
+                "per-file upload limit."
+            )
+        if self.upload_cors_origin_regex is not None:
+            allowed_origins = _tusd_cors_origins(
+                self.upload_cors_origin_regex
+            )
+            if self.upload_handoff_public_url is not None:
+                parsed_handoff = urlsplit(self.upload_handoff_public_url)
+                handoff_origin = (
+                    f"{parsed_handoff.scheme}://{parsed_handoff.netloc}"
+                ).lower()
+                if handoff_origin not in allowed_origins:
+                    raise ValueError(
+                        "The upload CORS origin regex must allow the handoff origin."
+                    )
         if (self.slm_base_url is None) != (self.slm_model is None):
             raise ValueError(
                 "slm_base_url and slm_model must be configured together."
@@ -667,6 +905,9 @@ class LocalExecutionSettings(BaseModel):
         defaults["upload_public_endpoint"] = None
         defaults["upload_internal_endpoint"] = None
         defaults["upload_cleanup_token"] = None
+        defaults["upload_handoff_public_url"] = None
+        defaults["upload_handoff_secret"] = None
+        defaults["upload_cors_origin_regex"] = None
         defaults["http_auth_mode"] = HttpAuthMode.none
         defaults["http_static_bearer_token"] = None
         defaults["http_oidc_issuer"] = None

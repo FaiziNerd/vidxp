@@ -27,6 +27,7 @@ from vidxp.core.identifiers import (
     MimeType,
     Sha256,
     UploadIntentId as UploadIntentId,
+    UploadSessionId as UploadSessionId,
     VideoId as VideoId,
 )
 from vidxp.core.artifacts import (
@@ -41,7 +42,11 @@ from vidxp.core.media import (
     MediaStream,
     validate_display_filename,
 )
-from vidxp.core.uploads import UploadState
+from vidxp.core.uploads import (
+    UploadSessionState,
+    UploadState,
+    UploadTransferBackend,
+)
 from vidxp.index_state import INDEX_STATUS_MEDIA_ID_LIMIT
 
 T = TypeVar("T")
@@ -172,8 +177,7 @@ class DependencyUnavailableError(ApplicationError):
         super().__init__(
             "dependency_unavailable",
             ErrorCategory.unavailable,
-            f"Dependencies for the {label} capability are unavailable. "
-            f"{install_hint}",
+            f"Dependencies for the {label} capability are unavailable. {install_hint}",
             details={
                 "capabilities": list(capabilities),
                 "install_hint": install_hint,
@@ -192,9 +196,7 @@ class ModelUnavailableError(ApplicationError):
             f"`vidxp prepare --modalities {modality}` before retrying.",
             details={
                 "capability": capability,
-                "remediation": (
-                    f"vidxp prepare --modalities {modality}"
-                ),
+                "remediation": (f"vidxp prepare --modalities {modality}"),
             },
         )
 
@@ -213,8 +215,7 @@ class ModelDownloadError(ApplicationError):
         modality = capability.split(".", 1)[0]
         remediation = f"vidxp prepare --modalities {modality}"
         retry_message = (
-            "Partial files were kept and the next preparation attempt will "
-            "resume them."
+            "Partial files were kept and the next preparation attempt will resume them."
             if resumable
             else "The next preparation attempt will restart this file."
         )
@@ -311,9 +312,7 @@ class CapabilitySummary(ApplicationModel):
     supports_indexing: bool
     prepares_models: bool
     roles: tuple[CapabilityRole, ...] = ()
-    identity_mode: CapabilityIdentityMode = (
-        CapabilityIdentityMode.not_applicable
-    )
+    identity_mode: CapabilityIdentityMode = CapabilityIdentityMode.not_applicable
     provenance: CapabilityProvenance | None = None
 
 
@@ -414,6 +413,131 @@ class UploadIntent(ApplicationModel):
     media_id: MediaId | None = None
 
 
+class MediaUploadStatus(ApplicationModel):
+    """Actionable public projection of the shared upload intent state."""
+
+    intent_id: UploadIntentId
+    client_file_key: str = Field(min_length=1, max_length=255)
+    state: UploadState
+    original_filename: str = Field(min_length=1, max_length=255)
+    byte_size: int = Field(ge=0)
+    declared_mime_type: MimeType | None = None
+    expires_at: AwareDatetime
+    phase: Literal[
+        "transferring",
+        "uploaded",
+        "importing",
+        "registered",
+        "indexing",
+        "index_failed",
+        "indexed",
+        "failed",
+    ] = "transferring"
+    transport: UploadTransferBackend = UploadTransferBackend.tus
+    resumable: bool = True
+    job_id: JobId | None = None
+    import_job_id: JobId | None = None
+    index_job_id: JobId | None = None
+    media_id: MediaId | None = None
+    generation_id: IndexGenerationId | None = None
+    snapshot_id: IndexSnapshotId | None = None
+    searchable: bool = False
+    index_after_import: bool = True
+    index_modalities: tuple[str, ...] = ()
+    error: ErrorDetail | None = None
+    terminal: bool = False
+    poll_after_seconds: int = Field(default=2, ge=0, le=60)
+    status: str = Field(min_length=1, max_length=512)
+    next_action: str = Field(min_length=1, max_length=1024)
+
+
+class CreateUploadFileCommand(ApplicationModel):
+    client_file_key: str = Field(
+        min_length=1,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9._~-]+$",
+    )
+    original_filename: str = Field(min_length=1, max_length=255)
+    byte_size: int = Field(gt=0)
+    declared_mime_type: MimeType | None = None
+
+    @field_validator("original_filename")
+    @classmethod
+    def _filename_only(cls, value: str) -> str:
+        return validate_display_filename(value)
+
+
+class MediaIngestionOptions(ApplicationModel):
+    index_after_import: bool = True
+    modalities: tuple[Identifier, ...] | None = Field(
+        default=None,
+        description=(
+            "Indexable capabilities to run after registration. Omit to use "
+            "the repository runtime's complete indexable capability set."
+        ),
+    )
+
+    @field_validator("modalities")
+    @classmethod
+    def _unique_modalities(
+        cls,
+        values: tuple[Identifier, ...] | None,
+    ) -> tuple[Identifier, ...] | None:
+        if values is not None and len(values) != len(set(values)):
+            raise ValueError("Ingestion modalities must be unique.")
+        return values
+
+
+class LocalMediaIngestionCommand(MediaIngestionOptions):
+    paths: tuple[str, ...] = Field(min_length=1, max_length=10)
+
+    @field_validator("paths")
+    @classmethod
+    def _nonempty_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned = tuple(value.strip() for value in values)
+        if any(not value for value in cleaned):
+            raise ValueError("Local media paths must not be empty.")
+        return cleaned
+
+
+class MediaUploadSessionStatus(ApplicationModel):
+    session_id: UploadSessionId
+    session_state: UploadSessionState
+    aggregate_state: Literal[
+        "empty",
+        "uploading",
+        "processing",
+        "ready",
+        "index_failed",
+        "partial_index_failure",
+        "partial_failure",
+        "failed",
+    ]
+    transfer_backend: UploadTransferBackend = UploadTransferBackend.tus
+    resumable: bool = True
+    index_after_import: bool = True
+    index_modalities: tuple[str, ...] = ()
+    expires_at: AwareDatetime
+    maximum_files: int = Field(gt=0)
+    maximum_file_bytes: int = Field(gt=0)
+    maximum_aggregate_bytes: int = Field(gt=0)
+    file_count: NonNegativeInt
+    total_bytes: NonNegativeInt
+    reserved_file_count: NonNegativeInt
+    reserved_bytes: NonNegativeInt
+    uploaded_file_count: NonNegativeInt
+    uploaded_bytes: NonNegativeInt
+    ready_file_count: NonNegativeInt
+    searchable_file_count: NonNegativeInt = 0
+    failed_file_count: NonNegativeInt
+    index_failed_file_count: NonNegativeInt = 0
+    items: tuple[MediaUploadStatus, ...] = ()
+    terminal: bool = False
+    poll_after_seconds: int = Field(default=2, ge=0, le=60)
+    status: str = Field(min_length=1, max_length=512)
+    next_action: str = Field(min_length=1, max_length=1024)
+
+
 class CreateIndexCommand(ApplicationModel):
     media_id: MediaId = Field(
         description=(
@@ -481,13 +605,8 @@ class CreateIndexCommand(ApplicationModel):
 
     @model_validator(mode="after")
     def _scene_sampling_requires_scene(self) -> "CreateIndexCommand":
-        if (
-            self.scene_sample_fps is not None
-            and "scene" not in self.modalities
-        ):
-            raise ValueError(
-                "scene_sample_fps requires the scene modality."
-            )
+        if self.scene_sample_fps is not None and "scene" not in self.modalities:
+            raise ValueError("scene_sample_fps requires the scene modality.")
         return self
 
 
@@ -504,9 +623,7 @@ class RemoveIndexCommand(ApplicationModel):
 
 
 class Artifact(ApplicationModel):
-    schema_version: Literal[ARTIFACT_SCHEMA_VERSION] = (
-        ARTIFACT_SCHEMA_VERSION
-    )
+    schema_version: Literal[ARTIFACT_SCHEMA_VERSION] = ARTIFACT_SCHEMA_VERSION
     artifact_id: ArtifactId
     media_id: MediaId
     generation_id: IndexGenerationId | None = None
@@ -519,6 +636,30 @@ class Artifact(ApplicationModel):
     state: ArtifactState
     created_at: AwareDatetime
     expires_at: AwareDatetime | None = None
+
+
+class ArtifactDeliveryMode(StrEnum):
+    local_file = "local_file"
+    https_download = "https_download"
+    mcp_resource = "mcp_resource"
+    unavailable = "unavailable"
+
+
+class ArtifactDownload(ApplicationModel):
+    artifact_id: ArtifactId
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: MimeType
+    byte_size: int = Field(gt=0)
+    sha256: Sha256
+    etag: str = Field(pattern=r'^"[0-9a-f]{64}"$')
+    state: ArtifactState
+    resource_uri: str | None = Field(default=None, min_length=1, max_length=2048)
+    delivery_mode: ArtifactDeliveryMode
+    local_path: str | None = Field(default=None, max_length=4096)
+    file_uri: str | None = Field(default=None, max_length=4096)
+    download_url: str | None = Field(default=None, max_length=4096)
+    download_expires_at: AwareDatetime | None = None
+    delivery_error: ErrorDetail | None = None
 
 
 class ActorOverlayProfile(StrEnum):
@@ -537,9 +678,7 @@ class SnippetProfile(StrEnum):
 
 class CreateSnippetCommand(ApplicationModel):
     media_id: MediaId = Field(
-        description=(
-            "Source video ID, normally copied from a search or query result."
-        )
+        description=("Source video ID, normally copied from a search or query result.")
     )
     start_seconds: float = Field(
         ge=0,
@@ -596,9 +735,7 @@ class IndexStatusSummary(ApplicationModel):
     def _validate_media_id_window(self) -> "IndexStatusSummary":
         if self.media_count < len(self.media_ids):
             raise ValueError("media_count must cover every returned media ID")
-        if self.media_ids_truncated != (
-            self.media_count > len(self.media_ids)
-        ):
+        if self.media_ids_truncated != (self.media_count > len(self.media_ids)):
             raise ValueError(
                 "media_ids_truncated must reflect the returned media-ID window"
             )
@@ -623,9 +760,7 @@ class WorkspaceMediaCapability(ApplicationModel):
         default=(),
         description="Capability roles currently usable for this media item.",
     )
-    identity_mode: CapabilityIdentityMode = (
-        CapabilityIdentityMode.not_applicable
-    )
+    identity_mode: CapabilityIdentityMode = CapabilityIdentityMode.not_applicable
 
 
 class WorkspaceMedia(ApplicationModel):
@@ -650,6 +785,20 @@ class FusionProfile(StrEnum):
     reciprocal_rank = "rrf_v1"
 
 
+class EvidenceDeliveryMode(StrEnum):
+    none = "none"
+    keyframes = "keyframes"
+    keyframes_and_clips = "keyframes_and_clips"
+
+
+class EvidenceDeliveryPolicy(ApplicationModel):
+    mode: EvidenceDeliveryMode = EvidenceDeliveryMode.none
+    max_items: int = Field(default=3, ge=1, le=5)
+    padding_before_seconds: float = Field(default=2.0, ge=0, le=30)
+    padding_after_seconds: float = Field(default=2.0, ge=0, le=30)
+    clip_profile: SnippetProfile = SnippetProfile.compatible_mp4
+
+
 class SearchCommand(ApplicationModel):
     query: SearchQuery = Field(description="Text to match against indexed moments.")
     modalities: tuple[Identifier, ...] = Field(
@@ -672,6 +821,14 @@ class SearchCommand(ApplicationModel):
         gt=0,
         le=100,
         description="Maximum fused moments to return across the selected scope.",
+    )
+    evidence_delivery: EvidenceDeliveryPolicy | None = Field(
+        default=None,
+        description=(
+            "Optional bounded frame/clip delivery. Omit to preserve the "
+            "transport-neutral application default; MCP supplies a useful "
+            "keyframe default."
+        ),
     )
 
     @field_validator("modalities")
@@ -723,9 +880,7 @@ class SearchHit(ApplicationModel):
 
         inspect(value)
         if forbidden:
-            raise ValueError(
-                "Search metadata contains internal location fields."
-            )
+            raise ValueError("Search metadata contains internal location fields.")
         return value
 
     @model_validator(mode="after")
@@ -749,17 +904,11 @@ class SearchResult(ApplicationModel):
         return self.model_dump(mode="json")
 
     def to_prediction(self) -> dict[str, list[dict[str, Any]]]:
-        return {
-            self.query_id: [
-                hit.model_dump(mode="json") for hit in self.hits
-            ]
-        }
+        return {self.query_id: [hit.model_dump(mode="json") for hit in self.hits]}
 
 
 class FusionProvenance(ApplicationModel):
-    profile: Literal[FusionProfile.reciprocal_rank] = (
-        FusionProfile.reciprocal_rank
-    )
+    profile: Literal[FusionProfile.reciprocal_rank] = FusionProfile.reciprocal_rank
     rank_constant: int = Field(default=60, gt=0)
     overlap_rule: Literal["connected_intervals"] = "connected_intervals"
     requested_modalities: tuple[Identifier, ...] = ()
@@ -767,6 +916,7 @@ class FusionProvenance(ApplicationModel):
 
 
 class FusedMoment(ApplicationModel):
+    moment_id: Sha256 | None = None
     rank: int = Field(gt=0)
     score: float = Field(gt=0)
     media_id: MediaId
@@ -793,6 +943,7 @@ class FusedSearchResult(ApplicationModel):
     modalities: tuple[Identifier, ...]
     moments: tuple[FusedMoment, ...] = ()
     fusion: FusionProvenance
+    evidence_delivery: "EvidenceDeliveryResult | None" = None
 
 
 class QueryVideoCommand(ApplicationModel):
@@ -820,6 +971,14 @@ class QueryVideoCommand(ApplicationModel):
         gt=0,
         le=50,
         description="Maximum ranked evidence moments used for the answer.",
+    )
+    evidence_delivery: EvidenceDeliveryPolicy | None = Field(
+        default=None,
+        description=(
+            "Optional bounded frame/clip delivery. Omit to preserve the "
+            "transport-neutral application default; MCP supplies a useful "
+            "keyframe default."
+        ),
     )
 
     @field_validator("modalities")
@@ -911,6 +1070,75 @@ Evidence = Annotated[
 ]
 
 
+class EvidenceFrameMatch(StrEnum):
+    exact_indexed_frame = "exact_indexed_frame"
+    representative = "representative"
+
+
+class EvidenceDeliveryState(StrEnum):
+    ready = "ready"
+    partial = "partial"
+    failed = "failed"
+
+
+class EvidenceRangeResolution(ApplicationModel):
+    source_start_seconds: float = Field(ge=0)
+    source_end_seconds: float = Field(ge=0)
+    representative_timestamp_seconds: float = Field(ge=0)
+    clip_start_seconds: float = Field(ge=0)
+    clip_end_seconds: float = Field(gt=0)
+    requested_padding_before_seconds: float = Field(ge=0)
+    requested_padding_after_seconds: float = Field(ge=0)
+    applied_padding_before_seconds: float = Field(ge=0)
+    applied_padding_after_seconds: float = Field(ge=0)
+    start_clamped: bool = False
+    end_clamped: bool = False
+    source_interval_truncated: bool = False
+
+    @model_validator(mode="after")
+    def _validate_ranges(self) -> "EvidenceRangeResolution":
+        if self.source_end_seconds < self.source_start_seconds:
+            raise ValueError("source evidence end must not precede its start")
+        if self.clip_end_seconds <= self.clip_start_seconds:
+            raise ValueError("resolved clip duration must be positive")
+        return self
+
+
+class EvidenceArtifact(ApplicationModel):
+    artifact: Artifact
+    resource_uri: str | None = Field(default=None, min_length=1, max_length=2048)
+    delivery: ArtifactDownload | None = None
+
+
+class EvidenceKeyframe(ApplicationModel):
+    match: EvidenceFrameMatch
+    timestamp_seconds: float = Field(ge=0)
+    frame_index: int | None = Field(default=None, ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    artifact: EvidenceArtifact
+
+
+class EvidenceDeliveryItem(ApplicationModel):
+    evidence_id: Sha256
+    rank: int = Field(gt=0)
+    media_id: MediaId
+    generation_id: IndexGenerationId
+    modalities: tuple[Identifier, ...] = Field(min_length=1)
+    score: float | None = None
+    provenance: dict[str, JsonValue] = Field(default_factory=dict)
+    state: EvidenceDeliveryState
+    range: EvidenceRangeResolution | None = None
+    keyframe: EvidenceKeyframe | None = None
+    clip: EvidenceArtifact | None = None
+    errors: tuple[ErrorDetail, ...] = ()
+
+
+class EvidenceDeliveryResult(ApplicationModel):
+    policy: EvidenceDeliveryPolicy
+    items: tuple[EvidenceDeliveryItem, ...] = Field(max_length=5)
+
+
 class DraftClaim(ApplicationModel):
     text: str = Field(min_length=1, max_length=4096)
     evidence_ids: tuple[Sha256, ...] = Field(min_length=1, max_length=10)
@@ -966,15 +1194,14 @@ class QueryAnswer(ApplicationModel):
     evidence: tuple[Evidence, ...] = Field(default=(), max_length=200)
     moments: tuple[FusedMoment, ...] = ()
     fusion: FusionProvenance
+    evidence_delivery: EvidenceDeliveryResult | None = None
     fallback_reason: str | None = Field(default=None, max_length=512)
 
     @model_validator(mode="after")
     def _validate_answer_grounding(self) -> "QueryAnswer":
         evidence_ids = {item.evidence_id for item in self.evidence}
         cited_ids = {
-            evidence_id
-            for claim in self.claims
-            for evidence_id in claim.evidence_ids
+            evidence_id for claim in self.claims for evidence_id in claim.evidence_ids
         }
         if not cited_ids.issubset(evidence_ids):
             raise ValueError("Every claim citation must resolve to evidence.")
@@ -1028,7 +1255,14 @@ class IndexJobRequest(ApplicationModel):
 
 class MediaImportJobRequest(ApplicationModel):
     kind: Literal[JobKind.media_import] = JobKind.media_import
-    upload_id: Identifier
+    upload_id: Identifier | None = None
+    command: ImportMediaCommand | None = None
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "MediaImportJobRequest":
+        if (self.upload_id is None) == (self.command is None):
+            raise ValueError("Media import jobs require exactly one source.")
+        return self
 
 
 class SearchJobRequest(ApplicationModel):
@@ -1113,9 +1347,7 @@ JobResult = Annotated[
 
 
 class JobProgress(ApplicationModel):
-    schema_version: Literal[JOB_PROGRESS_SCHEMA_VERSION] = (
-        JOB_PROGRESS_SCHEMA_VERSION
-    )
+    schema_version: Literal[JOB_PROGRESS_SCHEMA_VERSION] = JOB_PROGRESS_SCHEMA_VERSION
     stage: str = Field(min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=512)
     current: int | None = Field(default=None, ge=0)
@@ -1145,14 +1377,31 @@ class Job(ApplicationModel):
     recovery_attempts: int = Field(default=0, ge=0)
     created_at: AwareDatetime | None = None
     updated_at: AwareDatetime | None = None
+    terminal: bool
+    poll_after_seconds: int = Field(ge=0, le=60)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_poll_contract(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        payload = dict(value)
+        state = JobState(payload.get("state"))
+        terminal = state not in {JobState.queued, JobState.running}
+        payload.setdefault("terminal", terminal)
+        payload.setdefault("poll_after_seconds", 0 if terminal else 1)
+        return payload
 
     @model_validator(mode="after")
     def _validate_terminal_payload(self) -> "Job":
+        terminal = self.state not in {JobState.queued, JobState.running}
+        if self.terminal != terminal:
+            raise ValueError("job terminality must match its state")
+        if self.poll_after_seconds != (0 if terminal else 1):
+            raise ValueError("job polling cadence must match its state")
         if self.state == JobState.succeeded:
             if self.result is None or self.error is not None:
-                raise ValueError(
-                    "succeeded jobs require a result and no error"
-                )
+                raise ValueError("succeeded jobs require a result and no error")
             if self.result.kind != self.kind:
                 raise ValueError("job result kind must match job kind")
         elif self.result is not None:
