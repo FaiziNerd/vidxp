@@ -1303,6 +1303,10 @@ class PrepareModelsResult(ApplicationModel):
 
 JOB_SCHEMA_VERSION = 2
 JOB_PROGRESS_SCHEMA_VERSION = 1
+JOB_SUMMARY_SCHEMA_VERSION = 1
+JOB_WAIT_RESULT_SCHEMA_VERSION = 1
+DEFAULT_JOB_WAIT_SECONDS = 30
+MAX_JOB_WAIT_SECONDS = 30
 
 
 class IndexSnapshotReference(ApplicationModel):
@@ -1503,6 +1507,35 @@ class Job(ApplicationModel):
             if self.error is None:
                 raise ValueError("failed jobs require a typed error")
         return self
+
+
+class JobSummary(ApplicationModel):
+    """Compact observation of a durable job without its typed result payload."""
+
+    schema_version: Literal[JOB_SUMMARY_SCHEMA_VERSION] = JOB_SUMMARY_SCHEMA_VERSION
+    job_id: JobId
+    kind: JobKind
+    state: JobState
+    queue: JobQueue
+    progress: JobProgress | None = None
+    error: ErrorDetail | None = None
+    recovery_attempts: int = Field(default=0, ge=0)
+    created_at: AwareDatetime | None = None
+    updated_at: AwareDatetime | None = None
+    terminal: bool
+    result_available: bool
+    observation_token: Sha256
+
+
+class JobWaitResult(ApplicationModel):
+    """Result of waiting for a meaningful job state or stage change."""
+
+    schema_version: Literal[JOB_WAIT_RESULT_SCHEMA_VERSION] = (
+        JOB_WAIT_RESULT_SCHEMA_VERSION
+    )
+    job: JobSummary
+    changed: bool
+    timed_out: bool
 
 
 class ListJobsCommand(ApplicationModel):

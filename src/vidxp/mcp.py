@@ -43,10 +43,12 @@ from vidxp.application_models import (
     CreateIndexCommand,
     ErrorCategory,
     ErrorDetail,
+    EvidenceDeliveryItem,
     EvidenceDeliveryMode,
     EvidenceDeliveryPolicy,
     EvidenceDeliveryResult,
     EvidenceBoardResult,
+    DEFAULT_JOB_WAIT_SECONDS,
     FusedSearchResult,
     Identifier,
     InitialEvidenceDeliveryPolicy,
@@ -54,11 +56,14 @@ from vidxp.application_models import (
     Job,
     JobId,
     JobKind,
-    JobState,
     JobPage,
+    JobState,
+    JobSummary,
+    JobWaitResult,
     ListJobsCommand,
     ListMediaCommand,
     LocalMediaIngestionCommand,
+    MAX_JOB_WAIT_SECONDS,
     MediaAsset,
     MediaId,
     MediaPage,
@@ -513,8 +518,8 @@ def create_mcp_server(
             "Call get_workspace before planning index, search, query, or actor "
             "work; it reports valid capability roles for each media item. Call "
             "get_runtime_readiness before indexing. If selected model "
-            "artifacts are missing, submit prepare_models and poll get_job "
-            "until it completes. "
+            "artifacts are missing, submit prepare_models and use wait_job "
+            "until it completes, then fetch the full job once. "
             f"{ingestion_instructions}"
             "Automatic indexing uses every indexable capability exposed by "
             "the repository runtime unless modalities are supplied; set "
@@ -526,8 +531,9 @@ def create_mcp_server(
             "snapshot. MCP defaults to an annotated evidence board in the same "
             "completed search/query job; request keyframes or "
             "keyframes_and_clips only for standalone drill-down artifacts. The "
-            "ordinary flow is submit search/query, then poll that job and inspect "
-            "its board. Use create_evidence_board only for custom selections or "
+            "ordinary flow is submit search/query, use wait_job for bounded "
+            "status observation, then call get_job once and "
+            "inspect its board. Use create_evidence_board only for custom selections or "
             "continuation pages. Use materialize_job_evidence with evidence "
             "IDs from the completed result to inspect additional candidates in "
             "batches of ten without rerunning retrieval or supplying timestamps. "
@@ -820,9 +826,7 @@ def create_mcp_server(
         projected_board = None
         blocks: list[ImageContent | ResourceLink | TextContent] = []
         if delivery.board is not None:
-            projected_board, board_blocks = await project_evidence_board(
-                delivery.board
-            )
+            projected_board, board_blocks = await project_evidence_board(delivery.board)
             blocks.extend(board_blocks)
         projected_items = []
         for item in delivery.items:
@@ -950,6 +954,146 @@ def create_mcp_server(
             if link is not None:
                 blocks.append(link)
         return board.model_copy(update={"pages": tuple(projected_pages)}), blocks
+
+    def concise_text(value: str | None, *, limit: int = 320) -> str | None:
+        if value is None:
+            return None
+        compact = " ".join(value.split())
+        if len(compact) <= limit:
+            return compact
+        return f"{compact[: limit - 1].rstrip()}…"
+
+    def presentation_target(delivery: ArtifactDownload | None) -> str | None:
+        if delivery is None:
+            return None
+        if delivery.local_path is not None:
+            return f"local_path={delivery.local_path}"
+        if delivery.download_url is not None:
+            return f"download_url={delivery.download_url}"
+        if delivery.resource_uri is not None:
+            return f"resource_uri={delivery.resource_uri}"
+        return None
+
+    def presentation_artifacts(delivery: EvidenceDeliveryResult) -> list[str]:
+        artifacts: list[str] = []
+        if delivery.board is not None:
+            for page in delivery.board.pages:
+                target = presentation_target(page.artifact.delivery)
+                if target is not None:
+                    artifacts.append(f"- board page {page.page_number} | {target}")
+        for item in delivery.items:
+            if item.keyframe is not None:
+                target = presentation_target(item.keyframe.artifact.delivery)
+                if target is not None:
+                    artifacts.append(f"- evidence {item.evidence_id} frame | {target}")
+            if item.clip is not None:
+                target = presentation_target(item.clip.delivery)
+                if target is not None:
+                    artifacts.append(f"- evidence {item.evidence_id} clip | {target}")
+        return artifacts
+
+    def evidence_index(
+        *,
+        source_job_id: JobId,
+        delivery: EvidenceDeliveryResult,
+        query_result: QueryAnswer | None = None,
+    ) -> str:
+        lines = [f"VidXP evidence for job {source_job_id}."]
+        if query_result is not None:
+            if query_result.claims:
+                lines.append("Grounded answer:")
+                for claim in query_result.claims:
+                    text = concise_text(claim.text, limit=512) or ""
+                    citations = ", ".join(claim.evidence_ids)
+                    lines.append(f"- {text} [evidence: {citations}]")
+            elif query_result.fallback_reason:
+                lines.append(
+                    "Answer unavailable: "
+                    + (concise_text(query_result.fallback_reason, limit=512) or "")
+                )
+
+        board = delivery.board
+        if board is not None:
+            lines.append(
+                f"Board: {board.rendered_count}/{board.requested_count} candidates "
+                f"rendered across {len(board.pages)} page(s); "
+                f"{board.failed_count} failed."
+            )
+            candidates = board.tiles
+        else:
+            candidates = delivery.items
+
+        if candidates:
+            lines.append(
+                "Evidence index (rank | source seconds | modalities | ID | label):"
+            )
+        for candidate in candidates:
+            if isinstance(candidate, EvidenceDeliveryItem):
+                resolved = candidate.range
+                start = resolved.source_start_seconds if resolved is not None else 0.0
+                end = resolved.source_end_seconds if resolved is not None else start
+                label = None
+            else:
+                start = candidate.start
+                end = candidate.end
+                label = concise_text(candidate.display_text)
+            line = (
+                f"- {candidate.rank} | {start:.3f}-{end:.3f} | "
+                f"{','.join(candidate.modalities)} | {candidate.evidence_id}"
+            )
+            if label:
+                line += f" | {label}"
+            lines.append(line)
+
+        artifacts = presentation_artifacts(delivery)
+        if artifacts:
+            lines.append(
+                "User-presentable artifacts (embed local_path or link download_url; "
+                "do not invent an unlinked evidence label):"
+            )
+            lines.extend(artifacts)
+
+        if board is not None and board.next_start_rank is not None:
+            lines.append(f"More candidates start at rank {board.next_start_rank}.")
+        lines.append(
+            "Use materialize_job_evidence with this job ID and up to ten evidence "
+            "IDs for standalone frames or clips."
+        )
+        return "\n".join(lines)
+
+    async def evidence_content(
+        job: Job,
+    ) -> list[ImageContent | ResourceLink | TextContent]:
+        query_result = None
+        if job.kind in {JobKind.search, JobKind.query}:
+            result = job.result.result
+            delivery = result.evidence_delivery
+            if delivery is None:
+                raise ApplicationError(
+                    "job_evidence_unavailable",
+                    ErrorCategory.conflict,
+                    "The completed job does not contain deliverable evidence.",
+                )
+            if job.kind == JobKind.query:
+                query_result = result
+            projected_delivery, blocks = await project_evidence_delivery(delivery)
+            index = evidence_index(
+                source_job_id=job.job_id,
+                delivery=projected_delivery,
+                query_result=query_result,
+            )
+        else:
+            board = job.result.result
+            projected_board, blocks = await project_evidence_board(board)
+            index = evidence_index(
+                source_job_id=board.source_job_id,
+                delivery=EvidenceDeliveryResult(
+                    policy=EvidenceDeliveryPolicy(mode=EvidenceDeliveryMode.none),
+                    items=(),
+                    board=projected_board,
+                ),
+            )
+        return [TextContent(type="text", text=index), *blocks]
 
     def completed_evidence_result(
         source_job_id: JobId,
@@ -1244,7 +1388,7 @@ def create_mcp_server(
         description=(
             "Add or replace one registered media ID in the active multi-video "
             "index snapshot. Obtain the ID from list_media or a completed "
-            "upload, then poll get_job."
+            "upload, then observe it with wait_job and fetch get_job once."
         ),
         annotations=_SUBMIT,
         structured_output=True,
@@ -1275,7 +1419,7 @@ def create_mcp_server(
         title="Prepare models",
         description=(
             "Explicitly download and validate selected model artifacts. Poll "
-            "get_job for byte progress and completion before indexing."
+            "with wait_job for byte progress and completion before indexing."
         ),
         annotations=_SUBMIT,
         structured_output=True,
@@ -1310,7 +1454,7 @@ def create_mcp_server(
             "item in the active index snapshot. MCP returns an annotated board "
             "of ranked results by default. Set command.evidence_delivery.mode "
             "to keyframes or keyframes_and_clips only when standalone artifacts "
-            "are also needed, then poll only this job for results and evidence."
+            "are also needed, then use wait_job and get_job_evidence."
         ),
         annotations=_SUBMIT,
         structured_output=True,
@@ -1356,12 +1500,13 @@ def create_mcp_server(
         title="Query video",
         description=(
             "Submit a durable grounded natural-language query over indexed "
-            "moments and actor evidence. Set command.media_id for one video, "
+            "moments and actor evidence. Put the question in command.question. "
+            "Set command.media_id for one video, "
             "or omit it to query across every media item in the active index "
             "snapshot. MCP returns an annotated board of ranked evidence by "
             "default. Set command.evidence_delivery.mode to keyframes or "
             "keyframes_and_clips only when standalone artifacts are also needed, "
-            "then poll only this job for the grounded answer and evidence."
+            "then use wait_job and get_job_evidence."
         ),
         annotations=_SUBMIT,
         structured_output=True,
@@ -1407,8 +1552,8 @@ def create_mcp_server(
         title="Create clip",
         description=(
             "Create a downloadable clip from a media ID and time range returned "
-            "by search_moments or query_video. Poll get_job, then pass the "
-            "completed result's artifact_id to get_artifact_download."
+            "by search_moments or query_video. Wait with wait_job, then pass the "
+            "completed get_job result's artifact_id to get_artifact_download."
         ),
         annotations=_SUBMIT,
         structured_output=True,
@@ -1493,10 +1638,10 @@ def create_mcp_server(
             "Prepare keyframes and optional clips for one to ten evidence IDs "
             "from a completed search/query job. Use this to inspect candidates "
             "outside the initial bounded evidence delivery without supplying "
-            "timestamps or rerunning retrieval."
+            "timestamps or rerunning retrieval. Returns model-visible images "
+            "and links without duplicating the full structured result."
         ),
         annotations=_SUBMIT,
-        structured_output=True,
     )
     async def materialize_job_evidence(
         source_job_id: JobId,
@@ -1511,7 +1656,7 @@ def create_mcp_server(
         padding_before_seconds: Annotated[float, Field(ge=0, le=30)] = 2.0,
         padding_after_seconds: Annotated[float, Field(ge=0, le=30)] = 2.0,
         profile: SnippetProfile = SnippetProfile.compatible_mp4,
-    ) -> Annotated[CallToolResult, EvidenceDeliveryResult]:
+    ) -> CallToolResult:
         if len(evidence_ids) != len(set(evidence_ids)):
             raise _application_error(
                 ApplicationError(
@@ -1545,18 +1690,18 @@ def create_mcp_server(
             ),
             operation=materialize,
         )
-        projected, blocks = await project_evidence_delivery(delivery)
-        if not blocks:
-            blocks.append(
-                TextContent(
-                    type="text",
-                    text="VidXP could not produce the requested evidence artifacts.",
-                )
-            )
-        return CallToolResult(
-            content=blocks,
-            structured_content=projected.model_dump(mode="json"),
+        projected_delivery, blocks = await project_evidence_delivery(delivery)
+        blocks.insert(
+            0,
+            TextContent(
+                type="text",
+                text=evidence_index(
+                    source_job_id=source_job_id,
+                    delivery=projected_delivery,
+                ),
+            ),
         )
+        return CallToolResult(content=blocks)
 
     @server.tool(
         title="Create evidence board",
@@ -1635,7 +1780,8 @@ def create_mcp_server(
         title="List jobs",
         description=(
             "List durable jobs and IDs so work can be recovered across sessions. "
-            "Use get_job for transport-projected evidence and ResourceLinks."
+            "Use get_job_evidence to present completed search/query evidence, or "
+            "get_job for the full machine record."
         ),
         annotations=_READ_ONLY,
         structured_output=True,
@@ -1659,62 +1805,110 @@ def create_mcp_server(
     @server.tool(
         title="Get job",
         description=(
-            "Poll a durable VidXP job and its typed result. Completed search "
-            "and query jobs include the default annotated board plus any requested "
-            "standalone frames or clips. Custom evidence-board jobs include their "
-            "annotated pages and tile map in this same response."
+            "Fetch the full typed machine record for a durable VidXP job. Use "
+            "get_job_status or wait_job while work is active. For completed "
+            "search/query evidence, prefer get_job_evidence so images remain "
+            "model-visible without duplicating this full record."
         ),
         annotations=_READ_ONLY,
         structured_output=True,
     )
-    async def get_job(job_id: JobId) -> Annotated[CallToolResult, Job]:
-        job = await _invoke_async(
+    async def get_job(job_id: JobId) -> Job:
+        return await _invoke_async(
             context,
             default_principal=default_principal,
             permission=RepositoryPermission.read,
             operation=lambda _actor: context.jobs.get(job_id),
         )
-        blocks: list[ImageContent | ResourceLink | TextContent] = []
-        projected = job
-        if (
-            job.state == JobState.succeeded
-            and job.result is not None
-            and job.kind in {JobKind.search, JobKind.query}
-        ):
-            result = job.result.result
-            delivery = result.evidence_delivery
-            if delivery is not None:
-                projected_delivery, blocks = await project_evidence_delivery(delivery)
-                projected = job.model_copy(
-                    update={
-                        "result": job.result.model_copy(
-                            update={
-                                "result": result.model_copy(
-                                    update={"evidence_delivery": projected_delivery}
-                                )
-                            }
-                        )
-                    }
+
+    @server.tool(
+        title="Present job evidence",
+        description=(
+            "Present a completed search, query, or evidence-board job as a "
+            "concise evidence index plus model-visible board images and resource "
+            "links. This intentionally omits structuredContent; use get_job only "
+            "when the full machine record is actually needed."
+        ),
+        annotations=_READ_ONLY,
+    )
+    async def get_job_evidence(job_id: JobId) -> CallToolResult:
+        def completed_evidence_job(_actor: Principal) -> Job:
+            job = context.jobs.get(job_id)
+            if (
+                job.state != JobState.succeeded
+                or job.result is None
+                or job.kind
+                not in {JobKind.search, JobKind.query, JobKind.evidence_board}
+            ):
+                raise ApplicationError(
+                    "job_evidence_not_ready",
+                    ErrorCategory.conflict,
+                    "Evidence presentation requires a completed search, query, "
+                    "or evidence-board job.",
                 )
-        elif (
-            job.state == JobState.succeeded
-            and job.result is not None
-            and job.kind == JobKind.evidence_board
-        ):
-            board, blocks = await project_evidence_board(job.result.result)
-            projected = job.model_copy(
-                update={"result": job.result.model_copy(update={"result": board})}
-            )
-        if not blocks:
-            blocks.append(
-                TextContent(
-                    type="text",
-                    text=(f"VidXP job {job.job_id} is {job.state.value}."),
-                )
-            )
-        return CallToolResult(
-            content=blocks,
-            structured_content=projected.model_dump(mode="json"),
+            return job
+
+        job = await _invoke_async(
+            context,
+            default_principal=default_principal,
+            permission=RepositoryPermission.read,
+            operation=completed_evidence_job,
+        )
+        try:
+            blocks = await evidence_content(job)
+        except ApplicationError as exc:
+            raise _application_error(exc) from exc
+        return CallToolResult(content=blocks)
+
+    @server.tool(
+        title="Get compact job status",
+        description=(
+            "Return compact durable job status without its typed result, "
+            "evidence payloads, or ResourceLinks. Prefer wait_job after this "
+            "initial observation."
+        ),
+        annotations=_READ_ONLY,
+        structured_output=True,
+    )
+    async def get_job_status(job_id: JobId) -> JobSummary:
+        return await _invoke_async(
+            context,
+            default_principal=default_principal,
+            permission=RepositoryPermission.read,
+            operation=lambda _actor: context.jobs.summary(job_id),
+        )
+
+    @server.tool(
+        title="Wait for job change",
+        description=(
+            "Wait up to 30 seconds for a durable job to change stage or reach a "
+            "terminal state. Pass the previous observation token on subsequent "
+            "calls. Evidence rendering is treated as one observable phase "
+            "rather than waking once per artifact. Returns compact status only; "
+            "after completion use "
+            "get_job_evidence for visual search/query output, or get_job when "
+            "the full machine record is needed."
+        ),
+        annotations=_READ_ONLY,
+        structured_output=True,
+    )
+    async def wait_job(
+        job_id: JobId,
+        after_observation_token: Sha256 | None = None,
+        timeout_seconds: Annotated[
+            int,
+            Field(gt=0, le=MAX_JOB_WAIT_SECONDS),
+        ] = DEFAULT_JOB_WAIT_SECONDS,
+    ) -> JobWaitResult:
+        return await _invoke_async(
+            context,
+            default_principal=default_principal,
+            permission=RepositoryPermission.read,
+            operation=lambda _actor: context.jobs.wait_for_change(
+                job_id,
+                after=after_observation_token,
+                timeout_seconds=timeout_seconds,
+            ),
         )
 
     @server.tool(
