@@ -25,6 +25,8 @@ from vidxp.application_models import (
     CreateIndexCommand,
     DependencyCheckResult,
     DependencyKind,
+    ErrorCategory,
+    ErrorDetail,
     FusedSearchResult,
     FusionProvenance,
     IndexJobResult,
@@ -138,12 +140,40 @@ class CliTests(unittest.TestCase):
             "search",
             "actors",
             "artifacts",
+            "desktop-probe",
             "init",
             "doctor",
             "prepare",
             "mcp-config",
         ):
             self.assertIn(command, result.output)
+
+    def test_failed_model_preparation_job_is_structured_in_cli_json(self):
+        self.jobs.get.return_value = Job(
+            job_id=JOB_ID,
+            kind=JobKind.prepare_models,
+            state=JobState.failed,
+            queue=JobQueue.cpu,
+            error=ErrorDetail(
+                code="model_download_failed",
+                category=ErrorCategory.unavailable,
+                message="The model download failed after three attempts.",
+                details={
+                    "model": "publisher/model",
+                    "partial_files_preserved": True,
+                    "remediation": "vidxp prepare --modalities dialogue",
+                },
+                retryable=True,
+            ),
+        )
+
+        result = self.invoke(["jobs", "show", JOB_ID])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        error = json.loads(result.output)["error"]
+        self.assertEqual(error["code"], "model_download_failed")
+        self.assertTrue(error["retryable"])
+        self.assertTrue(error["details"]["partial_files_preserved"])
 
     def test_mcp_config_is_copy_paste_json_without_opening_repository(self):
         result = self.invoke(["mcp-config"])
@@ -305,11 +335,38 @@ class CliTests(unittest.TestCase):
         with patch(
             "vidxp.frontend.main",
             side_effect=SystemExit(0),
-        ):
+        ) as frontend:
             result = self.invoke(["ui"])
 
         self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn(
+            "--server.address=127.0.0.1",
+            frontend.call_args.args[0],
+        )
+        self.assertIn(
+            "--server.showEmailPrompt=false",
+            frontend.call_args.args[0],
+        )
+        self.assertIn(
+            "--browser.gatherUsageStats=false",
+            frontend.call_args.args[0],
+        )
         self.jobs.stop_worker.assert_called_once_with()
+
+    def test_ui_share_uses_streamlit_wildcard_bind_and_warns(self):
+        with patch(
+            "vidxp.frontend.main",
+            side_effect=SystemExit(0),
+        ) as frontend:
+            result = self.invoke(["ui", "--share"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        arguments = frontend.call_args.args[0]
+        self.assertIn("--server.address=0.0.0.0", arguments)
+        self.assertIn("--server.showEmailPrompt=false", arguments)
+        self.assertIn("--browser.gatherUsageStats=false", arguments)
+        self.assertIn("has no authentication", result.output)
+        self.assertNotIn("Browser UI:", result.output)
 
     def test_snippet_rejects_an_inverted_time_range_before_submission(self):
         result = self.invoke(
@@ -813,9 +870,47 @@ class CliTests(unittest.TestCase):
         self.assertIn("1.43 GiB", result.output)
         self.assertRegex(
             result.output,
-            r"\[\d{2}:\d{2}:\d{2}\] Starting model preparation for scene\.",
+            r"\[\d{2}:\d{2}:\d{2}\] Downloading and validating models for "
+            r"scene\.",
         )
         self.assertTrue(callable(self.jobs.wait.call_args.kwargs["progress"]))
+
+    def test_prepare_distinguishes_cached_model_verification(self):
+        self.service.model_readiness.return_value = DependencyCheckResult(
+            ok=True,
+            modalities=("scene",),
+            checks=(),
+        )
+        prepared = PrepareModelsResult(
+            prepared=("scene-model",),
+            modalities=("scene",),
+            runtime={
+                "requested": "cpu",
+                "torch_device": "cpu",
+                "transcription_device": "cpu",
+            },
+        )
+        self.jobs.submit_prepare_models.return_value = Job(
+            job_id=JOB_ID,
+            kind=JobKind.prepare_models,
+            state=JobState.queued,
+            queue=JobQueue.cpu,
+        )
+        self.jobs.wait.return_value = Job(
+            job_id=JOB_ID,
+            kind=JobKind.prepare_models,
+            state=JobState.succeeded,
+            queue=JobQueue.cpu,
+            result=PrepareModelsJobResult(result=prepared),
+        )
+
+        result = self.invoke(["prepare", "--modalities", "scene"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertRegex(
+            result.output,
+            r"\[\d{2}:\d{2}:\d{2}\] Validating cached models for scene\.",
+        )
 
     def test_prepare_discloses_size_and_requires_confirmation(self):
         self.service.model_readiness.return_value = DependencyCheckResult(

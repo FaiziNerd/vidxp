@@ -37,6 +37,7 @@ from vidxp.infrastructure.local_index import (
     SERVER_INDEX_RUNTIME_CHECKS,
 )
 from vidxp.model_contracts import (
+    ModelArtifactDownloadError,
     ModelArtifactUnavailableError,
     ModelKey,
     model_artifact_path,
@@ -150,6 +151,39 @@ class ModelTests(unittest.TestCase):
             "yunet",
         )
 
+    def test_actor_download_retries_without_claiming_partial_resume(self):
+        with TemporaryDirectory() as directory:
+            spec = replace(YUNET_MODEL, filename="missing.onnx")
+            runtime = self.runtime(
+                directory,
+                allowed_specs=(spec,),
+                allow_model_downloads=True,
+            )
+            retrieve = Mock(side_effect=ConnectionError("interrupted"))
+            events = []
+            with patch.dict(
+                sys.modules,
+                {"pooch": types.SimpleNamespace(retrieve=retrieve)},
+            ), patch("vidxp.runtime.sleep"), self.assertRaises(
+                ModelArtifactDownloadError
+            ) as raised:
+                runtime.resolve_artifact(
+                    spec,
+                    download=True,
+                    progress=events.append,
+                )
+
+        self.assertEqual(retrieve.call_count, 3)
+        self.assertFalse(raised.exception.resumable)
+        self.assertTrue(raised.exception.retryable)
+        self.assertTrue(
+            any(
+                event["stage"] == "downloading_model"
+                and "restart from zero" in event["message"]
+                for event in events
+            )
+        )
+
     def test_normal_model_resolution_never_downloads_implicitly(self):
         with TemporaryDirectory() as directory:
             spec = replace(YUNET_MODEL, filename="missing.onnx")
@@ -203,6 +237,14 @@ class ModelTests(unittest.TestCase):
     def test_explicit_snapshot_download_reports_bytes(self):
         with TemporaryDirectory() as directory:
             snapshot = Path(directory) / "snapshot"
+            weights = snapshot / FASTER_WHISPER_MODEL.weights_file
+            weights.parent.mkdir(parents=True)
+            content = b"verified weights"
+            weights.write_bytes(content)
+            spec = replace(
+                FASTER_WHISPER_MODEL,
+                weights_sha256=hashlib.sha256(content).hexdigest(),
+            )
             events = []
 
             def download(**options):
@@ -226,7 +268,7 @@ class ModelTests(unittest.TestCase):
                 False,
             ):
                 resolved = ModelRuntime._download_snapshot(
-                    FASTER_WHISPER_MODEL,
+                    spec,
                     cache=Path(directory),
                     progress=events.append,
                 )
@@ -235,14 +277,196 @@ class ModelTests(unittest.TestCase):
                 )
 
         self.assertEqual(resolved, snapshot)
+        download_events = [
+            event for event in events if event["stage"] == "downloading_model"
+        ]
+        self.assertTrue(download_events)
+        self.assertTrue(
+            all(
+                event["total"] == spec.download_size_bytes
+                for event in download_events
+            )
+        )
         self.assertTrue(
             any(
                 event["stage"] == "downloading_model"
-                and event["current"] == 1024
-                and event["total"] == 1024
+                and event["current"]
+                == spec.download_size_bytes
+                and event["total"]
+                == spec.download_size_bytes
                 for event in events
             )
         )
+
+    def test_snapshot_download_retries_and_resumes_partial_cache(self):
+        with TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "snapshot"
+            weights = snapshot / FASTER_WHISPER_MODEL.weights_file
+            weights.parent.mkdir(parents=True)
+            content = b"verified weights"
+            weights.write_bytes(content)
+            spec = replace(
+                FASTER_WHISPER_MODEL,
+                weights_sha256=hashlib.sha256(content).hexdigest(),
+            )
+            download = Mock(
+                side_effect=(ConnectionError("interrupted"), str(snapshot))
+            )
+            events = []
+
+            with patch(
+                "huggingface_hub.snapshot_download",
+                download,
+            ), patch("vidxp.runtime.sleep") as retry_sleep:
+                resolved = ModelRuntime._download_snapshot(
+                    spec,
+                    cache=Path(directory),
+                    progress=events.append,
+                )
+
+        self.assertEqual(resolved, snapshot)
+        self.assertEqual(download.call_count, 2)
+        retry_sleep.assert_called_once_with(1)
+        self.assertTrue(
+            any(
+                event["stage"] == "downloading_model"
+                and "partial files will be resumed" in event["message"]
+                for event in events
+            )
+        )
+
+    def test_snapshot_download_retries_an_incomplete_returned_snapshot(self):
+        with TemporaryDirectory() as directory:
+            snapshot = Path(directory) / "snapshot"
+            weights = snapshot / FASTER_WHISPER_MODEL.weights_file
+            content = b"verified weights"
+            spec = replace(
+                FASTER_WHISPER_MODEL,
+                weights_sha256=hashlib.sha256(content).hexdigest(),
+            )
+            calls = 0
+
+            def download(**_options):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    weights.parent.mkdir(parents=True)
+                    weights.write_bytes(content)
+                return str(snapshot)
+
+            events = []
+            with patch(
+                "huggingface_hub.snapshot_download",
+                side_effect=download,
+            ), patch("vidxp.runtime.sleep") as retry_sleep:
+                resolved = ModelRuntime._download_snapshot(
+                    spec,
+                    cache=Path(directory),
+                    progress=events.append,
+                )
+
+        self.assertEqual(resolved, snapshot)
+        self.assertEqual(calls, 2)
+        retry_sleep.assert_called_once_with(1)
+        self.assertTrue(
+            any(
+                event["stage"] == "downloading_model"
+                and "partial files will be resumed" in event["message"]
+                for event in events
+            )
+        )
+
+    def test_snapshot_download_reports_actionable_terminal_failure(self):
+        with TemporaryDirectory() as directory:
+            download = Mock(side_effect=ConnectionError("private detail"))
+
+            with patch(
+                "huggingface_hub.snapshot_download",
+                download,
+            ), patch("vidxp.runtime.sleep"), self.assertRaises(
+                ModelArtifactDownloadError
+            ) as raised:
+                ModelRuntime._download_snapshot(
+                    FASTER_WHISPER_MODEL,
+                    cache=Path(directory),
+                    progress=None,
+                )
+
+        self.assertEqual(download.call_count, 3)
+        self.assertEqual(raised.exception.attempts, 3)
+        self.assertEqual(raised.exception.reason, "ConnectionError")
+        self.assertTrue(raised.exception.resumable)
+        self.assertTrue(raised.exception.retryable)
+        self.assertNotIn("private detail", str(raised.exception))
+
+    def test_snapshot_download_does_not_mask_programming_errors(self):
+        with TemporaryDirectory() as directory:
+            download = Mock(side_effect=TypeError("implementation bug"))
+
+            with patch(
+                "huggingface_hub.snapshot_download",
+                download,
+            ), self.assertRaisesRegex(TypeError, "implementation bug"):
+                ModelRuntime._download_snapshot(
+                    FASTER_WHISPER_MODEL,
+                    cache=Path(directory),
+                    progress=None,
+                )
+
+        download.assert_called_once()
+
+    def test_snapshot_download_does_not_retry_terminal_http_errors(self):
+        with TemporaryDirectory() as directory:
+            response = Mock(status_code=404)
+            failure = RuntimeError("not found")
+            failure.response = response
+            download = Mock(side_effect=failure)
+
+            with patch(
+                "huggingface_hub.snapshot_download",
+                download,
+            ), self.assertRaises(ModelArtifactDownloadError) as raised:
+                ModelRuntime._download_snapshot(
+                    FASTER_WHISPER_MODEL,
+                    cache=Path(directory),
+                    progress=None,
+                )
+
+        download.assert_called_once()
+        self.assertEqual(raised.exception.reason, "HTTP 404 RuntimeError")
+        self.assertFalse(raised.exception.retryable)
+
+    def test_incomplete_cached_snapshot_is_resumed_during_prepare(self):
+        with TemporaryDirectory() as directory:
+            cache = Path(directory) / "models"
+            incomplete = Path(directory) / "incomplete"
+            complete = Path(directory) / "complete"
+            content = b"verified weights"
+            weights = complete / FASTER_WHISPER_MODEL.weights_file
+            weights.parent.mkdir(parents=True)
+            weights.write_bytes(content)
+            spec = replace(
+                FASTER_WHISPER_MODEL,
+                weights_sha256=hashlib.sha256(content).hexdigest(),
+            )
+            runtime = self.runtime(
+                directory,
+                allowed_specs=(spec,),
+                allow_model_downloads=True,
+            )
+
+            with patch(
+                "huggingface_hub.snapshot_download",
+                return_value=str(incomplete),
+            ), patch.object(
+                ModelRuntime,
+                "_download_snapshot",
+                return_value=complete,
+            ) as resume:
+                resolved = runtime.resolve_model(spec, download=True)
+
+        self.assertEqual(resolved, complete)
+        resume.assert_called_once_with(spec, cache=cache, progress=None)
 
     def test_runtime_rejects_specs_not_declared_by_enabled_capabilities(self):
         with TemporaryDirectory() as directory:

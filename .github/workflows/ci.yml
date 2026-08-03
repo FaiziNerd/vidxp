@@ -35,6 +35,11 @@ on:
         required: false
         default: false
         type: boolean
+      package_artifact_name:
+        description: Preserve the already-smoke-tested distribution under this name.
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       checkout_ref:
@@ -61,9 +66,14 @@ on:
         required: false
         default: true
         type: boolean
+      package_artifact_name:
+        description: Preserve the already-smoke-tested distribution under this name.
+        required: false
+        default: ""
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.checkout_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -72,14 +82,11 @@ permissions:
 
 jobs:
   scope:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.base_ref != 'release' ||
-      github.head_ref != 'main'
     runs-on: ubuntu-latest
     outputs:
       needs_python: ${{ steps.scope.outputs.needs_python }}
       run_container: ${{ steps.scope.outputs.run_container }}
+      run_desktop: ${{ steps.scope.outputs.run_desktop }}
       run_suite: ${{ steps.scope.outputs.run_suite }}
     steps:
       - uses: actions/checkout@v7
@@ -87,39 +94,26 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.checkout_ref || github.sha }}
 
+      - name: Validate GitHub Actions workflows
+        run: bash utils/check_workflows.sh
+
       - name: Determine validation scope
         id: scope
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.base_ref }}
           FORCE_VALIDATION: ${{ inputs.force_validation || false }}
+          HEAD_REF: ${{ github.head_ref }}
           RUN_CONTAINERS: ${{ inputs.run_containers || false }}
         run: |
-          if [[ "$FORCE_VALIDATION" == "true" ]]; then
-            {
-              echo "run_suite=true"
-              echo "run_container=$RUN_CONTAINERS"
-              echo "needs_python=true"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          changed_files="$(git diff --name-only "$BASE_SHA" HEAD)"
-          if grep -Eq '^(\.github/workflows/ci\.yml$|src/|tests/|utils/|LICENSE$|MANIFEST\.in$|pyproject\.toml$|uv\.lock$)' <<< "$changed_files"; then
-            run_suite=true
-          else
-            run_suite=false
-          fi
-          if grep -Eq '^(\.dockerignore$|\.github/workflows/ci\.yml$|Dockerfile$|compose\.yaml$|pyproject\.toml$|uv\.lock$|src/vidxp/(requirements/.*\.txt|capabilities/[^/]+/requirements\.txt)$)' <<< "$changed_files"; then
-            run_container=true
-          else
-            run_container=false
-          fi
-
-          needs_python="$run_suite"
-          echo "run_suite=$run_suite" >> "$GITHUB_OUTPUT"
-          echo "run_container=$run_container" >> "$GITHUB_OUTPUT"
-          echo "needs_python=$needs_python" >> "$GITHUB_OUTPUT"
+          python utils/ci_scope.py \
+            --base "$BASE_SHA" \
+            --base-ref "$BASE_REF" \
+            --force-validation "$FORCE_VALIDATION" \
+            --github-output "$GITHUB_OUTPUT" \
+            --head-ref "$HEAD_REF" \
+            --run-containers "$RUN_CONTAINERS"
 
   validate:
     if: needs.scope.outputs.needs_python == 'true'
@@ -139,15 +133,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - uses: actions/setup-node@v7
+        if: needs.scope.outputs.run_suite == 'true' && matrix.python-version == '3.14'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/upload-page/package-lock.json
+
       - name: Install repository tooling
         run: |
           python -m pip install --upgrade pip
+          python -m pip install "uv==0.12.0"
           python -m pip install -r utils/build-requirements.txt
+
+      - name: Verify Python lockfile
+        run: uv lock --check
 
       - name: Install test surface
         if: needs.scope.outputs.run_suite == 'true'
         run: |
-          python -m pip install "uv==0.12.0"
           uv sync \
             --frozen \
             --extra all \
@@ -161,6 +165,21 @@ jobs:
       - name: Lint
         if: needs.scope.outputs.run_suite == 'true' && matrix.python-version == '3.14'
         run: ruff check src tests
+
+      - name: Install locked upload-page tooling
+        if: needs.scope.outputs.run_suite == 'true' && matrix.python-version == '3.14'
+        run: npm ci
+        working-directory: web/upload-page
+
+      - name: Test upload page
+        if: needs.scope.outputs.run_suite == 'true' && matrix.python-version == '3.14'
+        run: npm test
+        working-directory: web/upload-page
+
+      - name: Build upload page and verify committed bundle
+        if: needs.scope.outputs.run_suite == 'true' && matrix.python-version == '3.14'
+        run: npm run check:bundle
+        working-directory: web/upload-page
 
       - name: Test
         if: needs.scope.outputs.run_suite == 'true'
@@ -180,41 +199,24 @@ jobs:
           .wheel-smoke/bin/python -m pip install --upgrade pip
           .wheel-smoke/bin/python -m pip install dist/*.whl
           .wheel-smoke/bin/python -m pip check
-          .wheel-smoke/bin/python - <<'PY'
-          from importlib.util import find_spec
-          from subprocess import check_output
+          .wheel-smoke/bin/python utils/verify_runtime.py minimal \
+            --vidxp-executable .wheel-smoke/bin/vidxp
 
-          import vidxp
-          from vidxp.capabilities.registry import create_capability_registry
-
-          assert create_capability_registry().names() == (
-              "dialogue", "scene", "actor"
-          )
-          help_text = check_output(
-              [".wheel-smoke/bin/vidxp", "--help"],
-              text=True,
-          )
-          assert "benchmark" in help_text
-          benchmark_help = check_output(
-              [".wheel-smoke/bin/vidxp", "benchmark", "--help"],
-              text=True,
-          )
-          assert "official benchmark adapters" in benchmark_help
-          for module in (
-              "chromadb",
-              "cv2",
-              "faster_whisper",
-              "sentence_transformers",
-              "streamlit",
-              "torch",
-              "transformers",
-          ):
-              assert find_spec(module) is None, module
-          PY
+      - name: Preserve the validated distribution
+        if: >-
+          needs.scope.outputs.run_suite == 'true' &&
+          matrix.python-version == '3.14' &&
+          inputs.package_artifact_name != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.package_artifact_name }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Validate Compose configuration
         if: needs.scope.outputs.run_container == 'true' && matrix.python-version == '3.14'
-        run: docker compose config --quiet
+        run: bash utils/validate_compose.sh
 
       - name: Build container
         if: needs.scope.outputs.run_container == 'true' && matrix.python-version == '3.14'
@@ -222,33 +224,7 @@ jobs:
 
       - name: Smoke container
         if: needs.scope.outputs.run_container == 'true' && matrix.python-version == '3.14'
-        shell: bash
-        run: |
-          docker run --detach --name vidxp-ci \
-            --publish 127.0.0.1:8501:8501 vidxp:ci
-          trap 'docker rm --force vidxp-ci >/dev/null 2>&1 || true' EXIT
-
-          docker exec vidxp-ci vidxp --version
-          docker exec vidxp-ci vidxp init --json
-          docker exec vidxp-ci python -c \
-            'import chromadb, cv2, faster_whisper, huggingface_hub, pooch, psutil, sentence_transformers, torch, transformers; assert psutil.virtual_memory().available > 0'
-          docker exec vidxp-ci python -c \
-            'import importlib.metadata as m; assert not any(d.metadata["Name"].lower().startswith("nvidia-") for d in m.distributions())'
-          docker exec vidxp-ci sh -c \
-            'test ! -d "$HOME/.cache/huggingface" && test ! -d "$HOME/.cache/clip"'
-
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
-              exit 0
-            fi
-            if [[ "$(docker inspect --format='{{.State.Running}}' vidxp-ci)" != "true" ]]; then
-              break
-            fi
-            sleep 2
-          done
-
-          docker logs vidxp-ci
-          exit 1
+        run: bash utils/smoke_container.sh vidxp:ci
 
   provider-platform-smoke:
     if: needs.scope.outputs.run_suite == 'true'
@@ -286,58 +262,40 @@ jobs:
           VIDXP_ALLOW_MODEL_DOWNLOADS: "false"
 
       - name: Verify platform and CPU runtime
+        run: uv run --no-sync python utils/verify_runtime.py cpu
+
+  desktop:
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.scope.outputs.run_desktop == 'true'
+    needs: scope
+    uses: ./.github/workflows/desktop.yml
+    with:
+      checkout_ref: ${{ github.sha }}
+
+  required:
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - scope
+      - validate
+      - provider-platform-smoke
+      - desktop
+    name: validation/required
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every applicable validation job
+        env:
+          DESKTOP_RESULT: ${{ needs.desktop.result }}
+          PROVIDER_RESULT: ${{ needs.provider-platform-smoke.result }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
         shell: bash
         run: |
-          uv run --no-sync python - <<'PY'
-          from importlib import metadata
-          import platform
-          import chromadb
-          import cv2
-          import faster_whisper
-          import huggingface_hub
-          import pooch
-          import psutil
-          import sentence_transformers
-          import torch
-          import transformers
-
-          from vidxp.runtime import resolve_backends
-
-          assert hasattr(cv2, "FaceDetectorYN")
-          assert hasattr(cv2, "FaceRecognizerSF")
-          assert hasattr(faster_whisper, "WhisperModel")
-          assert hasattr(faster_whisper, "BatchedInferencePipeline")
-          assert hasattr(
-              sentence_transformers.SentenceTransformer,
-              "encode_query",
-          )
-          assert hasattr(
-              sentence_transformers.SentenceTransformer,
-              "encode_document",
-          )
-          assert hasattr(transformers, "AutoModel")
-          assert hasattr(transformers, "AutoProcessor")
-          assert hasattr(chromadb, "PersistentClient")
-          assert hasattr(huggingface_hub, "snapshot_download")
-          assert hasattr(pooch, "retrieve")
-          assert psutil.virtual_memory().available > 0
-          assert torch.version.cuda is None, torch.version.cuda
-          installed = {
-              distribution.metadata["Name"].lower().replace("_", "-")
-              for distribution in metadata.distributions()
-              if distribution.metadata.get("Name")
-          }
-          leaks = sorted(
-              name
-              for name in installed
-              if name in {"cuda-toolkit", "cuda-bindings", "triton"}
-              or name.startswith("nvidia-")
-              or name.startswith("pytorch-triton")
-          )
-          assert not leaks, leaks
-
-          profile = resolve_backends("cpu")
-          assert profile.torch_device == "cpu"
-          if platform.system() == "Darwin":
-              assert platform.machine() == "arm64"
-          PY
+          [[ "$SCOPE_RESULT" == "success" ]]
+          for result in \
+            "$DESKTOP_RESULT" \
+            "$PROVIDER_RESULT" \
+            "$VALIDATE_RESULT"
+          do
+            [[ "$result" == "success" || "$result" == "skipped" ]]
+          done

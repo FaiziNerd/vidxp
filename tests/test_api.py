@@ -18,17 +18,32 @@ from vidxp.api import create_app
 from vidxp.api_routes.dependencies import scoped_job_id
 from vidxp.application_models import (
     ApplicationError,
+    Artifact,
     ErrorCategory,
+    ErrorDetail,
+    EvidenceArtifact,
+    EvidenceDeliveryItem,
+    EvidenceDeliveryMode,
+    EvidenceDeliveryPolicy,
+    EvidenceDeliveryResult,
+    EvidenceDeliveryState,
+    EvidenceFrameMatch,
+    EvidenceKeyframe,
+    FusedSearchResult,
+    FusionProvenance,
     ComponentReadiness,
     Job,
     JobKind,
     JobQueue,
     JobState,
+    IndexStatus,
     MediaAsset,
     Principal,
     SearchCommand,
+    SearchJobResult,
     QueryVideoCommand,
     UploadIntent,
+    WorkspaceOverview,
 )
 from vidxp.composition import (
     HttpApplicationContext,
@@ -38,6 +53,7 @@ from vidxp.control_plane import ControlPlaneApplication
 from vidxp.authentication import create_authenticator
 from vidxp.authorization import AuthorizationPolicy
 from vidxp.core.media import MediaState, MediaStream
+from vidxp.core.artifacts import ArtifactKind, ArtifactState
 from vidxp.core.uploads import UploadState
 from vidxp.job_service import JobService
 from vidxp.ports import LocalFileResource
@@ -83,6 +99,62 @@ def queued_job() -> Job:
         kind=JobKind.index,
         state=JobState.queued,
         queue=JobQueue.cpu,
+    )
+
+
+def evidence_job() -> Job:
+    artifact = Artifact(
+        artifact_id=ARTIFACT_ID,
+        media_id=MEDIA_ID,
+        generation_id="523456781234423481234567890abcde",
+        job_id=JOB_ID,
+        kind=ArtifactKind.evidence_frame,
+        profile="png",
+        mime_type="image/png",
+        byte_size=8,
+        sha256="1" * 64,
+        state=ArtifactState.ready,
+        created_at=datetime.now(timezone.utc),
+    )
+    return Job(
+        job_id=JOB_ID,
+        kind=JobKind.search,
+        state=JobState.succeeded,
+        queue=JobQueue.cpu,
+        result=SearchJobResult(
+            result=FusedSearchResult(
+                query_id="http-evidence",
+                query="frame",
+                modalities=("scene",),
+                fusion=FusionProvenance(
+                    requested_modalities=("scene",),
+                    searched_modalities=("scene",),
+                ),
+                evidence_delivery=EvidenceDeliveryResult(
+                    policy=EvidenceDeliveryPolicy(
+                        mode=EvidenceDeliveryMode.keyframes,
+                        max_items=1,
+                    ),
+                    items=(
+                        EvidenceDeliveryItem(
+                            evidence_id="e" * 64,
+                            rank=1,
+                            media_id=MEDIA_ID,
+                            generation_id=artifact.generation_id or "",
+                            modalities=("scene",),
+                            state=EvidenceDeliveryState.ready,
+                            keyframe=EvidenceKeyframe(
+                                match=EvidenceFrameMatch.representative,
+                                timestamp_seconds=1,
+                                width=1,
+                                height=1,
+                                artifact=EvidenceArtifact(artifact=artifact),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        ),
     )
 
 
@@ -180,10 +252,13 @@ class ApiTests(unittest.TestCase):
             )
             with TestClient(create_app(context=context)) as client:
                 health = client.get("/health")
+                favicon = client.get("/favicon.ico")
                 ready = client.get("/ready")
 
         self.assertEqual(health.status_code, 200)
         self.assertEqual(health.json(), {"status": "ok"})
+        self.assertEqual(favicon.status_code, 204)
+        self.assertEqual(favicon.content, b"")
         self.assertEqual(ready.status_code, 200)
         self.assertEqual(ready.json(), {"ready": True, "status": "ready"})
 
@@ -273,6 +348,28 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
         self.assertEqual(accepted.json(), {"items": []})
         context.application.list_capabilities.assert_called_once_with()
+
+    def test_workspace_endpoint_returns_actionable_repository_state(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory))
+            context.application.workspace.return_value = WorkspaceOverview(
+                media_total=0,
+                index=IndexStatus(
+                    schema_version=2,
+                    state="missing",
+                    stage="status",
+                    message="No index.",
+                ),
+                next_actions=("register_media",),
+            )
+            with TestClient(create_app(context=context)) as client:
+                response = client.get("/api/v1/workspace?page_size=25")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["media_total"], 0)
+        self.assertEqual(response.json()["next_actions"], ["register_media"])
+        command = context.application.workspace.call_args.args[0]
+        self.assertEqual(command.page_size, 25)
 
     def test_repository_scopes_are_enforced_per_operation(self):
         with TemporaryDirectory() as directory:
@@ -374,7 +471,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(command.media_id, MEDIA_ID)
         self.assertEqual(command.modalities, ("scene",))
         self.assertEqual(command.scene_sample_fps, 0.5)
-        context.application.require_models.assert_called_once_with(("scene",))
         expected_job_id = scoped_job_id(
             context,
             context.authenticator.authenticate(None),
@@ -405,10 +501,85 @@ class ApiTests(unittest.TestCase):
             ),
         )
 
+    def test_http_index_retry_routes_through_upload_relink_boundary(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory), remote_uploads=True)
+            assert context.uploads is not None
+            context.uploads.start_indexing.return_value = queued_job()
+            with TestClient(create_app(context=context)) as client:
+                response = client.post(
+                    "/api/v1/jobs/index",
+                    headers={"Idempotency-Key": IDEMPOTENCY_KEY},
+                    json={
+                        "media_id": MEDIA_ID,
+                        "modalities": ["scene"],
+                    },
+                )
+
+        self.assertEqual(response.status_code, 202)
+        context.uploads.start_indexing.assert_called_once()
+        context.jobs.submit_index.assert_not_called()
+
+    def test_failed_model_preparation_job_is_structured_over_http(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory))
+            context.jobs.get.return_value = Job(
+                job_id=JOB_ID,
+                kind=JobKind.prepare_models,
+                state=JobState.failed,
+                queue=JobQueue.cpu,
+                error=ErrorDetail(
+                    code="model_download_failed",
+                    category=ErrorCategory.unavailable,
+                    message="The model download failed after three attempts.",
+                    details={
+                        "model": "publisher/model",
+                        "partial_files_preserved": True,
+                        "remediation": "vidxp prepare --modalities dialogue",
+                    },
+                    retryable=True,
+                ),
+            )
+            with TestClient(create_app(context=context)) as client:
+                response = client.get(f"/api/v1/jobs/{JOB_ID}")
+
+        self.assertEqual(response.status_code, 200)
+        error = response.json()["error"]
+        self.assertEqual(error["code"], "model_download_failed")
+        self.assertTrue(error["retryable"])
+        self.assertTrue(error["details"]["partial_files_preserved"])
+
+    def test_http_job_projects_durable_evidence_to_protected_artifact_route(self):
+        with TemporaryDirectory() as directory:
+            context = self.context(Path(directory))
+            durable = evidence_job()
+            evidence = durable.result.result.evidence_delivery.items[0]
+            self.assertIsNone(evidence.keyframe.artifact.resource_uri)
+            context.jobs.get.return_value = durable
+            context.jobs.result.return_value = durable.result
+            with TestClient(create_app(context=context)) as client:
+                response = client.get(f"/api/v1/jobs/{JOB_ID}")
+                result_response = client.get(f"/api/v1/jobs/{JOB_ID}/result")
+
+        expected = f"/api/v1/artifacts/{ARTIFACT_ID}/content"
+        self.assertEqual(response.status_code, 200)
+        projected = response.json()["result"]["result"]["evidence_delivery"]
+        self.assertEqual(
+            projected["items"][0]["keyframe"]["artifact"]["resource_uri"],
+            expected,
+        )
+        result_projected = result_response.json()["result"]["evidence_delivery"]
+        self.assertEqual(
+            result_projected["items"][0]["keyframe"]["artifact"]["resource_uri"],
+            expected,
+        )
+        self.assertNotIn("vidxp://", response.text)
+        self.assertNotIn(str(Path(directory)), response.text)
+
     def test_missing_models_fail_before_job_submission(self):
         with TemporaryDirectory() as directory:
             context = self.context(Path(directory))
-            context.application.require_models.side_effect = ApplicationError(
+            context.jobs.submit_index.side_effect = ApplicationError(
                 "model_unavailable",
                 ErrorCategory.unavailable,
                 "Run vidxp prepare --modalities scene.",
@@ -433,7 +604,7 @@ class ApiTests(unittest.TestCase):
             response.json()["error"]["details"]["remediation"],
             "vidxp prepare --modalities scene",
         )
-        context.jobs.submit_index.assert_not_called()
+        context.jobs.submit_index.assert_called_once()
 
     def test_job_submission_requires_an_idempotency_key(self):
         with TemporaryDirectory() as directory:
@@ -909,6 +1080,7 @@ class ApiTests(unittest.TestCase):
     def test_http_composition_does_not_construct_model_runtime(self):
         with TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             settings = VidXPSettings(
+                data_dir=Path(directory) / "data",
                 repository_root=Path(directory),
                 runtime_backend="cpu",
             )
@@ -922,6 +1094,11 @@ class ApiTests(unittest.TestCase):
                     context.application,
                     ControlPlaneApplication,
                 )
+                self.assertEqual(
+                    context.settings.artifact_download_public_url,
+                    "http://127.0.0.1:32191/artifact-download",
+                )
+                self.assertIsNotNone(context.settings.artifact_download_secret)
                 runtime.assert_not_called()
             finally:
                 context.close()

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Upload videos · VidXP</title>
+    <link rel="stylesheet" href="./assets/upload-page.css">
+    <script type="module" src="./assets/upload-page.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <p class="eyebrow">VidXP media intake</p>
+        <h1>Upload your videos</h1>
+        <p id="summary" class="lede">Opening the secure upload session…</p>
+      </header>
+
+      <section class="card" aria-labelledby="session-heading">
+        <div class="section-heading">
+          <h2 id="session-heading">Upload session</h2>
+          <button id="close-session" class="secondary" type="button">Close session</button>
+        </div>
+        <dl class="facts">
+          <div><dt>State</dt><dd id="session-state">—</dd></div>
+          <div><dt>Files</dt><dd id="file-count">—</dd></div>
+          <div><dt>Per-file maximum</dt><dd id="maximum-file-size">—</dd></div>
+          <div><dt>Session maximum</dt><dd id="maximum-session-size">—</dd></div>
+          <div><dt>Transfer backend</dt><dd id="transfer-backend">—</dd></div>
+          <div><dt>Reserved</dt><dd id="reserved-summary">—</dd></div>
+          <div><dt>Uploaded</dt><dd id="uploaded-summary">—</dd></div>
+          <div><dt>Expires</dt><dd id="expires-at">—</dd></div>
+        </dl>
+        <p id="transfer-hint" class="hint">
+          VidXP is loading the server-selected transfer contract.
+        </p>
+      </section>
+
+      <section class="card" aria-labelledby="upload-heading">
+        <h2 id="upload-heading">Choose and upload videos</h2>
+        <div id="uppy-dashboard"></div>
+        <p id="upload-state" class="state" role="status" aria-live="polite">
+          Waiting for a valid upload session.
+        </p>
+      </section>
+
+      <section class="card" aria-labelledby="status-heading">
+        <h2 id="status-heading">Per-file results</h2>
+        <p id="next-action">The page will refresh the server-owned status automatically.</p>
+        <ul id="session-files" class="session-files" aria-live="polite"></ul>
+      </section>
+
+      <noscript>This upload page requires JavaScript to transfer selected videos.</noscript>
+    </main>
+  </body>
+</html>

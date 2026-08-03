@@ -12,6 +12,8 @@ from vidxp.application_models import (
     ResourceNotFoundError,
 )
 from vidxp.artifact_service import (
+    ArtifactNotFoundError,
+    ArtifactNotReadyError,
     ArtifactRequestError,
     ArtifactUnavailableError,
     InvalidArtifactError,
@@ -43,6 +45,8 @@ from vidxp.media_service import (
     MediaIdempotencyConflictError,
     MediaImportNotAllowedError,
 )
+
+
 def _validation_details(
     exc: ValidationError,
 ) -> list[dict[str, JsonValue]]:
@@ -113,7 +117,13 @@ def application_boundary(handler: Callable) -> Callable:
                 errors=_validation_details(exc),
             ) from exc
         except CapabilityRequestError as exc:
-            raise InvalidRequestError() from exc
+            error = {
+                "type": "capability_request",
+                "location": [exc.field],
+                "message": str(exc),
+                **exc.details(),
+            }
+            raise InvalidRequestError(errors=[error]) from exc
         except InvalidMediaError as exc:
             raise ApplicationError(
                 "media_invalid",
@@ -155,8 +165,26 @@ def application_boundary(handler: Callable) -> Callable:
             ) from exc
         except MediaUnavailableError as exc:
             raise ResourceNotFoundError("media") from exc
+        except ArtifactNotFoundError as exc:
+            raise ApplicationError(
+                "artifact_not_found",
+                ErrorCategory.not_found,
+                "The requested artifact was not found.",
+            ) from exc
+        except ArtifactNotReadyError as exc:
+            raise ApplicationError(
+                "artifact_not_ready",
+                ErrorCategory.conflict,
+                "The requested artifact is not ready for delivery.",
+                retryable=True,
+            ) from exc
         except ArtifactUnavailableError as exc:
-            raise ResourceNotFoundError("artifact") from exc
+            raise ApplicationError(
+                "artifact_not_ready",
+                ErrorCategory.conflict,
+                "The requested artifact is not ready for delivery.",
+                retryable=True,
+            ) from exc
         except ArtifactIntegrityError as exc:
             raise ApplicationError(
                 "artifact_integrity_failed",

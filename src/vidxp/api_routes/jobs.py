@@ -11,6 +11,7 @@ from vidxp.api_routes.dependencies import (
     write_principal,
 )
 from vidxp.application_models import (
+    Artifact,
     CreateActorOverlayCommand,
     CreateIndexCommand,
     CreateSnippetCommand,
@@ -25,9 +26,26 @@ from vidxp.application_models import (
 )
 from vidxp.composition import HttpApplicationContext
 from vidxp.core.identifiers import JobId
+from vidxp.evidence_projection import (
+    project_job_artifacts,
+    project_job_page_artifacts,
+    project_job_result_artifacts,
+)
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _artifact_content_uri(artifact: Artifact) -> str:
+    return f"/api/v1/artifacts/{artifact.artifact_id}/content"
+
+
+def _http_job(job: Job) -> Job:
+    return project_job_artifacts(job, resource_uri=_artifact_content_uri)
+
+
+def _http_result(result: JobResult) -> JobResult:
+    return project_job_result_artifacts(result, resource_uri=_artifact_content_uri)
 
 
 @router.post(
@@ -49,18 +67,20 @@ def submit_index(
     actor: Annotated[Principal, Depends(write_principal)],
     idempotency_key: HttpIdempotencyKey,
 ) -> Job:
-    service.application.require_models(command.modalities)
+    job_id = scoped_job_id(
+        service,
+        actor,
+        operation="index",
+        idempotency_key=idempotency_key,
+    )
+    job = (
+        service.uploads.start_indexing(command, job_id=job_id)
+        if service.uploads is not None
+        else service.jobs.submit_index(command, job_id=job_id)
+    )
     return accepted(
         response,
-        service.jobs.submit_index(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="index",
-                idempotency_key=idempotency_key,
-            ),
-        ),
+        _http_job(job),
     )
 
 
@@ -85,13 +105,15 @@ def submit_search(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.submit_search(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="search",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.submit_search(
+                command,
+                job_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation="search",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )
@@ -118,13 +140,15 @@ def submit_query(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.submit_query(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="query",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.submit_query(
+                command,
+                job_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation="query",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )
@@ -152,13 +176,15 @@ def submit_snippet(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.submit_snippet(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="snippet",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.submit_snippet(
+                command,
+                job_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation="snippet",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )
@@ -181,13 +207,15 @@ def submit_actor_overlay(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.submit_actor_overlay(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="actor-overlay",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.submit_actor_overlay(
+                command,
+                job_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation="actor-overlay",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )
@@ -210,13 +238,15 @@ def submit_model_preparation(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.submit_prepare_models(
-            command,
-            job_id=scoped_job_id(
-                service,
-                actor,
-                operation="model-preparation",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.submit_prepare_models(
+                command,
+                job_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation="model-preparation",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )
@@ -237,8 +267,9 @@ def list_jobs(
         Query(min_length=1, max_length=512),
     ] = None,
 ) -> JobPage:
-    return service.jobs.list(
-        ListJobsCommand(page_size=page_size, cursor=cursor)
+    return project_job_page_artifacts(
+        service.jobs.list(ListJobsCommand(page_size=page_size, cursor=cursor)),
+        resource_uri=_artifact_content_uri,
     )
 
 
@@ -253,7 +284,7 @@ def get_job(
     job_id: JobId,
     service: Annotated[HttpApplicationContext, Depends(context)],
 ) -> Job:
-    return service.jobs.get(job_id)
+    return _http_job(service.jobs.get(job_id))
 
 
 @router.get(
@@ -267,7 +298,7 @@ def get_job_result(
     job_id: JobId,
     service: Annotated[HttpApplicationContext, Depends(context)],
 ) -> JobResult:
-    return service.jobs.result(job_id)
+    return _http_result(service.jobs.result(job_id))
 
 
 @router.post(
@@ -281,7 +312,7 @@ def cancel_job(
     job_id: JobId,
     service: Annotated[HttpApplicationContext, Depends(context)],
 ) -> Job:
-    return service.jobs.cancel(job_id)
+    return _http_job(service.jobs.cancel(job_id))
 
 
 @router.post(
@@ -301,13 +332,15 @@ def retry_job(
 ) -> Job:
     return accepted(
         response,
-        service.jobs.retry(
-            job_id,
-            retry_id=scoped_job_id(
-                service,
-                actor,
-                operation=f"retry:{job_id}",
-                idempotency_key=idempotency_key,
+        _http_job(
+            service.jobs.retry(
+                job_id,
+                retry_id=scoped_job_id(
+                    service,
+                    actor,
+                    operation=f"retry:{job_id}",
+                    idempotency_key=idempotency_key,
+                ),
             ),
         ),
     )

@@ -40,7 +40,26 @@ class ArtifactRendererUnavailableError(RuntimeError):
 
 class ArtifactKind(StrEnum):
     actor_overlay = "actor_overlay"
+    evidence_board = "evidence_board"
+    evidence_frame = "evidence_frame"
     snippet = "snippet"
+
+
+def artifact_file_identity(
+    *,
+    kind: ArtifactKind,
+    artifact_id: str,
+    mime_type: str,
+) -> tuple[str, str]:
+    extension = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "video/mp4": "mp4",
+        "video/x-matroska": "mkv",
+    }.get(mime_type)
+    if extension is None:
+        raise ValueError("The artifact media type cannot be delivered.")
+    return f"{kind.value}-{artifact_id}.{extension}", extension
 
 
 class ArtifactState(StrEnum):

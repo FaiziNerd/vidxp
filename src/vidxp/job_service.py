@@ -12,6 +12,7 @@ from vidxp.application_models import (
     CreateIndexCommand,
     CreateSnippetCommand,
     ErrorCategory,
+    EvidenceBoardJobRequest,
     IndexJobRequest,
     Job,
     JobKind,
@@ -22,6 +23,7 @@ from vidxp.application_models import (
     InvalidRequestError,
     ListJobsCommand,
     MediaImportJobRequest,
+    ImportMediaCommand,
     PrepareModelsCommand,
     PrepareModelsJobRequest,
     QueryJobRequest,
@@ -89,10 +91,12 @@ class JobService:
         settings: VidXPSettings,
         backend: JobBackend,
         read_planner: ReadJobPlanner | None = None,
+        index_preflight: Callable[[CreateIndexCommand], None] | None = None,
     ) -> None:
         self.settings = settings
         self.backend = backend
         self.read_planner = read_planner
+        self.index_preflight = index_preflight
 
     def _read_job_planner(self) -> ReadJobPlanner:
         if self.read_planner is None:
@@ -114,6 +118,8 @@ class JobService:
         *,
         job_id: str | None = None,
     ) -> Job:
+        if self.index_preflight is not None:
+            self.index_preflight(command)
         return self.backend.submit(
             IndexJobRequest(command=command),
             queue=self._model_queue(),
@@ -173,6 +179,19 @@ class JobService:
         )
 
     @job_boundary
+    def submit_evidence_board(
+        self,
+        request: EvidenceBoardJobRequest,
+        *,
+        job_id: str | None = None,
+    ) -> Job:
+        return self.backend.submit(
+            request,
+            queue=JobQueue.cpu,
+            job_id=job_id,
+        )
+
+    @job_boundary
     def submit_prepare_models(
         self,
         command: PrepareModelsCommand,
@@ -200,6 +219,32 @@ class JobService:
         return enqueue(
             connection,
             MediaImportJobRequest(upload_id=upload_id),
+            queue=JobQueue.cpu,
+            job_id=job_id,
+        )
+
+    @job_boundary
+    def submit_completed_media_import(
+        self,
+        upload_id: str,
+        *,
+        job_id: str,
+    ) -> Job:
+        return self.backend.submit(
+            MediaImportJobRequest(upload_id=upload_id),
+            queue=JobQueue.cpu,
+            job_id=job_id,
+        )
+
+    @job_boundary
+    def submit_local_media_import(
+        self,
+        command: ImportMediaCommand,
+        *,
+        job_id: str,
+    ) -> Job:
+        return self.backend.submit(
+            MediaImportJobRequest(command=command),
             queue=JobQueue.cpu,
             job_id=job_id,
         )

@@ -17,20 +17,28 @@ from vidxp.application_models import (
     DependencyCheckCommand,
     DependencyCheckResult,
     DependencyUnavailableError,
+    EvidenceBoardResult,
+    EvidenceDeliveryMode,
     FusedSearchResult,
     IndexResult,
     IndexSnapshotReference,
     ModelUnavailableError,
+    ModelDownloadError,
     PrepareModelsCommand,
     QueryAnswerMode,
     QueryVideoCommand,
     RemoveIndexCommand,
     SearchCommand,
+    SearchHit,
+    InitialEvidenceDeliveryPolicy,
 )
 from vidxp.core.media import MediaUnavailableError
 from vidxp.core.contracts import IndexConfig, IndexSchemaError
 from vidxp.infrastructure.local_index import LocalIndexBackend
-from vidxp.model_contracts import ModelArtifactUnavailableError
+from vidxp.model_contracts import (
+    ModelArtifactDownloadError,
+    ModelArtifactUnavailableError,
+)
 from vidxp.capabilities.contracts import (
     CapabilityDefinition,
     CapabilityExecutor,
@@ -58,6 +66,7 @@ from vidxp.repositories import RepositoryConfigError
 from vidxp.runtime import ModelRuntime
 from vidxp.settings import VidXPSettings
 from vidxp.ports import IndexStore
+from vidxp.execution import ExecutionContext
 
 
 MEDIA_ID = "123456781234423481234567890abcde"
@@ -534,6 +543,59 @@ class ApplicationTests(unittest.TestCase):
             manager.__enter__.return_value,
         )
 
+    def test_initial_evidence_attaches_board_to_completed_search(self):
+        def handler(_context, request):
+            return SearchResult(
+                query_id="indexed:1",
+                query=request.query,
+                modality="indexed",
+                hits=(
+                    SearchHit(
+                        rank=1,
+                        media_id=MEDIA_ID,
+                        video_id=MEDIA_ID,
+                        generation_id=GENERATION_ID,
+                        start=1.0,
+                        end=2.0,
+                        score=0.9,
+                        raw_distance=0.1,
+                        modality="indexed",
+                        source_id="indexed:1",
+                    ),
+                ),
+            )
+
+        manager = MagicMock()
+        manager.__enter__.return_value = Mock(spec=IndexStore)
+        application = self.indexed_application(handler, manager)
+        board = EvidenceBoardResult(
+            source_job_id=SNAPSHOT_ID,
+            source_fingerprint="b" * 64,
+            requested_count=1,
+            rendered_count=1,
+            failed_count=0,
+            pages=(),
+            tiles=(),
+        )
+        application.evidence_boards = Mock()
+        application.evidence_boards.create.return_value = board
+
+        result = application.search(
+            SearchCommand(
+                modalities=("indexed",),
+                query="yellow taxi",
+                evidence_delivery=InitialEvidenceDeliveryPolicy(
+                    mode=EvidenceDeliveryMode.none,
+                ),
+            ),
+            execution=ExecutionContext(job_id=SNAPSHOT_ID),
+        )
+
+        self.assertEqual(result.evidence_delivery.board, board)
+        request = application.evidence_boards.create.call_args.args[0]
+        self.assertEqual(request.source_job_id, SNAPSHOT_ID)
+        self.assertEqual(len(request.candidates), 1)
+
     def test_default_search_filters_indexed_non_search_capabilities(self):
         searched: list[str] = []
 
@@ -816,6 +878,54 @@ class ApplicationTests(unittest.TestCase):
         self.assertNotIn(
             "pip install",
             json.dumps(raised.exception.to_dict()),
+        )
+
+    def test_model_download_failure_preserves_retry_details(self):
+        definition = CapabilityDefinition(
+            name="prepare-only",
+            description="Prepare a provider.",
+            extra="prepare-only",
+            operations={
+                "noop": OperationDefinition(
+                    input_model=SearchInput,
+                    output_model=SearchResult,
+                    requires_index=False,
+                )
+            },
+            prepares_models=True,
+        )
+        failure = ModelArtifactDownloadError(
+            "prepare-only.embedding",
+            "publisher/model",
+            attempts=3,
+            reason="ConnectionError",
+            resumable=True,
+            retryable=True,
+        )
+        plugin = CapabilityPlugin(
+            definition=definition,
+            executor_factory=lambda: CapabilityExecutor(
+                operations={"noop": Mock()},
+                prepare=Mock(side_effect=failure),
+            ),
+        )
+        registry = CapabilityRegistry((plugin,))
+        registry.dependency_checks = Mock(return_value=())
+        application, _ = self.application("unused", registry=registry)
+
+        with self.assertRaises(ModelDownloadError) as raised:
+            application.prepare_models(
+                PrepareModelsCommand(modalities=("prepare-only",))
+            )
+
+        payload = raised.exception.to_dict()
+        self.assertEqual(payload["code"], "model_download_failed")
+        self.assertTrue(payload["retryable"])
+        self.assertEqual(payload["details"]["attempts"], 3)
+        self.assertTrue(payload["details"]["partial_files_preserved"])
+        self.assertEqual(
+            payload["details"]["remediation"],
+            "vidxp prepare --modalities prepare-only",
         )
 
     def test_unexpected_handler_error_is_not_misclassified(self):

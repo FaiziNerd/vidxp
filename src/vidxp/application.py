@@ -27,6 +27,7 @@ from vidxp.application_models import (
     ImportMediaCommand,
     IndexSnapshotReference,
     MediaAsset,
+    ModelDownloadError,
     ModelUnavailableError,
     PrepareModelsCommand,
     PrepareModelsResult,
@@ -37,6 +38,9 @@ from vidxp.application_models import (
     QueryVideoCommand,
     SearchCommand,
     SearchMomentsPlanStep,
+    EvidenceBoardJobRequest,
+    EvidenceBoardResult,
+    EvidenceDeliveryPolicy,
 )
 from vidxp.capabilities.actor.schemas import (
     ActorClusterSummary,
@@ -55,11 +59,15 @@ from vidxp.capabilities.schemas import SearchResult
 from vidxp.core.contracts import (
     IndexConfig,
 )
+from vidxp.core.snapshots import IndexSnapshot
 from vidxp.execution import ExecutionContext, execution_context
 from vidxp.ports import IndexBackend, ModelRuntimePort, QueryModelPort
 from vidxp.query_service import GroundedQueryService
 from vidxp.search_fusion import fuse_search_results
-from vidxp.model_contracts import ModelArtifactUnavailableError
+from vidxp.model_contracts import (
+    ModelArtifactDownloadError,
+    ModelArtifactUnavailableError,
+)
 from vidxp.repository_layout import RepositoryLayout
 from vidxp.settings import VidXPSettings
 from vidxp.control_plane import ControlPlaneApplication
@@ -69,6 +77,8 @@ from vidxp.artifact_service import (
 from vidxp.media_service import (
     MediaService,
 )
+from vidxp.evidence_delivery import EvidenceDeliveryService
+from vidxp.evidence_board import EvidenceBoardService
 
 
 class VidXPApplication(ControlPlaneApplication):
@@ -85,6 +95,7 @@ class VidXPApplication(ControlPlaneApplication):
         media: MediaService,
         artifacts: ArtifactService,
         index_status: Callable[[], dict[str, Any] | None],
+        active_snapshot: Callable[[], IndexSnapshot | None] | None = None,
         completed_upload_importer: Callable[[str], MediaAsset] | None = None,
         query_model: QueryModelPort | None = None,
     ) -> None:
@@ -100,8 +111,19 @@ class VidXPApplication(ControlPlaneApplication):
             artifacts=artifacts,
             index_status=index_status,
             model_cache=settings.model_cache,
+            active_snapshot=active_snapshot,
         )
         self.settings = settings
+        self.evidence_delivery = EvidenceDeliveryService(
+            artifacts=artifacts,
+            media=media,
+            max_clip_duration_seconds=settings.max_snippet_duration_seconds,
+        )
+        self.evidence_boards = EvidenceBoardService(
+            artifacts=artifacts,
+            media=media,
+            settings=settings,
+        )
 
     @contextmanager
     def _capability_dependencies(
@@ -118,6 +140,15 @@ class VidXPApplication(ControlPlaneApplication):
             raise DependencyUnavailableError(
                 capabilities,
                 self.registry.install_hint(capabilities),
+            ) from exc
+        except ModelArtifactDownloadError as exc:
+            raise ModelDownloadError(
+                exc.capability,
+                exc.model_id,
+                attempts=exc.attempts,
+                reason=exc.reason,
+                resumable=exc.resumable,
+                retryable=exc.retryable,
             ) from exc
         except ModelArtifactUnavailableError as exc:
             raise ModelUnavailableError(exc.capability) from exc
@@ -171,8 +202,7 @@ class VidXPApplication(ControlPlaneApplication):
         )
         return RuntimeReadiness(
             ready=(
-                all(component.ready for component in components)
-                and dependencies.ok
+                all(component.ready for component in components) and dependencies.ok
             ),
             runtime=self.runtime.backends,
             components=components,
@@ -204,9 +234,7 @@ class VidXPApplication(ControlPlaneApplication):
         active_execution = execution_context(execution)
         selected = self.registry.validate_names(command.modalities)
         non_indexable = [
-            name
-            for name in selected
-            if self.registry.get(name).collection_name is None
+            name for name in selected if self.registry.get(name).collection_name is None
         ]
         if non_indexable:
             raise CapabilityRequestError(
@@ -216,8 +244,7 @@ class VidXPApplication(ControlPlaneApplication):
         content = self.media.content(command.media_id)
         self.layout.ensure_local_directories()
         capability_options = {
-            name: dict(options)
-            for name, options in command.capability_options.items()
+            name: dict(options) for name, options in command.capability_options.items()
         }
         if command.scene_sample_fps is not None:
             capability_options.setdefault("scene", {})["sample_fps"] = (
@@ -250,18 +277,14 @@ class VidXPApplication(ControlPlaneApplication):
 
     @application_boundary
     def indexing_in_progress(self) -> bool:
-        return self.index_backend.indexing_in_progress(
-            self._base_config()
-        )
+        return self.index_backend.indexing_in_progress(self._base_config())
 
     @application_boundary
     def check_dependencies(
         self,
         command: DependencyCheckCommand,
         *,
-        on_check_start: (
-            Callable[[str, DependencyKind, str], None] | None
-        ) = None,
+        on_check_start: (Callable[[str, DependencyKind, str], None] | None) = None,
         on_check_complete: (
             Callable[[CapabilityDependencyCheck, float], None] | None
         ) = None,
@@ -302,9 +325,7 @@ class VidXPApplication(ControlPlaneApplication):
     def _media_runtime_checks(
         self,
         *,
-        on_check_start: (
-            Callable[[str, DependencyKind, str], None] | None
-        ) = None,
+        on_check_start: (Callable[[str, DependencyKind, str], None] | None) = None,
         on_check_complete: (
             Callable[[CapabilityDependencyCheck, float], None] | None
         ) = None,
@@ -381,8 +402,9 @@ class VidXPApplication(ControlPlaneApplication):
                             executor.prepare(
                                 PreparationContext(
                                     runtime=self.runtime,
-                                    settings=self.registry.get(name)
-                                    .config_model.model_validate(options[name]),
+                                    settings=self.registry.get(
+                                        name
+                                    ).config_model.model_validate(options[name]),
                                 ),
                                 active_execution.report,
                             )
@@ -494,7 +516,9 @@ class VidXPApplication(ControlPlaneApplication):
         command: SearchCommand,
         *,
         snapshot: IndexSnapshotReference | None = None,
+        execution: ExecutionContext | None = None,
     ) -> FusedSearchResult:
+        active_execution = execution_context(execution)
         config = (
             self._config_for_snapshot(snapshot)
             if snapshot is not None
@@ -523,13 +547,22 @@ class VidXPApplication(ControlPlaneApplication):
                         )
                         for modality in selected
                     )
-        return fuse_search_results(
+        result = fuse_search_results(
             query=command.query,
             requested_modalities=selected,
             results=results,
             media_id=command.media_id,
             top_k=command.top_k,
+            snapshot_id=config.snapshot_id,
         )
+        policy = command.evidence_delivery
+        if policy is not None:
+            return self._deliver_initial_evidence(
+                result,
+                policy,
+                execution=active_execution,
+            )
+        return result
 
     def _resolve_query_capabilities(
         self,
@@ -545,9 +578,7 @@ class VidXPApplication(ControlPlaneApplication):
             else tuple(config.enabled_modalities)
         )
         unavailable = tuple(
-            name
-            for name in candidates
-            if name not in config.enabled_modalities
+            name for name in candidates if name not in config.enabled_modalities
         )
         if unavailable:
             raise CapabilityRequestError(
@@ -569,9 +600,7 @@ class VidXPApplication(ControlPlaneApplication):
         supported = set(searchable)
         if actor_overview:
             supported.add("actor")
-        unsupported = tuple(
-            name for name in candidates if name not in supported
-        )
+        unsupported = tuple(name for name in candidates if name not in supported)
         if explicit and unsupported:
             operation = "Query" if include_actor else "Search"
             raise CapabilityRequestError(
@@ -618,12 +647,10 @@ class VidXPApplication(ControlPlaneApplication):
     ) -> QueryAnswer:
         active_execution = execution_context(execution)
         config = self._config_for_snapshot(snapshot)
-        search_modalities, actor_overview = (
-            self._resolve_query_capabilities(
-                command.modalities,
-                config,
-                include_actor=True,
-            )
+        search_modalities, actor_overview = self._resolve_query_capabilities(
+            command.modalities,
+            config,
+            include_actor=True,
         )
         if len(search_modalities) + int(actor_overview) > 8:
             raise CapabilityRequestError(
@@ -639,9 +666,7 @@ class VidXPApplication(ControlPlaneApplication):
         active_execution.checkpoint()
         results: list[SearchResult] = []
         actors: tuple[ActorClusterSummary, ...] = ()
-        dependencies = search_modalities + (
-            ("actor",) if actor_overview else ()
-        )
+        dependencies = search_modalities + (("actor",) if actor_overview else ())
         with self._capability_dependencies(dependencies):
             with self.index_backend.open_store(config) as storage:
                 context = CapabilityContext(
@@ -684,6 +709,7 @@ class VidXPApplication(ControlPlaneApplication):
             results=atomic,
             media_id=command.media_id,
             top_k=command.top_k,
+            snapshot_id=snapshot.snapshot_id,
         )
         evidence = self.query.evidence(
             snapshot=snapshot,
@@ -699,7 +725,55 @@ class VidXPApplication(ControlPlaneApplication):
             fused=fused,
         )
         active_execution.checkpoint()
+        policy = command.evidence_delivery
+        if policy is not None:
+            answer = self._deliver_initial_evidence(
+                answer,
+                policy,
+                execution=active_execution,
+            )
+            active_execution.checkpoint()
         return answer
+
+    def _deliver_initial_evidence(
+        self,
+        result: FusedSearchResult | QueryAnswer,
+        policy: EvidenceDeliveryPolicy,
+        *,
+        execution: ExecutionContext,
+    ) -> FusedSearchResult | QueryAnswer:
+        delivered = (
+            self.evidence_delivery.deliver_search(
+                result,
+                policy,
+                execution=execution,
+            )
+            if isinstance(result, FusedSearchResult)
+            else self.evidence_delivery.deliver_query(
+                result,
+                policy,
+                execution=execution,
+            )
+        )
+        candidates = self.evidence_delivery.candidates(delivered)
+        if not policy.include_board or execution.job_id is None or not candidates:
+            return delivered
+        request = self.evidence_delivery.prepare_board_request(
+            source_job_id=execution.job_id,
+            evidence_ids=None,
+            start_rank=1,
+            result=delivered,
+        )
+        board = self.evidence_boards.create(request, execution=execution)
+        evidence_delivery = delivered.evidence_delivery
+        assert evidence_delivery is not None
+        return delivered.model_copy(
+            update={
+                "evidence_delivery": evidence_delivery.model_copy(
+                    update={"board": board}
+                )
+            }
+        )
 
     @application_boundary
     def actor_clusters(
@@ -821,16 +895,11 @@ class VidXPApplication(ControlPlaneApplication):
                         if cursor is None:
                             break
         identities = {
-            (detection.media_id, detection.generation_id)
-            for detection in detections
+            (detection.media_id, detection.generation_id) for detection in detections
         }
         expected_identity = (cluster.media_id, cluster.generation_id)
-        if (
-            identities != {expected_identity}
-            or (
-                media_id is not None
-                and expected_identity != (media_id, generation_id)
-            )
+        if identities != {expected_identity} or (
+            media_id is not None and expected_identity != (media_id, generation_id)
         ):
             raise ApplicationError(
                 "actor_cluster_identity_invalid",
@@ -842,8 +911,7 @@ class VidXPApplication(ControlPlaneApplication):
             generation_id=cluster.generation_id,
             cluster_id=command.cluster_id,
             detections=[
-                detection.model_dump(mode="python")
-                for detection in detections
+                detection.model_dump(mode="python") for detection in detections
             ],
             profile=command.profile,
             job_id=active_execution.job_id,
@@ -863,6 +931,15 @@ class VidXPApplication(ControlPlaneApplication):
             job_id=active_execution.job_id,
             execution=active_execution,
         )
+
+    @application_boundary
+    def create_evidence_board(
+        self,
+        request: EvidenceBoardJobRequest,
+        *,
+        execution: ExecutionContext | None = None,
+    ) -> EvidenceBoardResult:
+        return self.evidence_boards.create(request, execution=execution)
 
     @application_boundary
     def clear_index(self) -> bool:

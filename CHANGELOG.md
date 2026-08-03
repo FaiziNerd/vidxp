@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [0.4.0-b.1](https://github.com/grayhatdevelopers/vidxp/compare/v0.4.0-b...v0.4.0-b.1) (2026-08-03)
+
+
+### Features
+
+* **skills:** add installable VidXP agent workflows for guided video ingestion, readiness checks, and evidence search ([62af88e](https://github.com/grayhatdevelopers/vidxp/commit/62af88e70e6dd1c2ac629fdaa7584d8679740ef0), [e321e29](https://github.com/grayhatdevelopers/vidxp/commit/e321e298f64d51dfbcc7276ee3e071d20d698f9b))
+* **desktop:** connect to an existing VidXP installation or manage an isolated local runtime ([9a96b3a](https://github.com/grayhatdevelopers/vidxp/commit/9a96b3ac4dd299fafa6c682a6794b627c16b2bf1))
+* **mcp:** upload or import videos, index them automatically, and track ingestion until they are searchable ([9a5a911](https://github.com/grayhatdevelopers/vidxp/commit/9a5a911bef79474e55152c62e9289023fcf10c5a))
+* **mcp:** return visual evidence boards with search results ([549e727](https://github.com/grayhatdevelopers/vidxp/commit/549e727a7132dbc46ade7d521f11947afeaac745))
+
+
+### Bug Fixes
+
+* **desktop:** prevent console windows during background operations ([42da9a5](https://github.com/grayhatdevelopers/vidxp/commit/42da9a563fcf79ae5b9b852e67a170bfb51a77e2))
+* **mcp:** make follow-up clip creation reliable and support up to 10 evidence items ([58a6db8](https://github.com/grayhatdevelopers/vidxp/commit/58a6db807480ed562bb2b44f62414ca78de568e5))
+
+## [0.4.0-b](https://github.com/grayhatdevelopers/vidxp/compare/v0.3.0...v0.4.0-b) (2026-07-31)
+
+
+### Features
+
+* **api:** add explicit local network sharing ([#39](https://github.com/grayhatdevelopers/vidxp/issues/39)) ([37f3a84](https://github.com/grayhatdevelopers/vidxp/commit/37f3a84f03dcfc9022d723bac91d970352c3c1e3))
+
+
+### Bug Fixes
+
+* **models:** harden preparation downloads ([62cb7b1](https://github.com/grayhatdevelopers/vidxp/commit/62cb7b1b2dbdfbc968435bb76101b3199a88c1f8))
+* **models:** harden preparation downloads ([69c5e51](https://github.com/grayhatdevelopers/vidxp/commit/69c5e51588c496699fe3a49b8c61a374f1058a98))
+
 ## [0.3.0](https://github.com/grayhatdevelopers/vidxp/compare/v0.2.0...v0.3.0) (2026-07-31)
 
 

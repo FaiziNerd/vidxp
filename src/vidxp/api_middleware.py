@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import re
+from urllib.parse import urlsplit
+
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.concurrency import run_in_threadpool
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware, SAFELISTED_HEADERS
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -16,8 +19,91 @@ from vidxp.application_models import (
 from vidxp.authentication import Authenticator
 
 
-PUBLIC_HTTP_PATHS = frozenset({"/health", "/ready"})
+PUBLIC_HTTP_PATHS = frozenset({"/favicon.ico", "/health", "/ready"})
 UPLOAD_PATH = "/api/v1/media"
+_UPLOAD_HANDOFF_PAGE = re.compile(r"^/upload-handoff/[0-9a-f]{32}$")
+_UPLOAD_HANDOFF_STATUS = re.compile(r"^/upload-handoff/[0-9a-f]{32}/status$")
+_UPLOAD_HANDOFF_BOOTSTRAP = re.compile(r"^/upload-handoff/[0-9a-f]{32}/bootstrap$")
+_UPLOAD_SESSION_FILES = re.compile(r"^/upload-handoff/[0-9a-f]{32}/files$")
+_UPLOAD_SESSION_CONTENT = re.compile(
+    r"^/upload-handoff/[0-9a-f]{32}/files/[0-9a-f]{32}/content$"
+)
+_UPLOAD_SESSION_CANCEL = re.compile(
+    r"^/upload-handoff/[0-9a-f]{32}/files/[0-9a-f]{32}/cancel$"
+)
+_UPLOAD_SESSION_CLOSE = re.compile(r"^/upload-handoff/[0-9a-f]{32}/close$")
+_UPLOAD_HANDOFF_ASSETS = frozenset(
+    {
+        "/upload-handoff/assets/upload-page.js",
+        "/upload-handoff/assets/upload-page.css",
+        "/upload-handoff/assets/THIRD_PARTY_NOTICES.txt",
+    }
+)
+_ARTIFACT_DOWNLOAD_PAGE = re.compile(r"^/artifact-download/[0-9a-f]{32}$")
+_ARTIFACT_DOWNLOAD_BOOTSTRAP = re.compile(
+    r"^/artifact-download/[0-9a-f]{32}/bootstrap$"
+)
+_ARTIFACT_DOWNLOAD_CONTENT = re.compile(
+    r"^/artifact-download/[0-9a-f]{32}/content$"
+)
+_ARTIFACT_DOWNLOAD_ASSETS = frozenset(
+    {
+        "/artifact-download/assets/artifact-download.css",
+        "/artifact-download/assets/artifact-download.js",
+        "/artifact-download/assets/vidxp-logo.png",
+    }
+)
+
+
+def _public_upload_handoff_request(scope: Scope) -> bool:
+    path = str(scope.get("path", ""))
+    method = str(scope.get("method", "")).upper()
+    return (
+        method == "GET"
+        and (
+            path in _UPLOAD_HANDOFF_ASSETS
+            or _UPLOAD_HANDOFF_PAGE.fullmatch(path) is not None
+            or _UPLOAD_HANDOFF_STATUS.fullmatch(path) is not None
+        )
+    ) or (
+        method == "POST"
+        and (
+            _UPLOAD_HANDOFF_BOOTSTRAP.fullmatch(path) is not None
+            or _UPLOAD_SESSION_FILES.fullmatch(path) is not None
+            or _UPLOAD_SESSION_CONTENT.fullmatch(path) is not None
+            or _UPLOAD_SESSION_CANCEL.fullmatch(path) is not None
+            or _UPLOAD_SESSION_CLOSE.fullmatch(path) is not None
+        )
+    )
+
+
+def _public_artifact_download_request(scope: Scope) -> bool:
+    path = str(scope.get("path", ""))
+    method = str(scope.get("method", "")).upper()
+    return (
+        method == "GET"
+        and (
+            path in _ARTIFACT_DOWNLOAD_ASSETS
+            or _ARTIFACT_DOWNLOAD_PAGE.fullmatch(path) is not None
+            or _ARTIFACT_DOWNLOAD_CONTENT.fullmatch(path) is not None
+        )
+    ) or (
+        method == "HEAD"
+        and _ARTIFACT_DOWNLOAD_CONTENT.fullmatch(path) is not None
+    ) or (
+        method == "POST"
+        and _ARTIFACT_DOWNLOAD_BOOTSTRAP.fullmatch(path) is not None
+    )
+
+
+def _browser_capability_path(scope: Scope) -> bool:
+    path = str(scope.get("path", ""))
+    return (
+        path == "/upload-handoff"
+        or path.startswith("/upload-handoff/")
+        or path == "/artifact-download"
+        or path.startswith("/artifact-download/")
+    )
 
 
 class RequestBodyTooLarge(HTTPException, OSError):
@@ -208,6 +294,8 @@ class BearerAuthenticationMiddleware:
         if (
             scope["type"] != "http"
             or str(scope.get("path", "")) in PUBLIC_HTTP_PATHS
+            or _public_upload_handoff_request(scope)
+            or _public_artifact_download_request(scope)
             or str(scope.get("path", "")) in self.delegated_paths
         ):
             await self.app(scope, receive, send)
@@ -229,6 +317,68 @@ class BearerAuthenticationMiddleware:
             return
         scope["vidxp.principal"] = principal
         await self.app(scope, receive, send)
+
+
+class BrowserCapabilitySecurityHeadersMiddleware:
+    """Apply no-store browser security headers to capability subtrees."""
+
+    def __init__(self, app: ASGIApp, *, upload_endpoint: str | None) -> None:
+        self.app = app
+        origin = None
+        if upload_endpoint is not None:
+            parsed = urlsplit(upload_endpoint)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+        connect_sources = "'self'" if origin is None else f"'self' {origin}"
+        self.common_headers = {
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cross-Origin-Opener-Policy": "same-origin",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Permissions-Policy": (
+                "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+            ),
+        }
+        self.upload_csp = (
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "style-src-elem 'self'; style-src-attr 'unsafe-inline'; "
+            f"connect-src {connect_sources}; img-src 'self' data:; "
+            "font-src 'self'; object-src 'none'; base-uri 'none'; "
+            "form-action 'none'; frame-ancestors 'none'; worker-src 'none'"
+        )
+        self.artifact_csp = (
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "img-src 'self'; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http" or not _browser_capability_path(scope):
+            await self.app(scope, receive, send)
+            return
+
+        path = str(scope.get("path", ""))
+        content_security_policy = (
+            self.upload_csp
+            if path == "/upload-handoff" or path.startswith("/upload-handoff/")
+            else self.artifact_csp
+        )
+
+        async def add_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in self.common_headers.items():
+                    headers[name] = value
+                headers["Content-Security-Policy"] = content_security_policy
+            await send(message)
+
+        await self.app(scope, receive, add_headers)
 
 
 class RequestBodyLimitMiddleware:
@@ -257,9 +407,17 @@ class RequestBodyLimitMiddleware:
         if str(scope.get("path", "")) in self.delegated_paths:
             await self.app(scope, receive, send)
             return
+        path = str(scope.get("path", ""))
+        segments = path.strip("/").split("/")
+        is_upload = path == UPLOAD_PATH or (
+            len(segments) == 5
+            and segments[0] == "upload-handoff"
+            and segments[2] == "files"
+            and segments[4] == "content"
+        )
         limit = (
             self.upload_limit + 1024 * 1024
-            if scope.get("path") == UPLOAD_PATH
+            if is_upload
             else self.json_limit
         )
         headers = Headers(scope=scope)

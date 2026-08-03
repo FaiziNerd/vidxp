@@ -9,6 +9,10 @@ from pydantic import ValidationError
 from vidxp.application_models import (
     ActorOverlayJobRequest,
     ApplicationError,
+    ErrorCategory,
+    ErrorDetail,
+    EvidenceDeliveryMode,
+    EvidenceDeliveryPolicy,
     CreateActorOverlayCommand,
     CreateIndexCommand,
     Job,
@@ -77,6 +81,7 @@ class JobContractTests(unittest.TestCase):
 
     def test_job_service_routes_model_work_without_reimplementing_it(self):
         backend = Mock()
+        preflight = Mock()
         backend.submit.return_value = Job(
             job_id=JOB_ID,
             kind=JobKind.index,
@@ -89,6 +94,7 @@ class JobContractTests(unittest.TestCase):
                 runtime_backend="cpu",
             ),
             backend=backend,
+            index_preflight=preflight,
         )
 
         job = service.submit_index(
@@ -100,12 +106,41 @@ class JobContractTests(unittest.TestCase):
 
         self.assertEqual(job.job_id, JOB_ID)
         request = backend.submit.call_args.args[0]
+        preflight.assert_called_once_with(request.command)
         self.assertEqual(request.kind, JobKind.index)
         self.assertEqual(request.command.media_id, MEDIA_ID)
         self.assertEqual(
             backend.submit.call_args.kwargs["queue"],
             JobQueue.cpu,
         )
+
+    def test_index_preflight_failure_never_reaches_the_job_backend(self):
+        backend = Mock()
+        command = CreateIndexCommand(
+            media_id=MEDIA_ID,
+            modalities=("scene",),
+        )
+        preflight = Mock(
+            side_effect=ApplicationError(
+                "invalid_request",
+                ErrorCategory.validation,
+                "The capability is not usable.",
+            )
+        )
+        service = JobService(
+            settings=VidXPSettings(
+                repository_root=Path("repository"),
+                runtime_backend="cpu",
+            ),
+            backend=backend,
+            index_preflight=preflight,
+        )
+
+        with self.assertRaises(ApplicationError):
+            service.submit_index(command)
+
+        preflight.assert_called_once_with(command)
+        backend.submit.assert_not_called()
 
     def test_job_list_cursor_is_bounded(self):
         with self.assertRaises(ValidationError):
@@ -246,6 +281,18 @@ class JobContractTests(unittest.TestCase):
         )
         self.assertIn("%20", encoded_cluster.cluster_id)
 
+    def test_initial_evidence_stays_bounded_while_followup_allows_ten(self):
+        followup = EvidenceDeliveryPolicy(
+            mode=EvidenceDeliveryMode.keyframes,
+            max_items=10,
+        )
+        self.assertEqual(followup.max_items, 10)
+
+        with self.assertRaises(ValidationError):
+            SearchCommand(query="taxi", evidence_delivery=followup)
+        with self.assertRaises(ValidationError):
+            QueryVideoCommand(question="Where is it?", evidence_delivery=followup)
+
     def test_canonical_dbos_job_id_has_a_hex_operation_identity(self):
         execution = ExecutionContext(
             job_id="22345678-1234-4234-8123-4567890abcde"
@@ -302,6 +349,45 @@ class JobContractTests(unittest.TestCase):
         with self.assertRaises(ApplicationError) as raised:
             service.get(JOB_ID)
         self.assertEqual(raised.exception.code, "job_backend_unavailable")
+
+    def test_failed_model_preparation_error_round_trips_through_job_service(self):
+        error = ErrorDetail(
+            code="model_download_failed",
+            category=ErrorCategory.unavailable,
+            message="The model download failed after three attempts.",
+            details={
+                "capability": "dialogue.transcription",
+                "model": "publisher/model",
+                "attempts": 3,
+                "reason": "ConnectionError",
+                "partial_files_preserved": True,
+                "remediation": "vidxp prepare --modalities dialogue",
+            },
+            retryable=True,
+        )
+        backend = Mock()
+        backend.get.return_value = Job(
+            job_id=JOB_ID,
+            kind=JobKind.prepare_models,
+            state=JobState.failed,
+            queue=JobQueue.cpu,
+            error=error,
+        )
+        service = JobService(
+            settings=VidXPSettings(
+                repository_root=Path("repository"),
+                runtime_backend="cpu",
+            ),
+            backend=backend,
+        )
+
+        with self.assertRaises(ApplicationError) as raised:
+            service.result(JOB_ID)
+
+        self.assertEqual(
+            raised.exception.to_dict(),
+            error.model_dump(mode="json"),
+        )
 
 
 if __name__ == "__main__":
