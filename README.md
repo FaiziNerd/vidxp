@@ -78,15 +78,7 @@ vidxp doctor
 vidxp mcp-config
 ```
 
-`vidxp mcp-config` emits the `mcpServers` JSON used by Claude Desktop and
-compatible local stdio clients. Codex has separate configuration: use
-`codex mcp add vidxp -- vidxp-mcp --repository default` or configure
-`[mcp_servers.vidxp]` in `~/.codex/config.toml`. ChatGPT Desktop and ChatGPT web
-use ChatGPT's own connector configuration and do not read Codex's config; hosted
-ChatGPT connections use a remote MCP endpoint, with VidXP deployed behind HTTPS
-and OIDC.
-
-The CLI works without MCP. Add the browser app with:
+Add the browser interface with:
 
 ```bash
 uv tool install --python 3.14 --torch-backend cpu \
@@ -94,34 +86,17 @@ uv tool install --python 3.14 --torch-backend cpu \
 vidxp ui
 ```
 
-`vidxp ui` binds to loopback by default. Use `vidxp ui --share` only when you
-intend to expose the unauthenticated browser interface on the local network.
-Streamlit prints its Local and Network URLs when it starts. VidXP disables
-Streamlit's first-run email prompt and usage-statistics collection.
-
-`vidxp-api --share` exposes a bearer-protected HTTP API/MCP endpoint on a
-trusted LAN. Browser upload tools are omitted unless an explicit HTTPS upload
-handoff origin is configured, because a LAN listener alone cannot advertise a
-safe browser capability page.
-
-If the `vidxp` command is not found, run `uv tool update-shell` once and reopen
-the terminal.
+See the [installation guide](INSTALLATION_GUIDE.md) for client-specific MCP
+configuration, the HTTP API, and remote server setup.
 
 ### 2. Desktop app
 
 Download the installer for Windows, Apple Silicon macOS, or Linux from
 [GitHub Releases](https://github.com/grayhatdevelopers/vidxp/releases).
 
-On first launch, choose whether to adopt an existing compatible VidXP
-installation without downloading another runtime, or create a private runtime
-managed by VidXP Desktop. For a managed runtime, choose the search capabilities,
-model location, and optional browser interface; Python and uv do not need to be
-installed separately.
-
-Desktop opens its control panel when started. Browser launch is a separate,
-explicit **Open VidXP** action. After configuration, closing the control panel
-keeps VidXP available through **Manage VidXP**, **Open VidXP**, and **Quit
-VidXP** in the system tray.
+Connect an existing VidXP installation or let the desktop app manage an isolated
+runtime for you. See the [desktop guide](docs/desktop.md) for supported setup
+options.
 
 ### 3. Docker for a server
 
@@ -141,21 +116,12 @@ See the [Coolify guide](docs/deployment/coolify.md) for the complete setup.
 
 ## What you can do today
 
-- Build a reusable search library from one video or a whole collection.
-- Search dialogue by meaning, even when you do not remember the exact words.
-- Find visual moments by describing the scene you are looking for.
-- Group recurring faces in a video and render a highlighted actor overlay.
-- Search one selected video or every video in the active library.
-- Open matching timestamps and export downloadable clips and overlays.
-- Receive search and query results as annotated evidence boards, then open the
-  exact frames or clips worth inspecting.
-- Retrieve completed clips through native MCP resources, local stdio paths, or
-  short-lived resumable HTTPS downloads without embedding video bytes in tool JSON.
+- Build searchable libraries from individual videos or whole collections.
+- Find dialogue by meaning and visual moments by describing the scene.
+- Ask grounded questions and inspect the supporting boards, frames, or clips.
+- Group recurring faces and render highlighted actor overlays.
 - Keep personal, client, or project libraries separate.
-- Follow long indexing jobs, cancel them, and keep the last working index if a
-  later run fails.
-- Use the browser app, automate the CLI, connect an MCP agent, or integrate
-  VidXP into another application.
+- Use VidXP through the desktop app, browser, CLI, MCP, or HTTP API.
 
 ## A first search
 
@@ -186,31 +152,12 @@ Run `vidxp --help` or `vidxp <command> --help` for the full command reference.
 Use the Python package to add selected VidXP capabilities directly to an
 application, or use the HTTP API when VidXP runs as a service.
 
-MCP clients can add and discover videos, start indexing, search dialogue and
-scenes, ask questions about a library, and create clips or actor overlays.
-Local agents can connect over stdio; remote agents can connect to a
-self-hosted VidXP server.
+[![VidXP being used with ChatGPT Desktop AI](./docs/images/claude-with-vidxp.jpg)](https://youtu.be/fa4Zx-bSOh4)
 
-Search and question results can include directly inspectable frames and clips, so
-agents can show the evidence behind an answer without making users translate raw
-timestamps. Evidence rendering is best-effort: a result can still be useful when
-an individual frame or clip cannot be produced. Agents can request additional
-ranked evidence in small batches without rerunning the search.
-For broader result sets, an agent can first show bounded evidence-board pages
-with a tile-to-evidence map, then fetch exact frames or clips only for the
-selected tiles.
-
-Remote agents can hand users a short-lived page for selecting and uploading
-multiple videos. Local agents can ingest approved filesystem paths without moving
-video bytes through MCP. VidXP normally indexes successful imports automatically;
-registration-only ingestion stops at `registered`, and indexing failures can be
-retried without uploading the video again.
-
-Agents can call `get_workspace` before acting to inspect registered media,
-active-index coverage, model readiness, and the searchable, queryable,
-inspectable, or renderable roles available for each video. Invalid capability
-or media selections are rejected before a durable job is queued and include an
-actionable next step.
+MCP lets AI clients add and index videos, search dialogue and scenes, ask
+questions about a library, and return inspectable evidence such as boards,
+frames, and clips. Clients can connect locally over stdio or to a self-hosted
+VidXP server.
 
 ### ChatGPT and Codex skills
 

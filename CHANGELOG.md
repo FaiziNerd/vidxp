@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.4.0-b.2](https://github.com/grayhatdevelopers/vidxp/compare/v0.4.0-b.1...v0.4.0-b.2) (2026-08-03)
+
+
+### Features
+
+* **mcp:** wait efficiently for long-running jobs and return compact, shareable evidence results ([#70](https://github.com/grayhatdevelopers/vidxp/issues/70)) ([7ff1dd1](https://github.com/grayhatdevelopers/vidxp/commit/7ff1dd1aae0902de43514e08c8214b2c2822c914))
+
 ## [0.4.0-b.1](https://github.com/grayhatdevelopers/vidxp/compare/v0.4.0-b...v0.4.0-b.1) (2026-08-03)
 
 
