@@ -18,7 +18,7 @@ use atomic_write_file::AtomicWriteFile;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{
-    AppHandle, Manager, RunEvent, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
 };
@@ -44,6 +44,12 @@ const RUNTIME_MANIFEST_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/runtime-manifest.json"));
 const RUNTIME_CONSTRAINTS_BYTES: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/runtime-constraints.txt"));
+const RUNTIME_PACKAGE_WHEEL_BYTES: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/runtime-package.whl"));
+const RUNTIME_PACKAGE_WHEEL_NAME: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/runtime-package-name.txt"));
+const RUNTIME_PACKAGE_WHEEL_SHA256: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/runtime-package-sha256.txt"));
 const MODEL_CACHE_CATALOG_BYTES: &[u8] = include_bytes!("../../model-cache-catalog.json");
 const PRODUCT_DATA_DIRECTORY_NAME: &str = "VidXP";
 const RUNTIME_CONSTRAINTS_FILE_NAME: &str = "runtime-constraints.txt";
@@ -115,6 +121,70 @@ struct InstallResult {
 struct InstallTransitionResult {
     install: InstallResult,
     setup: target_profiles::TargetState,
+}
+
+#[derive(Clone, Serialize)]
+struct ManagedSetupProgress {
+    draft_id: String,
+    current: u8,
+    total: u8,
+    stage: String,
+    message: String,
+    model_message: Option<String>,
+    model_current: Option<u64>,
+    model_total: Option<u64>,
+}
+
+fn emit_managed_setup_progress(
+    app: &AppHandle,
+    draft_id: &str,
+    current: u8,
+    total: u8,
+    stage: &str,
+    message: &str,
+) {
+    let _ = app.emit(
+        "managed-setup-progress",
+        ManagedSetupProgress {
+            draft_id: draft_id.into(),
+            current,
+            total,
+            stage: stage.into(),
+            message: message.into(),
+            model_message: None,
+            model_current: None,
+            model_total: None,
+        },
+    );
+}
+
+fn emit_managed_model_progress(
+    app: &AppHandle,
+    draft_id: &str,
+    current: u8,
+    total: u8,
+    progress: &ManagedModelJobProgress,
+) {
+    let _ = app.emit(
+        "managed-setup-progress",
+        ManagedSetupProgress {
+            draft_id: draft_id.into(),
+            current,
+            total,
+            stage: "models".into(),
+            message: "Verifying and downloading selected model files".into(),
+            model_message: Some(progress.message.clone()),
+            model_current: progress.current,
+            model_total: progress.total,
+        },
+    );
+}
+
+#[derive(Deserialize)]
+struct ManagedModelJobProgress {
+    message: String,
+    current: Option<u64>,
+    total: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -1078,6 +1148,19 @@ fn package_specification_for_version(
     surfaces: &[String],
     version: &str,
 ) -> String {
+    let extras = package_extras(manifest, capabilities, surfaces);
+    if extras.is_empty() {
+        format!("{}=={}", manifest.package_name, version)
+    } else {
+        format!("{}[{}]=={}", manifest.package_name, extras, version)
+    }
+}
+
+fn package_extras(
+    manifest: &RuntimeManifest,
+    capabilities: &[String],
+    surfaces: &[String],
+) -> String {
     let local_worker_selected = surfaces.iter().any(|name| name == "worker");
     let extras: BTreeSet<_> = manifest
         .surfaces
@@ -1091,12 +1174,7 @@ fn package_specification_for_version(
                 .map(|name| manifest.capabilities[name].extra.clone()),
         )
         .collect();
-    let extras = extras.into_iter().collect::<Vec<_>>().join(",");
-    if extras.is_empty() {
-        format!("{}=={}", manifest.package_name, version)
-    } else {
-        format!("{}[{}]=={}", manifest.package_name, extras, version)
-    }
+    extras.into_iter().collect::<Vec<_>>().join(",")
 }
 
 fn external_installation_arguments(
@@ -1151,7 +1229,12 @@ fn base_package_specification(manifest: &RuntimeManifest) -> String {
     format!("{}=={}", manifest.package_name, manifest.package_version)
 }
 
-fn package_acquisition_arguments(manifest: &RuntimeManifest, python: &Path) -> Vec<String> {
+fn package_acquisition_arguments(
+    manifest: &RuntimeManifest,
+    python: &Path,
+    wheel: &Path,
+) -> Vec<String> {
+    let wheel_directory = wheel.parent().unwrap_or_else(|| Path::new("."));
     vec![
         "pip".into(),
         "install".into(),
@@ -1159,12 +1242,28 @@ fn package_acquisition_arguments(manifest: &RuntimeManifest, python: &Path) -> V
         python.to_string_lossy().into_owned(),
         "--no-config".into(),
         "--no-deps".into(),
-        "--default-index".into(),
-        manifest.dependency_index.clone(),
-        "--index-strategy".into(),
-        "first-index".into(),
+        "--no-index".into(),
+        "--find-links".into(),
+        wheel_directory.to_string_lossy().into_owned(),
         base_package_specification(manifest),
     ]
+}
+
+fn stage_runtime_package_wheel(runtime: &Path) -> Result<PathBuf, String> {
+    let wheel_name = Path::new(RUNTIME_PACKAGE_WHEEL_NAME);
+    if wheel_name.file_name().and_then(|name| name.to_str()) != Some(RUNTIME_PACKAGE_WHEEL_NAME) {
+        return Err("The embedded runtime wheel name is invalid.".into());
+    }
+    let actual = hex::encode(Sha256::digest(RUNTIME_PACKAGE_WHEEL_BYTES));
+    if actual != RUNTIME_PACKAGE_WHEEL_SHA256 {
+        return Err(format!(
+            "The embedded runtime wheel has digest {actual}; expected {RUNTIME_PACKAGE_WHEEL_SHA256}."
+        ));
+    }
+    let wheel = runtime.join(wheel_name);
+    fs::write(&wheel, RUNTIME_PACKAGE_WHEEL_BYTES)
+        .map_err(|error| format!("Could not stage the embedded VidXP package: {error}"))?;
+    Ok(wheel)
 }
 
 struct UvInvocation {
@@ -1199,6 +1298,8 @@ fn dependency_installation_invocation(
         manifest.dependency_index.clone(),
         "--index-strategy".into(),
         "first-index".into(),
+        "--find-links".into(),
+        ".".into(),
         "--constraints".into(),
         constraints_file_name.to_string_lossy().into_owned(),
     ];
@@ -1222,12 +1323,16 @@ fn capability_command_arguments(
         .map(|name| manifest.capabilities[name].modality.as_str())
         .collect::<Vec<_>>()
         .join(",");
-    vec![
+    let mut arguments = vec![
         operation.into(),
         "--json".into(),
         "--modalities".into(),
         modalities,
-    ]
+    ];
+    if operation == "prepare" {
+        arguments.push("--yes".into());
+    }
+    arguments
 }
 
 fn executable(runtime: &Path, name: &str) -> PathBuf {
@@ -1942,8 +2047,37 @@ async fn supervised_output(
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let detail = if stderr.is_empty() { stdout } else { stderr };
+    let detail = match (stdout.is_empty(), stderr.is_empty()) {
+        (false, false) => format!("{stdout}\n\nAdditional diagnostics:\n{stderr}"),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (true, true) => "The process did not return an error message.".into(),
+    };
     Err(format!("{operation} failed ({}): {detail}", output.status))
+}
+
+fn watch_managed_model_progress(
+    app: &AppHandle,
+    draft_id: &str,
+    progress_path: &Path,
+    current: u8,
+    total: u8,
+    stop: &AtomicBool,
+) {
+    let mut last_contents = None;
+    loop {
+        if let Ok(contents) = fs::read(progress_path)
+            && last_contents.as_deref() != Some(contents.as_slice())
+            && let Ok(progress) = serde_json::from_slice(&contents)
+        {
+            emit_managed_model_progress(app, draft_id, current, total, &progress);
+            last_contents = Some(contents);
+        }
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 async fn uv_output(
@@ -2683,17 +2817,26 @@ async fn install_runtime(
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("The system clock is invalid: {error}"))?
         .as_nanos();
-    let staging_name = format!(".staging-{profile_hash}-{timestamp}-{}", std::process::id());
-    let staging = paths.runtimes.join(&staging_name);
-    let constraints = staging.join(RUNTIME_CONSTRAINTS_FILE_NAME);
+    let profile = format!("{profile_hash}-{timestamp}");
+    let runtime = paths.runtimes.join(&profile);
+    let constraints = runtime.join(RUNTIME_CONSTRAINTS_FILE_NAME);
+    let progress_total = if request.prepare_models { 8 } else { 7 };
 
     let install_result = async {
+        emit_managed_setup_progress(
+            &app,
+            &request.draft_id,
+            2,
+            progress_total,
+            "python",
+            "Preparing an isolated Python runtime",
+        );
         uv_output(
             &app,
             &paths,
             vec![
                 "venv".into(),
-                staging.to_string_lossy().into_owned(),
+                runtime.to_string_lossy().into_owned(),
                 "--python".into(),
                 manifest.python_version.clone(),
                 "--managed-python".into(),
@@ -2706,17 +2849,31 @@ async fn install_runtime(
         .await?;
 
         let constraints_path = constraints.clone();
-        tauri::async_runtime::spawn_blocking(move || {
+        let wheel_runtime = runtime.clone();
+        let runtime_wheel = tauri::async_runtime::spawn_blocking(move || {
             fs::write(&constraints_path, normalized_runtime_constraints().as_ref())
-                .map_err(|error| format!("Could not write runtime constraints: {error}"))
+                .map_err(|error| format!("Could not write runtime constraints: {error}"))?;
+            stage_runtime_package_wheel(&wheel_runtime)
         })
         .await
         .map_err(|error| format!("Runtime constraint staging stopped unexpectedly: {error}"))??;
 
+        emit_managed_setup_progress(
+            &app,
+            &request.draft_id,
+            3,
+            progress_total,
+            "package",
+            "Acquiring the VidXP package",
+        );
         uv_output(
             &app,
             &paths,
-            package_acquisition_arguments(&manifest, &executable(&staging, "python")),
+            package_acquisition_arguments(
+                &manifest,
+                &executable(&runtime, "python"),
+                &runtime_wheel,
+            ),
             None,
             cancellation.token(),
             "VidXP package acquisition",
@@ -2727,10 +2884,18 @@ async fn install_runtime(
             &manifest,
             &capabilities,
             &surfaces,
-            &executable(&staging, "python"),
+            &executable(&runtime, "python"),
             &constraints,
             !cfg!(target_os = "macos"),
         )?;
+        emit_managed_setup_progress(
+            &app,
+            &request.draft_id,
+            4,
+            progress_total,
+            "dependencies",
+            "Installing the selected search features",
+        );
         uv_output(
             &app,
             &paths,
@@ -2740,9 +2905,22 @@ async fn install_runtime(
             "VidXP package installation",
         )
         .await?;
+        if let Err(error) = fs::remove_file(&runtime_wheel) {
+            log::warn!(
+                "Installed the embedded VidXP package, but could not remove its staged wheel: {error}"
+            );
+        }
 
+        emit_managed_setup_progress(
+            &app,
+            &request.draft_id,
+            5,
+            progress_total,
+            "media",
+            "Configuring FFmpeg and video codecs",
+        );
         run_vidxp_supervised(
-            &staging,
+            &runtime,
             &paths,
             &[
                 "init".into(),
@@ -2757,9 +2935,18 @@ async fn install_runtime(
         )
         .await?;
 
-        let doctor_arguments = capability_command_arguments(&manifest, "doctor", &capabilities);
+        emit_managed_setup_progress(
+            &app,
+            &request.draft_id,
+            6,
+            progress_total,
+            "validation",
+            "Validating installed packages and video tools",
+        );
+        let mut doctor_arguments = capability_command_arguments(&manifest, "doctor", &capabilities);
+        doctor_arguments.push("--no-models".into());
         run_vidxp_supervised(
-            &staging,
+            &runtime,
             &paths,
             &doctor_arguments,
             cancellation.token(),
@@ -2768,48 +2955,87 @@ async fn install_runtime(
         .await?;
 
         if request.prepare_models {
-            let prepare_arguments =
+            emit_managed_setup_progress(
+                &app,
+                &request.draft_id,
+                7,
+                progress_total,
+                "models",
+                "Verifying and downloading selected model files",
+            );
+            let progress_path = runtime.join(".managed-model-progress.json");
+            let mut prepare_arguments =
                 capability_command_arguments(&manifest, "prepare", &capabilities);
-            let mut worker = state.worker_stop.register(staging.clone(), paths.clone())?;
+            prepare_arguments.push("--progress-file".into());
+            prepare_arguments.push(progress_path.to_string_lossy().into_owned());
+            let mut worker = state.worker_stop.register(runtime.clone(), paths.clone())?;
+            let preparation_app = app.clone();
+            let preparation_draft_id = request.draft_id.clone();
+            let monitor_stop = Arc::new(AtomicBool::new(false));
+            let monitor_stop_worker = monitor_stop.clone();
+            let progress_path_worker = progress_path.clone();
+            let progress_monitor = thread::spawn(move || {
+                watch_managed_model_progress(
+                    &preparation_app,
+                    &preparation_draft_id,
+                    &progress_path_worker,
+                    7,
+                    progress_total,
+                    &monitor_stop_worker,
+                );
+            });
             let preparation = run_vidxp_supervised(
-                &staging,
+                &runtime,
                 &paths,
                 &prepare_arguments,
                 cancellation.token(),
                 "VidXP model preparation",
             )
             .await;
+            monitor_stop.store(true, Ordering::Release);
+            let monitor_result = progress_monitor.join();
+            let _ = fs::remove_file(&progress_path);
             worker.stop_before(Instant::now() + Duration::from_secs(5));
             preparation?;
+            monitor_result
+                .map_err(|_| "VidXP model progress stopped unexpectedly".to_owned())?;
         }
 
         Ok::<(), String>(())
     }
     .await;
     if let Err(error) = install_result {
-        let failed_staging = staging.clone();
+        let failed_runtime = runtime.clone();
         let cleanup_error = tauri::async_runtime::spawn_blocking(move || {
-            if failed_staging.exists() {
-                fs::remove_dir_all(&failed_staging).err()
+            if failed_runtime.exists() {
+                fs::remove_dir_all(&failed_runtime).err()
             } else {
                 None
             }
         })
         .await
-        .map_err(|join| format!("{error}. Staged-runtime cleanup stopped unexpectedly: {join}"))?;
+        .map_err(|join| {
+            format!("{error}. Candidate-runtime cleanup stopped unexpectedly: {join}")
+        })?;
         return Err(match cleanup_error {
             Some(cleanup_error) => format!(
-                "{error}. The previous active runtime was not changed. VidXP could not remove the failed staged runtime at {}: {cleanup_error}",
-                staging.display()
+                "{error}. The previous active runtime was not changed. VidXP could not remove the failed candidate runtime at {}: {cleanup_error}",
+                runtime.display()
             ),
             None => format!(
-                "{error}. The previous active runtime was not changed, and the failed staged runtime was removed."
+                "{error}. The previous active runtime was not changed, and the failed candidate runtime was removed."
             ),
         });
     }
 
-    let profile = format!("{profile_hash}-{timestamp}");
-    let runtime = paths.runtimes.join(&profile);
+    emit_managed_setup_progress(
+        &app,
+        &request.draft_id,
+        progress_total,
+        progress_total,
+        "activation",
+        "Activating VidXP and cleaning up installation files",
+    );
     let active = ActiveRuntime {
         schema_version: 2,
         manifest_sha256: manifest_digest(),
@@ -2820,29 +3046,20 @@ async fn install_runtime(
         model_directory: paths.models.clone(),
     };
     let activation_app = app.clone();
+    let activation_cancellation = cancellation.token();
+    let cache_paths = paths.clone();
     let activation_paths = paths;
     let activation_manifest_version = manifest.desktop_version.clone();
     let activation = tauri::async_runtime::spawn_blocking(move || {
         let previous_active_bytes = read_active_runtime_snapshot(&activation_paths)?;
         let previous_targets =
             target_profiles::current_state(&activation_app).map_err(|error| error.to_string())?;
-        if let Err(error) = fs::rename(&staging, &runtime) {
-            let cleanup = fs::remove_dir_all(&staging);
-            return Err(match cleanup {
-                Ok(()) => format!("Could not finalize the validated runtime: {error}"),
-                Err(cleanup) => format!(
-                    "Could not finalize the validated runtime: {error}. The staging directory at {} could not be removed: {cleanup}",
-                    staging.display()
-                ),
-            });
-        }
-
         let projection = managed_runtime_projection_for(&activation_paths, &active);
         let validated = validate_managed_projection(
             &activation_paths,
             &projection,
             &activation_manifest_version,
-            Some(&cancellation.token()),
+            Some(&activation_cancellation),
         );
         let candidate_targets = match validated.and_then(|validated| {
             target_profiles::prepare_managed_activation(
@@ -2936,6 +3153,18 @@ async fn install_runtime(
     })
     .await
     .map_err(|error| format!("Managed activation stopped unexpectedly: {error}"))??;
+    if let Err(error) = uv_output(
+        &app,
+        &cache_paths,
+        vec!["cache".into(), "prune".into(), "--ci".into()],
+        None,
+        cancellation.token(),
+        "VidXP installation cache cleanup",
+    )
+    .await
+    {
+        log::warn!("VidXP was activated, but its installation cache could not be pruned: {error}");
+    }
     stop_ui_process(&state);
     stop_api_process(&state);
     transition.commit_draft();
@@ -4418,17 +4647,18 @@ mod tests {
     use super::{
         ActivationJournal, ActivationRecovery, ActivationStage, ActiveRuntime, DesktopAction,
         DesktopActivation, DesktopCloseAction, DesktopState, DraftPhase, DraftRecord,
-        ManagedSetupDraft, RUNTIME_CONSTRAINTS_FILE_NAME, TargetTransitionCoordinator,
-        TransitionKind, UiProcessAction, WorkerStopSupervisor, action_for_activation,
-        activation_recovery, base_package_specification, capability_command_arguments,
-        claim_browser_open, clean_environment_from, close_action, configure_ui_service_command,
-        configured_runtime_status, dependency_installation_invocation, desktop_paths_from_roots,
-        display_command, external_installation_arguments, external_installation_version,
-        inventory_model_directory, manifest, manifest_digest, normalize_line_endings,
-        normalized_runtime_constraints, package_acquisition_arguments, package_specification,
-        read_active_runtime_snapshot, reconcile_managed_runtime_storage, required_encoder_missing,
-        restore_active_runtime, selected_capabilities, selected_surfaces, ui_process_action,
-        write_activation_journal, write_active_runtime,
+        ManagedSetupDraft, RUNTIME_CONSTRAINTS_FILE_NAME, RUNTIME_PACKAGE_WHEEL_NAME,
+        TargetTransitionCoordinator, TransitionKind, UiProcessAction, WorkerStopSupervisor,
+        action_for_activation, activation_recovery, base_package_specification,
+        capability_command_arguments, claim_browser_open, clean_environment_from, close_action,
+        configure_ui_service_command, configured_runtime_status,
+        dependency_installation_invocation, desktop_paths_from_roots, display_command,
+        external_installation_arguments, external_installation_version, inventory_model_directory,
+        manifest, manifest_digest, normalize_line_endings, normalized_runtime_constraints,
+        package_acquisition_arguments, package_specification, read_active_runtime_snapshot,
+        reconcile_managed_runtime_storage, required_encoder_missing, restore_active_runtime,
+        selected_capabilities, selected_surfaces, ui_process_action, write_activation_journal,
+        write_active_runtime,
     };
     use std::{
         ffi::OsStr,
@@ -5048,12 +5278,13 @@ mod tests {
     }
 
     #[test]
-    fn package_and_dependencies_use_channel_specific_indexes() {
+    fn managed_install_uses_the_bundled_package_and_public_dependency_index() {
         let manifest = manifest().expect("manifest");
         let python = Path::new("managed-python");
         let constraints = Path::new("staging").join(RUNTIME_CONSTRAINTS_FILE_NAME);
+        let wheel = Path::new("staging").join(RUNTIME_PACKAGE_WHEEL_NAME);
         let selected_package_index = manifest.dependency_index.as_str();
-        let acquisition = package_acquisition_arguments(&manifest, python);
+        let acquisition = package_acquisition_arguments(&manifest, python, &wheel);
         let dependency_installation = dependency_installation_invocation(
             &manifest,
             &["scene".into()],
@@ -5068,8 +5299,18 @@ mod tests {
         assert_eq!(selected_package_index, "https://pypi.org/simple");
         assert_eq!(manifest.dependency_index, "https://pypi.org/simple");
         assert!(acquisition.iter().any(|item| item == "--no-deps"));
+        assert!(acquisition.iter().any(|item| item == "--no-index"));
         assert!(
             acquisition
+                .windows(2)
+                .any(|items| items == ["--find-links", "staging"])
+        );
+        assert_eq!(
+            acquisition.last(),
+            Some(&base_package_specification(&manifest))
+        );
+        assert!(
+            !acquisition
                 .iter()
                 .any(|item| item == selected_package_index)
         );
@@ -5084,6 +5325,15 @@ mod tests {
             dependencies
                 .windows(2)
                 .any(|items| items == ["--constraints", "runtime-constraints.txt"])
+        );
+        assert!(
+            dependencies
+                .windows(2)
+                .any(|items| items == ["--find-links", "."])
+        );
+        assert_eq!(
+            dependencies.last(),
+            Some(&package_specification(&manifest, &["scene".into()], &[]))
         );
         assert_eq!(
             dependency_installation.working_directory,
@@ -5102,7 +5352,6 @@ mod tests {
             .join("runtimes")
             .join("staging")
             .join(RUNTIME_CONSTRAINTS_FILE_NAME);
-
         let invocation = dependency_installation_invocation(
             &manifest,
             &["scene".into()],
@@ -5130,6 +5379,10 @@ mod tests {
         assert_eq!(
             capability_command_arguments(&manifest, "doctor", &["dialogue".into(), "scene".into()]),
             ["doctor", "--json", "--modalities", "dialogue,scene"]
+        );
+        assert_eq!(
+            capability_command_arguments(&manifest, "prepare", &["scene".into()]),
+            ["prepare", "--json", "--modalities", "scene", "--yes"]
         );
     }
 
