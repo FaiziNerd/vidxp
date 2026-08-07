@@ -3,7 +3,8 @@
   "version": "0.4.0-b.3",
   "description": "Ingest, index, search, and inspect video evidence with VidXP.",
   "author": {
-    "name": "Grayhat"
+    "name": "Grayhat",
+    "url": "https://grayhat.studio/"
   },
   "homepage": "https://github.com/grayhatdevelopers/vidxp",
   "repository": "https://github.com/grayhatdevelopers/vidxp",
@@ -17,12 +18,15 @@
     "developerName": "Grayhat",
     "category": "Productivity",
     "capabilities": ["Read", "Write", "Interactive"],
-    "websiteURL": "https://github.com/grayhatdevelopers/vidxp",
+    "websiteURL": "https://grayhat.studio/",
     "defaultPrompt": [
       "Find and verify moments in my indexed videos.",
+      "Set up VidXP on this computer.",
       "Ingest and index a video with VidXP."
     ],
-    "brandColor": "#6D5EF7"
-  },
-  "mcpServers": "./.mcp.json"
+    "brandColor": "#6D5EF7",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo.png"
+  }
 }
