@@ -206,6 +206,30 @@ describe('desktop target lifecycle', () => {
     expect(mocks.stopLocalServer).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps worker timeouts with the worker control and clears them after recovery', async () => {
+    const operational = {
+      ...managedProfile,
+      frontend,
+      surfaces: ['worker', 'browser'],
+      validation_error: null,
+    };
+    const state = { profiles: [operational], selected_profile_id: operational.id, issues: [] };
+    mocks.targetSetupState.mockResolvedValue(state);
+    mocks.recheckTargetState.mockResolvedValue(state);
+    mocks.localWorkerStatus.mockRejectedValue('VidXP local processing failed: the operation exceeded 120 seconds');
+    const user = userEvent.setup();
+    renderApp();
+
+    const workerFailure = await screen.findByRole('alert', { name: 'Local processing status could not be checked' });
+    expect(workerFailure).toHaveTextContent('the operation exceeded 120 seconds');
+    expect(screen.queryByRole('alert', { name: 'That did not work' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Start processing' }));
+
+    expect(await screen.findByRole('button', { name: 'Stop processing' })).toBeVisible();
+    expect(screen.queryByRole('alert', { name: 'Local processing status could not be checked' })).not.toBeInTheDocument();
+  });
+
   it('adds optional features to the selected existing installation', async () => {
     const updated = { ...localProfile, surfaces: ['worker', 'browser', 'mcp'] };
     const updatedState = { profiles: [updated], selected_profile_id: updated.id, issues: [] };
@@ -457,6 +481,19 @@ describe('desktop target lifecycle', () => {
     await waitFor(() => expect(mocks.installRuntime).toHaveBeenCalledWith(expect.objectContaining({ draft_id: 'draft-1' })));
     expect(mocks.installMediaRuntime).toHaveBeenCalledWith('draft-1');
     expect(mocks.launchUi).not.toHaveBeenCalled();
+  });
+
+  it('keeps a managed installation failure visible in the setup dialog until it is acknowledged', async () => {
+    mocks.installRuntime.mockRejectedValueOnce('The installed runtime failed its compatibility check.');
+    const user = userEvent.setup(); renderApp(); await enterManaged(user);
+
+    await user.click(screen.getByRole('button', { name: 'Install VidXP' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Setup could not finish' })).toBeVisible();
+    expect(screen.getByRole('alert', { name: 'VidXP was not installed' })).toHaveTextContent('The installed runtime failed its compatibility check.');
+    expect(screen.getByText(/model files already downloaded remain cached/i)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Review setup' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Setup could not finish' })).not.toBeInTheDocument());
   });
 
   it('blocks setup interaction and reports managed installation stages', async () => {
