@@ -40,6 +40,7 @@ from vidxp.application_models import (
     JobQueue,
     JobState,
     MediaAsset,
+    MediaPage,
     PrepareModelsResult,
     PrepareModelsJobResult,
     QueryAnswer,
@@ -391,6 +392,42 @@ class CliTests(unittest.TestCase):
                 "detail": "Local video processing is stopped.",
             },
         )
+
+    def test_media_list_shows_media_state(self):
+        self.service.list_media.return_value = MediaPage(
+        items=(
+            MediaAsset(
+                schema_version=1,
+                media_id=MEDIA_ID,
+                video_id=MEDIA_ID,
+                original_filename="video.mp4",
+                sha256="1" * 64,
+                byte_size=5,
+                detected_mime_type="video/mp4",
+                container="mp4",
+                duration_seconds=1,
+                streams=(
+                    MediaStream(
+                        index=0,
+                        kind="video",
+                        codec="h264",
+                        width=1,
+                        height=1,
+                    ),
+                ),
+                state=MediaState.ready,
+                created_at=datetime.now(timezone.utc),
+            ),
+        ),
+        next_cursor=None,
+        total =1,
+    )
+
+        result = self.invoke(["media", "list"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("State", result.output)
+        self.assertIn("ready", result.output)
 
     def test_ui_share_uses_streamlit_wildcard_bind_and_warns(self):
         with (
