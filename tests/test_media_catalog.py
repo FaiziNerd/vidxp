@@ -7,6 +7,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from vidxp.core.artifacts import ArtifactKind, ArtifactRecord
 from vidxp.core.media import (
     MediaImportLimitError,
@@ -55,6 +57,24 @@ def media_record(
         ),
         storage_key=f"objects/{checksum[:2]}/{checksum}.mp4",
         state=MediaState.ready,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def incomplete_media_record(
+    *,
+    state: MediaState,
+    media_id: str = MEDIA_ID,
+    checksum: str = "1" * 64,
+) -> MediaRecord:
+    return MediaRecord(
+        media_id=media_id,
+        video_id=media_id,
+        sha256=checksum,
+        original_filename="video.mp4",
+        byte_size=5,
+        storage_key=f"objects/{checksum[:2]}/{checksum}.mp4",
+        state=state,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -123,6 +143,38 @@ class LocalCatalogTests(unittest.TestCase):
             duplicate = media_record(OTHER_MEDIA_ID)
             self.assertEqual(reopened.put_media(duplicate), record)
             self.assertEqual(reopened.list_media(limit=10), (record,))
+
+    def test_catalog_replaces_pending_and_failed_media(self):
+        with TemporaryDirectory() as directory:
+            catalog = LocalCatalog(Path(directory) / "catalog.sqlite3")
+            pending = incomplete_media_record(state=MediaState.pending)
+            self.assertEqual(catalog.put_media(pending), pending)
+
+            failed = pending.model_copy(update={"state": MediaState.failed})
+            self.assertEqual(catalog.replace_media(failed), failed)
+            self.assertEqual(catalog.get_media(MEDIA_ID), failed)
+
+            ready = media_record()
+            self.assertEqual(catalog.replace_media(ready), ready)
+            self.assertEqual(catalog.get_media(MEDIA_ID), ready)
+            with self.assertRaises(FileExistsError):
+                catalog.replace_media(
+                    ready.model_copy(
+                        update={"original_filename": "other.mp4"}
+                    )
+                )
+
+    def test_ready_media_requires_a_video_stream(self):
+        with self.assertRaises(ValidationError):
+            incomplete_media_record(state=MediaState.ready)
+        self.assertEqual(
+            incomplete_media_record(state=MediaState.pending).state,
+            MediaState.pending,
+        )
+        self.assertEqual(
+            incomplete_media_record(state=MediaState.failed).state,
+            MediaState.failed,
+        )
 
     def test_artifact_requires_cataloged_media_and_survives_reopen(self):
         with TemporaryDirectory() as directory:

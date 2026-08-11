@@ -364,12 +364,25 @@ class MediaAsset(ApplicationModel):
     sha256: Sha256
     byte_size: int = Field(gt=0)
     declared_mime_type: MimeType | None = None
-    detected_mime_type: MimeType
-    container: str = Field(min_length=1)
-    duration_seconds: float = Field(gt=0)
-    streams: tuple[MediaStream, ...] = Field(min_length=1)
+    detected_mime_type: MimeType | None = None
+    container: str | None = Field(default=None, min_length=1)
+    duration_seconds: float | None = Field(default=None, gt=0)
+    streams: tuple[MediaStream, ...] = ()
     state: MediaState
     created_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def _require_ready_probe(self) -> "MediaAsset":
+        if self.state != MediaState.ready:
+            return self
+        if (
+            self.detected_mime_type is None
+            or self.container is None
+            or self.duration_seconds is None
+            or not any(stream.kind == "video" for stream in self.streams)
+        ):
+            raise ValueError("ready media must contain a video stream")
+        return self
 
 
 class ListMediaCommand(ApplicationModel):
@@ -767,7 +780,7 @@ class WorkspaceMediaCapability(ApplicationModel):
 class WorkspaceMedia(ApplicationModel):
     media_id: MediaId
     original_filename: str = Field(min_length=1)
-    duration_seconds: float = Field(gt=0)
+    duration_seconds: float | None = Field(default=None, gt=0)
     state: MediaState
     in_active_snapshot: bool
     capabilities: tuple[WorkspaceMediaCapability, ...] = ()

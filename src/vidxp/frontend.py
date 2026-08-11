@@ -708,8 +708,12 @@ def _select_video(busy, media_id, media_page):
                 else 0
             ),
             format_func=lambda value: (
-                f"{asset_by_id[value].original_filename} "
-                f"({asset_by_id[value].duration_seconds:.1f}s)"
+                asset_by_id[value].original_filename
+                if asset_by_id[value].duration_seconds is None
+                else (
+                    f"{asset_by_id[value].original_filename} "
+                    f"({asset_by_id[value].duration_seconds:.1f}s)"
+                )
             ),
             disabled=busy,
         )
