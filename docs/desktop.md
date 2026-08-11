@@ -20,6 +20,10 @@ implementation:
 - managed repositories and models use the same platform VidXP data directory
   as the CLI; adopted targets retain their reported roots, while managed Python
   and package environments use private desktop application-data directories;
+- Desktop-managed launchers stay private and are restored through their saved
+  managed profile rather than being added to `PATH` or offered for external
+  adoption. This preserves Desktop's lifecycle ownership, version checks, and
+  controlled launch environment without shadowing a separately installed CLI;
 - the existing DBOS worker remains the durable execution boundary; and
 - closing the desktop process stops the exact browser and API processes it launched,
   while broad worker shutdown remains limited to desktop-owned runtimes.
@@ -187,8 +191,18 @@ one browser tab. Closing a configured control panel hides it to the tray.
 action, and **Quit VidXP** runs supervised shutdown for the interface and any
 Desktop-owned repository worker. The active-target panel also reports and
 controls local video processing through the existing `JobService` worker
-lifecycle, reports the app integration service, creates AI-assistant MCP config,
-and presents the existing doctor result as product health rather than raw output.
+lifecycle, reports the app integration service, creates copyable AI-assistant
+MCP config, installs the VidXP plugin and local MCP server into Codex, and
+presents the existing doctor result as product health rather than raw output.
+Release builds add the repository's Git marketplace from `main` for beta or
+`release` for stable, then install `vidxp@vidxp`. Development and pull-request
+builds export the packaged plugin to a dedicated Desktop-private
+`vidxp-local` marketplace. Desktop uses the supported Codex CLI commands to
+register the marketplace, plugin, and selected runtime's absolute `vidxp-mcp`
+command with its repository and data paths. Re-running setup refreshes these
+registrations; a successful release setup removes the obsolete local
+marketplace. A new Codex task is required before refreshed skills and tools are
+available.
 The browser and app integration service remain loopback-only by default.
 Explicit sharing controls compose their existing `--share` modes: browser
 sharing reports its LAN URL and warns that it is unauthenticated, while API/MCP

@@ -51,6 +51,8 @@ const RUNTIME_PACKAGE_WHEEL_NAME: &str =
 const RUNTIME_PACKAGE_WHEEL_SHA256: &str =
     include_str!(concat!(env!("OUT_DIR"), "/runtime-package-sha256.txt"));
 const MODEL_CACHE_CATALOG_BYTES: &[u8] = include_bytes!("../../model-cache-catalog.json");
+const CODEX_PLUGIN_MARKETPLACE_SOURCE: &str = "grayhatdevelopers/vidxp";
+const CODEX_PLUGIN_MARKETPLACE_REF: Option<&str> = option_env!("VIDXP_PLUGIN_MARKETPLACE_REF");
 const PRODUCT_DATA_DIRECTORY_NAME: &str = "VidXP";
 const RUNTIME_CONSTRAINTS_FILE_NAME: &str = "runtime-constraints.txt";
 const MAX_SETUP_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -483,6 +485,17 @@ struct ApiShareDetails {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct LocalWorkerStatus {
     running: bool,
+    detail: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CodexPluginInstallResult {
+    plugin_name: String,
+    plugin_id: Option<String>,
+    plugin_version: String,
+    marketplace_name: String,
+    marketplace_path: String,
+    installed_path: Option<String>,
     detail: String,
 }
 
@@ -1711,6 +1724,30 @@ fn managed_probe_error(message: impl Into<String>) -> target_profiles::TargetErr
     }
 }
 
+fn validate_managed_runtime_identity(
+    runtime: &Path,
+    launcher: &Path,
+    identity: &target_profiles::RuntimeIdentity,
+) -> Result<(), target_profiles::TargetError> {
+    if !path_is_confined(launcher, runtime) {
+        return Err(managed_probe_error(format!(
+            "The managed launcher resolved outside the Desktop-owned runtime at {}.",
+            runtime.display()
+        )));
+    }
+    if !same_path(&identity.prefix, runtime) {
+        return Err(managed_probe_error(format!(
+            "The managed probe reported Python environment {}, but VidXP Desktop owns {}.",
+            identity.prefix.display(),
+            runtime.display()
+        )));
+    }
+    // POSIX virtual environments commonly symlink their Python executable to a shared base
+    // interpreter. The environment prefix, not that resolved interpreter target, establishes
+    // which environment the managed launcher is running from.
+    Ok(())
+}
+
 fn validate_managed_projection(
     paths: &DesktopPaths,
     projection: &target_profiles::ManagedRuntimeProjection,
@@ -1741,14 +1778,7 @@ fn validate_managed_projection(
             )));
         }
     }
-    if !path_is_confined(&validated.executable, &runtime)
-        || !path_is_confined(&validated.runtime.python_executable, &runtime)
-        || !same_path(&validated.runtime.prefix, &runtime)
-    {
-        return Err(managed_probe_error(
-            "The managed probe reported a launcher or Python runtime outside the active Desktop-owned environment.",
-        ));
-    }
+    validate_managed_runtime_identity(&runtime, &validated.executable, &validated.runtime)?;
     Ok(validated)
 }
 
@@ -3641,6 +3671,63 @@ async fn mcp_client_config(
     .map_err(|error| format!("MCP configuration stopped unexpectedly: {error}"))?
 }
 
+#[tauri::command]
+async fn install_codex_plugin(
+    app: AppHandle,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<CodexPluginInstallResult, String> {
+    let _active = state.active_operations.register()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let (profile, paths) = selected_target_context(&app)?;
+        if !profile
+            .surfaces
+            .iter()
+            .any(|surface| surface == "mcp" || surface == "server")
+        {
+            return Err(
+                "The selected VidXP installation does not expose an installed MCP surface.".into(),
+            );
+        }
+        let installer_path = target_companion_executable(&profile, "vidxp-codex-plugin");
+        if !installer_path.is_file() {
+            return Err(format!(
+                "The selected installation did not provide {}. Update VidXP and try again.",
+                installer_path.display()
+            ));
+        }
+        let mut command = target_command(&profile, &paths, &installer_path);
+        if let Some(marketplace_ref) =
+            CODEX_PLUGIN_MARKETPLACE_REF.filter(|value| !value.is_empty())
+        {
+            command
+                .arg("--marketplace-source")
+                .arg(CODEX_PLUGIN_MARKETPLACE_SOURCE)
+                .arg("--marketplace-ref")
+                .arg(marketplace_ref)
+                .arg("--marketplace-sparse")
+                .arg(".agents/plugins")
+                .arg("--marketplace-sparse")
+                .arg("plugins/vidxp");
+        } else {
+            command
+                .arg("--marketplace-root")
+                .arg(paths.private_data.join("codex-marketplace"));
+        }
+        command
+            .arg("--repository")
+            .arg("default")
+            .arg("--index-directory")
+            .arg(&profile.repository_root)
+            .arg("--data-dir")
+            .arg(&profile.data_root);
+        let output = checked_output(command, "VidXP Codex plugin setup")?;
+        serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("VidXP returned invalid Codex setup details: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Codex plugin setup stopped unexpectedly: {error}"))?
+}
+
 fn execute_worker_action(app: &AppHandle, action: &str) -> Result<LocalWorkerStatus, String> {
     let (profile, paths) = selected_target_context(app)?;
     if !profile.surfaces.iter().any(|surface| surface == "worker") {
@@ -4139,44 +4226,87 @@ fn current_unix_seconds() -> u64 {
 
 fn tray_installation_label(profile: Option<&target_profiles::TargetProfile>, now: u64) -> String {
     let Some(profile) = profile else {
-        return "No VidXP installation selected".into();
+        return "No installation selected".into();
     };
-    let state = match profile.validation_error.as_ref().map(|error| &error.code) {
-        Some(target_profiles::TargetErrorCode::RuntimeUpdateRequired) => "Update required",
-        Some(_) => "Needs attention",
-        None if !profile.is_ready(now) => "Check required",
-        None => "Ready",
-    };
-    format!("{} · {state}", profile.display_name)
+    match profile.validation_error.as_ref().map(|error| &error.code) {
+        Some(target_profiles::TargetErrorCode::RuntimeUpdateRequired) => {
+            format!("{} · Update required", profile.display_name)
+        }
+        Some(_) => format!("{} · Needs attention", profile.display_name),
+        None if !profile.is_ready(now) => format!("{} · Check setup", profile.display_name),
+        None => profile.display_name.clone(),
+    }
 }
 
-fn tray_browser_label(status: &BrowserServiceStatus) -> String {
+fn tray_capability_state(selected: bool, installed: bool, ready: bool) -> Option<&'static str> {
+    if !selected || !ready {
+        Some("Unavailable")
+    } else if !installed {
+        Some("Not installed")
+    } else {
+        None
+    }
+}
+
+fn tray_browser_label(
+    status: &BrowserServiceStatus,
+    selected: bool,
+    installed: bool,
+    ready: bool,
+    status_known: bool,
+) -> String {
+    if let Some(state) = tray_capability_state(selected, installed, ready) {
+        return format!("Browser · {state}");
+    }
+    if !status_known {
+        return "Browser · Status unknown".into();
+    }
     if !status.running {
-        return "Browser interface · Stopped".into();
+        return "Browser · Off".into();
     }
     if status.shared {
-        return format!(
-            "Browser interface · Shared · {}",
-            status
-                .network_url
-                .as_deref()
-                .unwrap_or("address unavailable")
-        );
+        return "Browser · Shared".into();
     }
-    format!(
-        "Browser interface · Private · {}",
-        status.local_url.as_deref().unwrap_or("address unavailable")
-    )
+    "Browser · Private".into()
 }
 
-fn tray_server_label(status: &LocalServerStatus) -> String {
+fn tray_worker_label(
+    status: Option<&Result<LocalWorkerStatus, String>>,
+    selected: bool,
+    installed: bool,
+    ready: bool,
+) -> String {
+    if let Some(state) = tray_capability_state(selected, installed, ready) {
+        return format!("Processing · {state}");
+    }
+    match status {
+        Some(Ok(status)) if status.running => "Processing · On",
+        Some(Ok(_)) => "Processing · Off",
+        Some(Err(_)) => "Processing · Status unknown",
+        None => "Processing · Checking…",
+    }
+    .into()
+}
+
+fn tray_server_label(
+    status: &LocalServerStatus,
+    selected: bool,
+    installed: bool,
+    ready: bool,
+    status_known: bool,
+) -> String {
+    if let Some(state) = tray_capability_state(selected, installed, ready) {
+        return format!("App integration · {state}");
+    }
+    if !status_known {
+        return "App integration · Status unknown".into();
+    }
     if !status.running {
-        return "App integration service · Stopped".into();
+        return "App integration · Off".into();
     }
     format!(
-        "App integration service · {} · {}",
-        if status.shared { "Shared" } else { "Private" },
-        status.origin.as_deref().unwrap_or("address unavailable")
+        "App integration · {}",
+        if status.shared { "Shared" } else { "Private" }
     )
 }
 
@@ -4190,17 +4320,23 @@ fn refresh_tray_menu(app: &AppHandle) {
     let profile = target_state
         .as_ref()
         .and_then(target_profiles::TargetState::selected_profile);
+    let selected = profile.is_some();
     let ready = profile.is_some_and(|profile| profile.is_ready(current_unix_seconds()));
-    let browser_available = ready && profile.is_some_and(|profile| profile.frontend.launchable);
-    let worker_available = ready
-        && profile
-            .is_some_and(|profile| profile.surfaces.iter().any(|surface| surface == "worker"));
-    let server_available = ready
-        && profile
-            .is_some_and(|profile| profile.surfaces.iter().any(|surface| surface == "server"));
-    let browser = inspect_browser_service(&state)
+    let browser_installed = profile.is_some_and(|profile| profile.frontend.launchable);
+    let worker_installed =
+        profile.is_some_and(|profile| profile.surfaces.iter().any(|surface| surface == "worker"));
+    let server_installed =
+        profile.is_some_and(|profile| profile.surfaces.iter().any(|surface| surface == "server"));
+    let browser_available = ready && browser_installed;
+    let worker_available = ready && worker_installed;
+    let server_available = ready && server_installed;
+    let browser_result = inspect_browser_service(&state);
+    let browser_status_known = browser_result.is_ok();
+    let browser = browser_result
         .unwrap_or_else(|error| stopped_browser_status(format!("Status unavailable: {error}")));
-    let server = inspect_local_server(&state)
+    let server_result = inspect_local_server(&state);
+    let server_status_known = server_result.is_ok();
+    let server = server_result
         .unwrap_or_else(|error| stopped_server_status(format!("Status unavailable: {error}")));
     let worker = profile.and_then(|profile| {
         state.worker_status.lock().ok().and_then(|cached| {
@@ -4214,21 +4350,36 @@ fn refresh_tray_menu(app: &AppHandle) {
     let _ = items
         .installation
         .set_text(tray_installation_label(profile, current_unix_seconds()));
-    let _ = items.browser.set_text(tray_browser_label(&browser));
+    let _ = items.browser.set_text(tray_browser_label(
+        &browser,
+        selected,
+        browser_installed,
+        ready,
+        browser_status_known,
+    ));
     let _ = items.browser.set_enabled(browser_available);
+    let _ = items.open_browser.set_text(if browser.running {
+        "Open VidXP"
+    } else {
+        "Start and open VidXP"
+    });
     let _ = items.open_browser.set_enabled(browser_available);
+    let _ = items.share_browser.set_text(if browser.running {
+        "Share on local network"
+    } else {
+        "Start and share"
+    });
     let _ = items
         .share_browser
         .set_enabled(browser_available && !browser.shared);
     let _ = items.stop_browser.set_enabled(browser.running);
 
-    let worker_label = match worker.as_ref() {
-        Some(Ok(status)) if status.running => "Local video processing · Running",
-        Some(Ok(_)) => "Local video processing · Stopped",
-        Some(Err(_)) => "Local video processing · Needs attention",
-        None => "Local video processing · Checking…",
-    };
-    let _ = items.worker.set_text(worker_label);
+    let _ = items.worker.set_text(tray_worker_label(
+        worker.as_ref(),
+        selected,
+        worker_installed,
+        ready,
+    ));
     let _ = items.worker.set_enabled(worker_available);
     let _ = items.start_worker.set_enabled(
         worker_available
@@ -4242,7 +4393,13 @@ fn refresh_tray_menu(app: &AppHandle) {
             .is_some_and(|status| status.as_ref().is_ok_and(|status| status.running)),
     );
 
-    let _ = items.server.set_text(tray_server_label(&server));
+    let _ = items.server.set_text(tray_server_label(
+        &server,
+        selected,
+        server_installed,
+        ready,
+        server_status_known,
+    ));
     let _ = items.server.set_enabled(server_available);
     let _ = items.start_server.set_text(if server.shared {
         "Make private"
@@ -4255,6 +4412,11 @@ fn refresh_tray_menu(app: &AppHandle) {
     let _ = items
         .share_server
         .set_enabled(server_available && !server.shared);
+    let _ = items.share_server.set_text(if server.running {
+        "Share on local network"
+    } else {
+        "Start and share"
+    });
     let _ = items.stop_server.set_enabled(server.running);
 }
 
@@ -4392,16 +4554,10 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let stop_browser = MenuItem::with_id(
-        app,
-        "stop-browser",
-        "Stop browser interface",
-        false,
-        None::<&str>,
-    )?;
+    let stop_browser = MenuItem::with_id(app, "stop-browser", "Stop browser", false, None::<&str>)?;
     let browser = Submenu::with_items(
         app,
-        "Browser interface",
+        "Browser · Checking…",
         true,
         &[&share_browser, &stop_browser],
     )?;
@@ -4411,7 +4567,7 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         MenuItem::with_id(app, "stop-worker", "Stop processing", false, None::<&str>)?;
     let worker = Submenu::with_items(
         app,
-        "Local video processing",
+        "Processing · Checking…",
         true,
         &[&start_worker, &stop_worker],
     )?;
@@ -4424,10 +4580,11 @@ fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
-    let stop_server = MenuItem::with_id(app, "stop-server", "Stop service", false, None::<&str>)?;
+    let stop_server =
+        MenuItem::with_id(app, "stop-server", "Stop integration", false, None::<&str>)?;
     let server = Submenu::with_items(
         app,
-        "App integration service",
+        "App integration · Checking…",
         true,
         &[&start_server, &share_server, &stop_server],
     )?;
@@ -4601,6 +4758,7 @@ pub fn run() {
             target_doctor,
             configure_external_installation,
             mcp_client_config,
+            install_codex_plugin,
             local_worker_status,
             start_local_worker,
             stop_local_worker,
@@ -4657,8 +4815,8 @@ mod tests {
         manifest, manifest_digest, normalize_line_endings, normalized_runtime_constraints,
         package_acquisition_arguments, package_specification, read_active_runtime_snapshot,
         reconcile_managed_runtime_storage, required_encoder_missing, restore_active_runtime,
-        selected_capabilities, selected_surfaces, ui_process_action, write_activation_journal,
-        write_active_runtime,
+        selected_capabilities, selected_surfaces, ui_process_action,
+        validate_managed_runtime_identity, write_activation_journal, write_active_runtime,
     };
     use std::{
         ffi::OsStr,
@@ -4698,6 +4856,39 @@ mod tests {
             paths.activation_journal,
             PathBuf::from("private").join("activation-journal.json")
         );
+    }
+
+    #[test]
+    fn managed_runtime_accepts_a_shared_posix_base_interpreter() {
+        let root = std::env::temp_dir().join(format!(
+            "vidxp-managed-runtime-identity-{}",
+            std::process::id()
+        ));
+        let runtime = root.join("runtimes").join("profile");
+        let launcher = runtime.join("bin").join("vidxp");
+        fs::create_dir_all(launcher.parent().expect("launcher parent")).expect("runtime");
+        fs::write(&launcher, b"launcher").expect("launcher");
+        let identity = crate::target_profiles::RuntimeIdentity {
+            python_executable: root
+                .join("python")
+                .join("cpython")
+                .join("bin")
+                .join("python3"),
+            python_version: "3.13.5".into(),
+            implementation: "CPython".into(),
+            prefix: runtime.clone(),
+            base_prefix: root.join("python").join("cpython"),
+        };
+
+        assert!(validate_managed_runtime_identity(&runtime, &launcher, &identity).is_ok());
+        assert!(
+            validate_managed_runtime_identity(&runtime, &root.join("other-vidxp"), &identity)
+                .is_err()
+        );
+        let mut wrong_prefix = identity;
+        wrong_prefix.prefix = root.join("other-environment");
+        assert!(validate_managed_runtime_identity(&runtime, &launcher, &wrong_prefix).is_err());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -5515,7 +5706,7 @@ mod tests {
     }
 
     #[test]
-    fn tray_service_labels_surface_scope_and_addresses() {
+    fn tray_service_labels_are_compact_and_distinguish_availability() {
         let browser = super::BrowserServiceStatus {
             state: "ready",
             running: true,
@@ -5538,16 +5729,58 @@ mod tests {
         };
 
         assert_eq!(
-            super::tray_browser_label(&browser),
-            "Browser interface · Shared · http://192.168.1.20:43124"
+            super::tray_browser_label(&browser, true, true, true, true),
+            "Browser · Shared"
         );
         assert_eq!(
-            super::tray_server_label(&server),
-            "App integration service · Private · http://127.0.0.1:43125"
+            super::tray_server_label(&server, true, true, true, true),
+            "App integration · Private"
+        );
+        assert_eq!(
+            super::tray_browser_label(&browser, true, false, true, true),
+            "Browser · Not installed"
+        );
+        assert_eq!(
+            super::tray_server_label(&server, true, true, false, true),
+            "App integration · Unavailable"
+        );
+        assert_eq!(
+            super::tray_browser_label(&browser, true, true, true, false),
+            "Browser · Status unknown"
         );
         assert_eq!(
             super::tray_installation_label(None, 0),
-            "No VidXP installation selected"
+            "No installation selected"
+        );
+    }
+
+    #[test]
+    fn tray_worker_labels_report_actual_state() {
+        let running = Ok(super::LocalWorkerStatus {
+            running: true,
+            detail: String::new(),
+        });
+        let stopped = Ok(super::LocalWorkerStatus {
+            running: false,
+            detail: String::new(),
+        });
+        let unavailable = Err("timed out".into());
+
+        assert_eq!(
+            super::tray_worker_label(Some(&running), true, true, true),
+            "Processing · On"
+        );
+        assert_eq!(
+            super::tray_worker_label(Some(&stopped), true, true, true),
+            "Processing · Off"
+        );
+        assert_eq!(
+            super::tray_worker_label(Some(&unavailable), true, true, true),
+            "Processing · Status unknown"
+        );
+        assert_eq!(
+            super::tray_worker_label(None, true, false, true),
+            "Processing · Not installed"
         );
     }
 

@@ -1,11 +1,12 @@
 import { Alert, Badge, Button, Checkbox, Code, Group, Loader, Modal, Stack, Text, Title } from '@mantine/core';
-import { IconActivityHeartbeat, IconCopy, IconExternalLink, IconPlayerPlay, IconPlayerStop, IconRefresh, IconSettings, IconShare, IconTerminal2 } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { IconActivityHeartbeat, IconCopy, IconExternalLink, IconPlugConnected, IconPlayerPlay, IconPlayerStop, IconRefresh, IconSettings, IconShare, IconTerminal2 } from '@tabler/icons-react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   errorMessage,
   browserServiceStatus,
   configureExternalInstallation,
+  installCodexPlugin,
   localServerStatus,
   localWorkerStatus,
   mcpClientConfig,
@@ -20,6 +21,7 @@ import {
   targetDoctor,
   type DoctorReport,
   type BrowserServiceStatus,
+  type CodexPluginInstallResult,
   type LocalServerStatus,
   type LocalWorkerStatus,
   type RuntimeManifest,
@@ -48,6 +50,11 @@ const CAPABILITY_LABELS: Record<string, string> = {
   scene: 'Visual scene search',
 };
 
+interface WorkerFailure {
+  title: string;
+  detail: string;
+}
+
 export function TargetSummary({ profile, validationError, checking, operationPending, opening, onRecheck, onManageManaged, onSetupChanged, onChooseAnother, onOpen }: TargetSummaryProps) {
   const executable = profile.display_executable;
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
@@ -55,8 +62,12 @@ export function TargetSummary({ profile, validationError, checking, operationPen
   const [browser, setBrowser] = useState<BrowserServiceStatus | null>(null);
   const [worker, setWorker] = useState<LocalWorkerStatus | null>(null);
   const [mcpConfig, setMcpConfig] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'doctor' | 'config' | 'features' | 'worker-start' | 'worker-stop' | 'browser-share' | 'browser-stop' | 'server-start' | 'server-share' | 'server-stop' | null>(null);
+  const [codexSetup, setCodexSetup] = useState<CodexPluginInstallResult | null>(null);
+  const [busy, setBusy] = useState<'doctor' | 'config' | 'codex' | 'features' | 'worker-start' | 'worker-stop' | 'browser-share' | 'browser-stop' | 'server-start' | 'server-share' | 'server-stop' | null>(null);
   const [runtimeFailure, setRuntimeFailure] = useState<string | null>(null);
+  const [workerFailure, setWorkerFailure] = useState<WorkerFailure | null>(null);
+  const workerStatusRequest = useRef(0);
+  const workerActionActive = useRef(false);
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [externalSetupOpened, setExternalSetupOpened] = useState(false);
@@ -81,6 +92,7 @@ export function TargetSummary({ profile, validationError, checking, operationPen
   useEffect(() => {
     setDoctor(null);
     setMcpConfig(null);
+    setCodexSetup(null);
     setRuntimeFailure(null);
     if (!serverAvailable) {
       setServer(null);
@@ -127,20 +139,40 @@ export function TargetSummary({ profile, validationError, checking, operationPen
   useEffect(() => {
     if (!workerAvailable) {
       setWorker(null);
+      setWorkerFailure(null);
       return;
     }
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
+      if (workerActionActive.current) {
+        if (active) timer = setTimeout(() => void poll(), 5000);
+        return;
+      }
+      const request = ++workerStatusRequest.current;
       try {
         const status = await localWorkerStatus();
-        if (active) setWorker(status);
+        if (active && request === workerStatusRequest.current) {
+          setWorker(status);
+          setWorkerFailure(null);
+        }
       } catch (error) {
-        if (active) setRuntimeFailure(errorMessage(error, 'Local video processing status could not be checked.'));
+        if (active && request === workerStatusRequest.current) {
+          setWorkerFailure({
+            title: 'Local processing status could not be checked',
+            detail: errorMessage(error, 'VidXP could not check local video processing.'),
+          });
+        }
+      } finally {
+        if (active) timer = setTimeout(() => void poll(), 5000);
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 5000);
-    return () => { active = false; clearInterval(timer); };
+    return () => {
+      active = false;
+      workerStatusRequest.current += 1;
+      if (timer) clearTimeout(timer);
+    };
   }, [profile.id, workerAvailable]);
 
   useEffect(() => {
@@ -173,6 +205,19 @@ export function TargetSummary({ profile, validationError, checking, operationPen
       setMcpConfig(await mcpClientConfig());
     } catch (error) {
       setRuntimeFailure(errorMessage(error, 'VidXP could not create the AI client setup.'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setupCodex() {
+    setBusy('codex');
+    setRuntimeFailure(null);
+    setCodexSetup(null);
+    try {
+      setCodexSetup(await installCodexPlugin());
+    } catch (error) {
+      setRuntimeFailure(errorMessage(error, 'VidXP could not install the Codex plugin.'));
     } finally {
       setBusy(null);
     }
@@ -254,12 +299,18 @@ export function TargetSummary({ profile, validationError, checking, operationPen
 
   async function setWorkerRunning(running: boolean) {
     setBusy(running ? 'worker-start' : 'worker-stop');
-    setRuntimeFailure(null);
+    setWorkerFailure(null);
+    workerActionActive.current = true;
+    workerStatusRequest.current += 1;
     try {
       setWorker(await (running ? startLocalWorker() : stopLocalWorker()));
     } catch (error) {
-      setRuntimeFailure(errorMessage(error, 'VidXP could not change local video processing.'));
+      setWorkerFailure({
+        title: running ? 'Local processing could not be started' : 'Local processing could not be stopped',
+        detail: errorMessage(error, 'VidXP could not change local video processing.'),
+      });
     } finally {
+      workerActionActive.current = false;
       setBusy(null);
     }
   }
@@ -304,6 +355,9 @@ export function TargetSummary({ profile, validationError, checking, operationPen
         <Alert color="red" title="This setup needs attention" role="alert" mb="md">
           {validationError.message}
           <details className="technicalDetails"><summary>Technical details</summary><Code>{validationError.code}</Code></details>
+          {profile.kind === 'managed' && (
+            <Button mt="md" variant="light" loading={operationPending} onClick={onManageManaged}>Repair VidXP</Button>
+          )}
         </Alert>
       )}
       {runtimeFailure && <Alert color="red" title="That did not work" role="alert" mb="md">{runtimeFailure}</Alert>}
@@ -357,15 +411,18 @@ export function TargetSummary({ profile, validationError, checking, operationPen
             </Alert>
           )}
 
-          {workerAvailable && <Group justify="space-between" className="runtimeControlRow">
-            <div>
-              <Text fw={650}>Local video processing</Text>
-              <Text size="sm" className="mutedText">{worker?.running ? 'Ready to process indexing, search, and model jobs on this computer.' : 'Starts automatically when VidXP needs to process a video. You can also start it now.'}</Text>
-            </div>
-            {worker?.running
-              ? <Button color="red" variant="light" leftSection={<IconPlayerStop size={17} />} loading={busy === 'worker-stop'} disabled={operationPending || busy !== null} onClick={() => void setWorkerRunning(false)}>Stop processing</Button>
-              : <Button variant="light" leftSection={<IconPlayerPlay size={17} />} loading={busy === 'worker-start'} disabled={operationPending || busy !== null} onClick={() => void setWorkerRunning(true)}>Start processing</Button>}
-          </Group>}
+          {workerAvailable && <div>
+            <Group justify="space-between" className="runtimeControlRow">
+              <div>
+                <Text fw={650}>Local video processing</Text>
+                <Text size="sm" className="mutedText">{worker?.running ? 'Ready to process indexing, search, and model jobs on this computer.' : 'Starts automatically when VidXP needs to process a video. You can also start it now.'}</Text>
+              </div>
+              {worker?.running
+                ? <Button color="red" variant="light" leftSection={<IconPlayerStop size={17} />} loading={busy === 'worker-stop'} disabled={operationPending || busy !== null} onClick={() => void setWorkerRunning(false)}>Stop processing</Button>
+                : <Button variant="light" leftSection={<IconPlayerPlay size={17} />} loading={busy === 'worker-start'} disabled={operationPending || busy !== null} onClick={() => void setWorkerRunning(true)}>Start processing</Button>}
+            </Group>
+            {workerFailure && <Alert mt="sm" color="red" title={workerFailure.title} role="alert">{workerFailure.detail}</Alert>}
+          </div>}
 
           {browserAvailable && <Group justify="space-between" className="runtimeControlRow" align="flex-start">
             <div>
@@ -379,9 +436,17 @@ export function TargetSummary({ profile, validationError, checking, operationPen
           </Group>}
 
           {mcpAvailable && <Group justify="space-between" className="runtimeControlRow">
-            <div><Text fw={650}>AI assistant integration</Text><Text size="sm" className="mutedText">Create the MCP setup needed to use VidXP from a compatible AI assistant.</Text></div>
-            <Button variant="light" leftSection={<IconTerminal2 size={17} />} loading={busy === 'config'} disabled={operationPending || busy !== null} onClick={() => void loadMcpConfig()}>Set up connection</Button>
+            <div><Text fw={650}>AI assistant integration</Text><Text size="sm" className="mutedText">Install VidXP's MCP server and skills in Codex, or copy the MCP setup for another compatible assistant.</Text></div>
+            <Group gap="xs" justify="flex-end">
+              <Button leftSection={<IconPlugConnected size={17} />} loading={busy === 'codex'} disabled={operationPending || busy !== null} onClick={() => void setupCodex()}>Set up in Codex</Button>
+              <Button variant="light" leftSection={<IconTerminal2 size={17} />} loading={busy === 'config'} disabled={operationPending || busy !== null} onClick={() => void loadMcpConfig()}>Copy MCP setup</Button>
+            </Group>
           </Group>}
+
+          {codexSetup && <Alert color="teal" title="VidXP is installed in Codex">
+            <Text size="sm">{codexSetup.detail}</Text>
+            <details className="technicalDetails"><summary>Installation details</summary><Text size="xs">Plugin {codexSetup.plugin_version} from {codexSetup.marketplace_name}</Text>{codexSetup.installed_path && <Code className="pathCode">{codexSetup.installed_path}</Code>}</details>
+          </Alert>}
 
           {serverAvailable && <Group justify="space-between" className="runtimeControlRow">
             <div>
