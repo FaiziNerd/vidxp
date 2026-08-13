@@ -21,6 +21,7 @@ from vidxp.application_models import (
 from vidxp.capabilities.registry import create_capability_registry
 from vidxp.capability_service import CapabilityService
 from vidxp.control_plane import ControlPlaneApplication
+from vidxp.core.media import MediaState
 from vidxp.repository_layout import RepositoryLayout
 from vidxp.settings import LocalExecutionSettings, VidXPSettings
 
@@ -201,6 +202,7 @@ class FrontendTests(unittest.TestCase):
                     media_id=MEDIA_ID,
                     original_filename="video.mp4",
                     duration_seconds=27.2,
+                    state=MediaState.ready,
                 ),
             ),
             next_cursor=None,
@@ -244,6 +246,64 @@ class FrontendTests(unittest.TestCase):
         self.assertTrue(selectbox.call_args.kwargs["disabled"])
         self.assertTrue(uploader.call_args.kwargs["disabled"])
         video.assert_called_once_with("video.mp4", width=560)
+
+    def test_registered_video_selector_lists_only_ready_media(self):
+        service = Mock()
+        ready_id = MEDIA_ID
+        pending_id = "223456781234423481234567890abcde"
+        media_page = SimpleNamespace(
+            items=(
+                SimpleNamespace(
+                    media_id=ready_id,
+                    original_filename="ready.mp4",
+                    duration_seconds=12.0,
+                    state=MediaState.ready,
+                ),
+                SimpleNamespace(
+                    media_id=pending_id,
+                    original_filename="pending.mp4",
+                    duration_seconds=None,
+                    state=MediaState.pending,
+                ),
+            ),
+            next_cursor=None,
+        )
+        with (
+            patch.object(
+                frontend,
+                "_configured_service",
+                return_value=service,
+            ),
+            patch.object(frontend.st, "session_state", {}),
+            patch.object(frontend.st, "subheader"),
+            patch.object(
+                frontend.st,
+                "selectbox",
+                return_value=ready_id,
+            ) as selectbox,
+            patch.object(
+                frontend.st,
+                "expander",
+                return_value=nullcontext(),
+            ),
+            patch.object(frontend.st, "caption"),
+            patch.object(frontend.st, "text_input", return_value=""),
+            patch.object(frontend.st, "button", return_value=False),
+            patch.object(
+                frontend.st,
+                "file_uploader",
+                return_value=None,
+            ),
+            patch.object(frontend.st, "video"),
+        ):
+            _uploaded, media_id = frontend._select_video(
+                False,
+                pending_id,
+                media_page,
+            )
+
+        self.assertEqual(media_id, ready_id)
+        self.assertEqual(selectbox.call_args.args[1], (ready_id,))
 
     def test_local_path_import_uses_the_shared_application_command(self):
         service = Mock()

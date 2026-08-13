@@ -414,12 +414,64 @@ class MediaServiceTests(unittest.TestCase):
                 ),
             )
             catalog.get_media_by_checksum.return_value = None
-            catalog.replace_media.side_effect = RuntimeError("catalog failed")
+
+            def replace_side_effect(record):
+                if record.state == MediaState.ready:
+                    raise RuntimeError("catalog failed")
+                return record
+
+            catalog.replace_media.side_effect = replace_side_effect
 
             with self.assertRaisesRegex(RuntimeError, "catalog failed"):
                 service.import_local(ImportMediaCommand(path=source))
 
         store.delete.assert_called_once_with(stored.storage_key)
+        failed_calls = [
+            call.args[0].state
+            for call in catalog.replace_media.call_args_list
+            if call.args[0].state == MediaState.failed
+        ]
+        self.assertEqual(failed_calls, [MediaState.failed])
+
+    def test_publish_failure_catalogs_failed_media_without_publishing(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "video.mp4"
+            source.write_bytes(b"video")
+            service, catalog, store, probe = self.service(root)
+            staged = StagedMedia(
+                sha256="1" * 64,
+                byte_size=5,
+                storage_key="objects/11/video.mp4",
+                path=root / "staged.tmp",
+            )
+            store.stage_local.return_value = staged
+            probe.probe.return_value = MediaProbe(
+                detected_mime_type="video/mp4",
+                container="mp4",
+                duration_seconds=2,
+                streams=(
+                    MediaStream(
+                        index=0,
+                        kind="video",
+                        codec="h264",
+                        width=1,
+                        height=1,
+                    ),
+                ),
+            )
+            catalog.get_media_by_checksum.return_value = None
+            store.publish.side_effect = RuntimeError("publish failed")
+
+            with self.assertRaisesRegex(RuntimeError, "publish failed"):
+                service.import_local(ImportMediaCommand(path=source))
+
+        catalog.replace_media.assert_called_once()
+        self.assertEqual(
+            catalog.replace_media.call_args.args[0].state,
+            MediaState.failed,
+        )
+        store.discard.assert_called_once_with(staged)
 
     def test_media_pages_are_bounded_and_cursor_scoped(self):
         with TemporaryDirectory() as directory:

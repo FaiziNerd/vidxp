@@ -248,11 +248,7 @@ def index_list(
         table.add_row(
             asset.media_id,
             asset.original_filename,
-            (
-                "-"
-                if asset.duration_seconds is None
-                else f"{asset.duration_seconds:.3f}s"
-            ),
+            f"{asset.duration_seconds:.3f}s",
             f"{asset.byte_size:,}",
         )
     Console().print(table)

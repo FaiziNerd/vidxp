@@ -221,7 +221,11 @@ class MediaService:
         except BaseException:
             self._mark_failed(pending)
             raise
-        stored = self.store.publish(staged)
+        try:
+            stored = self.store.publish(staged)
+        except BaseException:
+            self._mark_failed(pending)
+            raise
         ready = pending.model_copy(
             update={
                 "detected_mime_type": probe.detected_mime_type,
@@ -244,6 +248,7 @@ class MediaService:
                     self.store.delete(stored.storage_key)
                 except OSError:
                     pass
+            self._mark_failed(pending)
             raise
         if authoritative.storage_key != stored.storage_key:
             try:
