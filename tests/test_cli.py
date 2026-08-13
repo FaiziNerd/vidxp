@@ -429,6 +429,42 @@ class CliTests(unittest.TestCase):
         self.assertIn("State", result.output)
         self.assertIn("ready", result.output)
 
+    def test_media_list_shows_pending_and_failed_states(self):
+        failed_id = "223456781234423481234567890abcde"
+        self.service.list_media.return_value = MediaPage(
+            items=(
+                MediaAsset(
+                    schema_version=1,
+                    media_id=MEDIA_ID,
+                    video_id=MEDIA_ID,
+                    original_filename="pending.mp4",
+                    sha256="1" * 64,
+                    byte_size=5,
+                    state=MediaState.pending,
+                    created_at=datetime.now(timezone.utc),
+                ),
+                MediaAsset(
+                    schema_version=1,
+                    media_id=failed_id,
+                    video_id=failed_id,
+                    original_filename="failed.mp4",
+                    sha256="2" * 64,
+                    byte_size=7,
+                    state=MediaState.failed,
+                    created_at=datetime.now(timezone.utc),
+                ),
+            ),
+            next_cursor=None,
+            total=2,
+        )
+
+        result = self.invoke(["media", "list"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("pending", result.output)
+        self.assertIn("failed", result.output)
+        self.assertIn("-", result.output)
+
     def test_ui_share_uses_streamlit_wildcard_bind_and_warns(self):
         with (
             patch(

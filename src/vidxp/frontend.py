@@ -28,6 +28,7 @@ from vidxp.application_models import (
 )
 from vidxp.branding import PROJECT_URL, icon_path
 from vidxp.composition import create_application, create_job_service
+from vidxp.core.media import MediaState
 from vidxp.index_state import IndexNotReadyError
 from vidxp.job_service import JobService
 from vidxp.settings import LocalExecutionSettings, VidXPSettings
@@ -750,7 +751,11 @@ def _import_local_video(service, raw_path):
 def _select_video(busy, media_id, media_page):
     service = _configured_service()
     st.subheader("Video")
-    assets = tuple(media_page.items) if media_page is not None else ()
+    assets = tuple(
+        asset
+        for asset in (media_page.items if media_page is not None else ())
+        if asset.state == MediaState.ready
+    )
     media_id = _default_media_id(media_id, assets)
     if media_id is not None:
         st.session_state[MEDIA_ID_KEY] = media_id

@@ -97,6 +97,8 @@ class MediaCatalogPort(Protocol):
 
     def put_media(self, record: MediaRecord) -> MediaRecord: ...
 
+    def replace_media(self, record: MediaRecord) -> MediaRecord: ...
+
     def list_media(
         self,
         *,

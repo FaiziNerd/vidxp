@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
 
 from vidxp.core.artifacts import ArtifactRecord, ArtifactState
-from vidxp.core.media import MediaRecord, utc_now
+from vidxp.core.media import MediaRecord, MediaState, utc_now
 from vidxp.core.uploads import (
     UploadIntentRecord,
     UploadSessionFileRecord,
@@ -49,6 +49,7 @@ _RESERVED_UPLOAD_STATES = {
     UploadState.processing.value,
     UploadState.failed.value,
 }
+_REPLACEABLE_MEDIA_STATES = {MediaState.pending, MediaState.failed}
 _UPLOAD_QUOTA_ID = "1"
 _EXPECTED_VALUE_UNSET = object()
 
@@ -256,6 +257,30 @@ class SQLCatalog:
                 if existing == record:
                     return existing
                 raise
+        return record
+
+    def replace_media(self, record: MediaRecord) -> MediaRecord:
+        with self._write_transaction() as connection:
+            existing = self._media_by_id(connection, record.media_id)
+            if existing is None:
+                raise FileNotFoundError(
+                    f"Media {record.media_id} is not cataloged."
+                )
+            if existing.sha256 != record.sha256:
+                raise FileExistsError(
+                    f"Media {record.media_id} already has another record."
+                )
+            if existing == record:
+                return existing
+            if existing.state not in _REPLACEABLE_MEDIA_STATES:
+                raise FileExistsError(
+                    f"Media {record.media_id} already has another record."
+                )
+            connection.execute(
+                update(media)
+                .where(media.c.media_id == record.media_id)
+                .values(payload=record.model_dump(mode="json"))
+            )
         return record
 
     @staticmethod

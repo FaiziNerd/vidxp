@@ -297,15 +297,17 @@ Remote API/MCP responses never expose these internal paths.
 - original filename
 - byte size
 - declared and detected MIME/container
-- duration, streams and codecs from ffprobe
+- duration, streams and codecs from ffprobe when the asset is `ready`
 - managed storage key or approved external source reference
 - repository and owner/principal where applicable
-- ingest state
+- ingest state (`pending`, `ready`, or `failed`)
 - associated `video_id`
 - creation and retention timestamps
 
 Checksum is calculated once during ingest and reused for deduplication and indexing.
-Untrusted content is not published into the catalog until ffprobe validation succeeds.
+The catalog may record `pending` or `failed` ingest metadata. Untrusted bytes are
+not published into managed storage until ffprobe validation succeeds, and only
+`ready` media can be indexed or materialized.
 
 ### 9.2 Local CLI and desktop
 
@@ -405,8 +407,8 @@ retain explicit cancellation and manual cleanup for abandoned tus resources.
 The hook endpoint is private to the Compose network. Client authorization is read
 from the hook request body and redacted; client tokens are never stored in tus
 metadata. Only the tus upload route is public. Hooks remain enqueue-only; recovery
-runs in the API's existing ingestion coordinator. A completed upload is not a
-`MediaAsset` until durable probe/import succeeds.
+runs in the API's existing ingestion coordinator. A completed upload is not
+`ready` media until durable probe/import succeeds.
 
 The supported server topology uses tusd filestore on a named quarantine volume
 shared read-only with the hook service and worker. The API intentionally does not
