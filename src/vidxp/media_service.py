@@ -281,7 +281,10 @@ class MediaService:
             offset = decode_offset_cursor(command.cursor, scope=scope)
         except CursorError as exc:
             raise ValueError("The media cursor is invalid.") from exc
-        total = self.catalog.count_media()
+        total = self.catalog.count_media(
+            filename=command.filename,
+            state=command.state,
+        )
         if offset > total:
             raise ValueError("The media cursor is outside the result set.")
         items = tuple(
@@ -289,6 +292,8 @@ class MediaService:
             for record in self.catalog.list_media(
                 limit=command.page_size,
                 offset=offset,
+                filename=command.filename,
+                state=command.state
             )
         )
         next_offset = offset + len(items)

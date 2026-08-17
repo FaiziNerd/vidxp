@@ -68,6 +68,38 @@ def _record(model: Any, value: Any) -> Any:
     return model.model_validate(_payload(value), strict=False)
 
 
+def _escape_like_pattern(value: str) -> str:
+    escaped = (
+        value.lower()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
+def _media_payload_text(key: str):
+    return media.c.payload[key].as_string()
+
+
+def _media_list_conditions(
+    *,
+    filename: str | None,
+    state: MediaState | None,
+) -> tuple[Any, ...]:
+    conditions: list[Any] = []
+    if state is not None:
+        conditions.append(_media_payload_text("state") == state.value)
+    if filename is not None:
+        conditions.append(
+            func.lower(_media_payload_text("original_filename")).like(
+                _escape_like_pattern(filename),
+                escape="\\",
+            )
+        )
+    return tuple(conditions)
+
+
 def _upload_record(row: Any) -> UploadIntentRecord:
     return UploadIntentRecord(
         intent_id=row.intent_id,
@@ -316,28 +348,36 @@ class SQLCatalog:
         *,
         limit: int,
         offset: int = 0,
+        filename: str | None = None,
+        state: MediaState | None = None,
     ) -> tuple[MediaRecord, ...]:
         if limit <= 0 or offset < 0:
             raise ValueError("limit must be positive and offset nonnegative")
+        conditions = _media_list_conditions(filename=filename, state=state)
+        query = select(media.c.payload).order_by(media.c.created_at, media.c.media_id)
+        if conditions:
+            query = query.where(and_(*conditions))
         with self.engine.connect() as connection:
             payloads = connection.execute(
-                select(media.c.payload)
-                .order_by(media.c.created_at, media.c.media_id)
-                .limit(limit)
-                .offset(offset)
+                query.limit(limit).offset(offset)
             ).scalars()
             return tuple(
                 _record(MediaRecord, payload)
                 for payload in payloads
             )
 
-    def count_media(self) -> int:
+    def count_media(
+        self,
+        *,
+        filename: str | None = None,
+        state: MediaState | None = None,
+    ) -> int:
+        conditions = _media_list_conditions(filename=filename, state=state)
+        query = select(func.count()).select_from(media)
+        if conditions:
+            query = query.where(and_(*conditions))
         with self.engine.connect() as connection:
-            return int(
-                connection.execute(
-                    select(func.count()).select_from(media)
-                ).scalar_one()
-            )
+            return int(connection.execute(query).scalar_one())
 
     def reserve_media_import(
         self,

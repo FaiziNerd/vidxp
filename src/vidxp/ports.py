@@ -100,13 +100,21 @@ class MediaCatalogPort(Protocol):
     def replace_media(self, record: MediaRecord) -> MediaRecord: ...
 
     def list_media(
-        self,
-        *,
-        limit: int,
-        offset: int = 0,
+    self,
+    *,
+    limit: int,
+    offset: int = 0,
+    filename: str | None = None,
+    state: MediaState | None = None,
     ) -> tuple[MediaRecord, ...]: ...
 
-    def count_media(self) -> int: ...
+
+    def count_media(
+    self,
+    *,
+    filename: str | None = None,
+    state: MediaState | None = None,
+    ) -> int: ...
 
     def reserve_media_import(
         self,

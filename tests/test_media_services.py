@@ -509,6 +509,25 @@ class MediaServiceTests(unittest.TestCase):
             2,
         )
 
+    def test_media_list_passes_filters_to_catalog_count(self):
+        with TemporaryDirectory() as directory:
+            service, catalog, _store, _probe = self.service(Path(directory))
+            catalog.count_media.return_value = 1
+            catalog.list_media.return_value = (record(),)
+
+            service.list(
+                ListMediaCommand(
+                    page_size=10,
+                    filename="clip.mp4",
+                    state=MediaState.ready,
+                )
+            )
+
+        catalog.count_media.assert_called_once_with(
+            filename="clip.mp4",
+            state=MediaState.ready,
+        )
+
     def test_failed_checksum_is_retried_to_ready(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
