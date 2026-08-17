@@ -109,6 +109,7 @@ from vidxp.mcp_app import (
     load_mcp_app_html,
 )
 from vidxp.core.identifiers import ArtifactId
+from vidxp.core.media import MediaState
 from vidxp.evidence_delivery import (
     EvidenceDeliveryService,
     require_completed_evidence_result,
