@@ -40,6 +40,7 @@ from vidxp.core.indexing_common import ProgressCallback
 from vidxp.core.media import (
     MediaProbe,
     MediaRecord,
+    MediaState,
     StagedMedia,
     StoredMedia,
 )
