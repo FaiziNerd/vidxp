@@ -5,6 +5,8 @@ import {
   Checkbox,
   Group,
   Loader,
+  Modal,
+  Progress,
   Stack,
   Switch,
   Text,
@@ -21,12 +23,14 @@ import {
   installRuntime,
   launchUi,
   modelDirectoryInventory,
+  onManagedSetupProgress,
   prepareManagedModels,
   runtimeManifest,
   runtimeStatus,
   type RuntimeManifest,
   type RuntimeStatus,
   type ModelDirectoryInventory,
+  type ManagedSetupProgress,
   type TargetSetupState,
 } from '../tauri';
 import { useExclusiveOperation } from '../useAsyncAction';
@@ -51,7 +55,11 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
   const [operation, setOperation] = useState<ManagedOperation | null>('load');
   const [message, setMessage] = useState('Loading VidXP options…');
   const [failure, setFailure] = useState<string | null>(null);
+  const [installFailure, setInstallFailure] = useState<string | null>(null);
+  const [setupProgress, setSetupProgress] = useState<ManagedSetupProgress | null>(null);
+  const [setupElapsed, setSetupElapsed] = useState(0);
   const operations = useExclusiveOperation<ManagedOperation>();
+  const failureAlert = useRef<HTMLDivElement | null>(null);
   const initialLoad = useRef<Promise<{
     manifest: RuntimeManifest;
     status: RuntimeStatus;
@@ -124,6 +132,37 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
     return undefined;
   }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    let stop: (() => void) | undefined;
+    void onManagedSetupProgress((progress) => {
+      if (active && progress.draft_id === draftId) setSetupProgress(progress);
+    }).then((unlisten) => {
+      if (active) stop = unlisten;
+      else unlisten();
+    });
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [draftId]);
+
+  useEffect(() => {
+    if (operation !== 'install') {
+      setSetupElapsed(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => setSetupElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [operation]);
+
+  useEffect(() => {
+    if (!failure || installFailure) return;
+    failureAlert.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+    failureAlert.current?.focus({ preventScroll: true });
+  }, [failure, installFailure]);
+
   function toggleValue(value: string, checked: boolean, setter: (next: string[]) => void, current: string[]) {
     setter(checked ? [...current, value] : current.filter((item) => item !== value));
   }
@@ -173,6 +212,14 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
       draft_id: draftId,
     };
     setFailure(null);
+    setInstallFailure(null);
+    setSetupProgress({
+      draft_id: draftId,
+      current: 1,
+      total: captured.prepare_models ? 8 : 7,
+      stage: 'video-tools',
+      message: 'Checking FFmpeg and required video codecs',
+    });
     try {
       setMessage('Checking FFmpeg and required codecs…');
       await installMediaRuntime(draftId);
@@ -193,9 +240,12 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
       setMessage(result.install.prepared ? 'VidXP and the selected search features are ready.' : 'VidXP is installed. Search files can be downloaded later.');
       onCommitted(result.setup);
     } catch (error) {
-      setFailure(errorMessage(error, 'Setup did not finish. Your previous VidXP installation is unchanged.'));
+      const detail = errorMessage(error, 'Setup did not finish. Your previous VidXP installation is unchanged.');
+      setFailure(detail);
+      setInstallFailure(detail);
     } finally {
       settleOperation(operationId);
+      setSetupProgress(null);
     }
   }
 
@@ -263,6 +313,13 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
 
   const isBusy = operation !== null;
   const attentionTitle = /ffmpeg|ffprobe/i.test(message) ? 'Video tools need attention' : 'VidXP needs attention';
+  const progressCurrent = setupProgress?.current ?? 1;
+  const progressTotal = setupProgress?.total ?? (prepareDuringInstall ? 8 : 7);
+
+  function dismissInstallFailure() {
+    setInstallFailure(null);
+    setFailure(null);
+  }
 
   function formatBytes(bytes: number) {
     if (bytes < 1024) return `${bytes} B`;
@@ -284,6 +341,30 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
         <Title id="managed-setup-title" order={1} className="pageTitle">Choose your VidXP features</Title>
         <Text className="lede">Choose what VidXP can search, where video work runs, and how you want to open or connect to it. You can change these later.</Text>
       </div>
+
+      {failure && !installFailure && <div ref={failureAlert} tabIndex={-1}><Alert mb="md" icon={<IconAlertCircle aria-hidden="true" />} color="red" title="Could not continue" role="alert">{failure}</Alert></div>}
+
+      {status?.state === 'broken' && operation !== 'install' && (
+        <>
+          <Alert
+            className="managedAttention"
+            icon={<IconAlertCircle aria-hidden="true" />}
+            color="yellow"
+            title={corruptPointer ? 'VidXP could not read the saved setup' : attentionTitle}
+            role="alert"
+          >
+            {corruptPointer
+              ? <Text size="sm">Review the options below and rebuild VidXP. Your saved setup is not changed until the new one is ready.</Text>
+              : <><Text size="sm">Repair this Desktop-managed installation now, or review its saved features below first.</Text><details className="technicalDetails"><summary>Technical details</summary>{message}</details></>}
+            <Button mt="md" disabled={!manifest || isBusy} onClick={() => void install()}>
+              {corruptPointer ? 'Rebuild now' : dirty ? 'Apply update now' : 'Repair now'}
+            </Button>
+          </Alert>
+          <Alert color="yellow" title={dirty ? 'Your current setup stays available during the update' : 'Repair keeps your selected features'}>
+            {dirty ? 'VidXP switches to the updated setup only after it has been installed and checked.' : 'VidXP first repairs the video tools, then restores this installation only if needed.'}
+          </Alert>
+        </>
+      )}
 
       {!manifest ? (
         <div className="emptyState" role="status" aria-live="polite"><Loader size="sm" /> Loading setup options…</div>
@@ -329,6 +410,9 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
               <div className="folderCopy"><Text fw={650}>Downloaded model storage</Text><Text size="sm" className="mutedText">VidXP keeps the files needed by your selected search features here.</Text>{modelDirectory && <details className="technicalDetails"><summary>Storage location</summary><Text size="sm" className="pathText">{displayPath(modelDirectory)}</Text></details>}</div>
               <Button variant="default" leftSection={<IconFolderOpen aria-hidden="true" size={16} />} loading={operation === 'folder'} disabled={isBusy} onClick={() => void chooseFolder()}>Change location…</Button>
             </Group>
+            <Alert mt="md" color="blue" title="Plan for local storage">
+              The managed runtime can use approximately 3 GiB. Models add 37 MiB to 4.11 GiB depending on the selected search features. A full local setup uses approximately 7.1 GiB, plus temporary installation space, indexes, and videos.
+            </Alert>
             <div className="cacheInventory" aria-live="polite">
               {operation === 'load' || operation === 'folder' || operation === 'reset' ? (
                 <Text size="sm" mt="md"><Loader size="xs" /> Checking cached model files…</Text>
@@ -362,20 +446,6 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
         <div className="neutralSetupNote" role="status">{status.detail}</div>
       )}
 
-      {status?.state === 'broken' && operation !== 'install' && (
-        <Alert
-          className="managedAttention"
-          icon={<IconAlertCircle aria-hidden="true" />}
-          color="yellow"
-          title={corruptPointer ? 'VidXP could not read the saved setup' : attentionTitle}
-          role="alert"
-        >
-          {corruptPointer
-            ? 'Review the options above and rebuild VidXP. Your saved setup is not changed until the new one is ready.'
-            : <><Text size="sm">Use the repair action below to check and restore this installation.</Text><details className="technicalDetails"><summary>Technical details</summary>{message}</details></>}
-        </Alert>
-      )}
-
       {status?.state === 'ready' && (
         <div className="runtimeSummary">
           <Text fw={700}>VidXP is installed</Text>
@@ -385,23 +455,72 @@ export function ManagedSetup({ draftId, selectedManagedRuntimeProfile, onBack, o
         </div>
       )}
 
-      {recoverableConfiguration && (dirty || status?.state === 'broken') && <Alert color="yellow" title={dirty ? 'Your current setup stays available during the update' : 'Repair keeps your selected features'}>{dirty ? 'VidXP switches to the updated setup only after it has been installed and checked.' : 'VidXP first repairs the video tools, then restores this installation only if needed.'}</Alert>}
+      {recoverableConfiguration && dirty && status?.state !== 'broken' && <Alert color="yellow" title="Your current setup stays available during the update">VidXP switches to the updated setup only after it has been installed and checked.</Alert>}
       {status?.ready && !displayedRuntimeSelected && <Alert color="yellow" title="This is not your active installation">Switch back to this installation before preparing models or opening VidXP.</Alert>}
 
       <div className="managedFooter">
-        <div className="statusRegion" role="status" aria-live="polite" aria-atomic="true">{isBusy && <Loader size="xs" />}{(isBusy || status?.ready) && message}</div>
+        <div className="statusRegion" role="status" aria-live="polite" aria-atomic="true">{isBusy && operation !== 'install' && <Loader size="xs" />}{(isBusy || status?.ready) && message}</div>
         {recoverableConfiguration ? (
           <Group>
             <Button variant="default" disabled={!dirty || isBusy} onClick={() => void resetDraft()}>Reset changes</Button>
-            <Button loading={operation === 'install'} disabled={(!dirty && status?.state !== 'broken') || !manifest || isBusy} onClick={() => void install()}>{status?.state === 'broken' && !dirty ? 'Repair VidXP' : 'Apply update'}</Button>
+            <Button disabled={(!dirty && status?.state !== 'broken') || !manifest || isBusy} onClick={() => void install()}>{status?.state === 'broken' && !dirty ? 'Repair VidXP' : 'Apply update'}</Button>
             <Button variant="light" loading={operation === 'prepare'} disabled={!status?.ready || dirty || !displayedRuntimeSelected || isBusy} onClick={() => void prepareModels()}>Check downloaded models</Button>
             <Button leftSection={<IconExternalLink aria-hidden="true" size={17} />} loading={operation === 'launch'} disabled={!status?.ready || dirty || !displayedRuntimeSelected || isBusy} onClick={() => void launch()}>Open VidXP</Button>
           </Group>
         ) : (
-          <Button loading={operation === 'install'} disabled={!manifest || isBusy} onClick={() => void install()}>{corruptPointer ? 'Rebuild VidXP' : 'Install VidXP'}</Button>
+          <Button disabled={!manifest || isBusy} onClick={() => void install()}>{corruptPointer ? 'Rebuild VidXP' : 'Install VidXP'}</Button>
         )}
       </div>
-      {failure && <Alert mt="md" icon={<IconAlertCircle aria-hidden="true" />} color="red" title="Could not continue" role="alert">{failure}</Alert>}
+      <Modal
+        opened={operation === 'install' || installFailure !== null}
+        onClose={() => { if (operation !== 'install') dismissInstallFailure(); }}
+        title={installFailure ? 'Setup could not finish' : 'Setting up VidXP'}
+        size="md"
+        closeOnClickOutside={operation !== 'install'}
+        closeOnEscape={operation !== 'install'}
+        withCloseButton={operation !== 'install'}
+      >
+        {installFailure ? (
+          <Stack gap="md">
+            <Alert icon={<IconAlertCircle aria-hidden="true" />} color="red" title="VidXP was not installed" role="alert">{installFailure}</Alert>
+            <Text size="sm">Any model files already downloaded remain cached and will be reused when you retry.</Text>
+            <Group justify="flex-end"><Button onClick={dismissInstallFailure}>Review setup</Button></Group>
+          </Stack>
+        ) : (
+          <Stack gap="md" role="status" aria-live="polite" aria-atomic="true">
+            <Group justify="space-between" align="baseline">
+              <Text fw={700}>Step {progressCurrent} of {progressTotal}</Text>
+              <Text size="sm" className="mutedText">{setupElapsed}s elapsed</Text>
+            </Group>
+            <Progress value={(progressCurrent / progressTotal) * 100} size="lg" animated />
+            {setupProgress?.stage === 'models'
+              && setupProgress.model_message && (
+                <Stack gap={6}>
+                  <Group justify="space-between" align="baseline" wrap="nowrap">
+                    <Text size="sm" fw={650}>{setupProgress.model_message}</Text>
+                    {setupProgress.model_current != null && setupProgress.model_total != null
+                      ? <Text size="xs" className="mutedText" style={{ whiteSpace: 'nowrap' }}>
+                          {formatBytes(setupProgress.model_current)} of {formatBytes(setupProgress.model_total)}
+                        </Text>
+                      : <Loader size="xs" />}
+                  </Group>
+                  {setupProgress.model_current != null && setupProgress.model_total != null && (
+                    <Progress
+                      aria-label="Current model download progress"
+                      value={(setupProgress.model_current / setupProgress.model_total) * 100}
+                      size="md"
+                      animated
+                    />
+                  )}
+                </Stack>
+              )}
+            <div>
+              <Text fw={650}>{setupProgress?.message ?? 'Starting managed setup'}</Text>
+              <Text size="sm" className="mutedText" mt="xs">The existing installation remains active until every step has completed and the replacement passes validation.</Text>
+            </div>
+          </Stack>
+        )}
+      </Modal>
     </section>
   );
 }

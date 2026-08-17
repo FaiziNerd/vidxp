@@ -183,43 +183,72 @@ class MediaService:
         declared_mime_type: str | None,
         staged: StagedMedia,
     ) -> MediaAsset:
-        if existing := self.catalog.get_media_by_checksum(staged.sha256):
+        existing = self.catalog.get_media_by_checksum(staged.sha256)
+        if existing is not None and existing.state == MediaState.ready:
             self.store.publish(
                 staged.model_copy(
                     update={"storage_key": existing.storage_key}
                 )
             )
             return media_asset(existing)
-        probe = self.probe.probe(staged.path)
-        stored = self.store.publish(staged)
-        media_id = uuid4().hex
-        record = MediaRecord(
+        media_id = existing.media_id if existing is not None else uuid4().hex
+        pending = MediaRecord(
             media_id=media_id,
             video_id=media_id,
-            sha256=stored.sha256,
+            sha256=staged.sha256,
             original_filename=original_filename,
-            byte_size=stored.byte_size,
+            byte_size=staged.byte_size,
             declared_mime_type=declared_mime_type,
-            detected_mime_type=probe.detected_mime_type,
-            container=probe.container,
-            duration_seconds=probe.duration_seconds,
-            streams=probe.streams,
-            storage_key=stored.storage_key,
-            state=MediaState.ready,
-            created_at=utc_now(),
+            storage_key=staged.storage_key,
+            state=MediaState.pending,
+            created_at=(
+                existing.created_at if existing is not None else utc_now()
+            ),
+        )
+        if existing is None:
+            pending = self.catalog.put_media(pending)
+            if pending.state == MediaState.ready:
+                self.store.publish(
+                    staged.model_copy(
+                        update={"storage_key": pending.storage_key}
+                    )
+                )
+                return media_asset(pending)
+        elif existing != pending:
+            pending = self.catalog.replace_media(pending)
+        try:
+            probe = self.probe.probe(staged.path)
+        except BaseException:
+            self._mark_failed(pending)
+            raise
+        try:
+            stored = self.store.publish(staged)
+        except BaseException:
+            self._mark_failed(pending)
+            raise
+        ready = pending.model_copy(
+            update={
+                "detected_mime_type": probe.detected_mime_type,
+                "container": probe.container,
+                "duration_seconds": probe.duration_seconds,
+                "streams": probe.streams,
+                "storage_key": stored.storage_key,
+                "state": MediaState.ready,
+            }
         )
         try:
-            authoritative = self.catalog.put_media(record)
+            authoritative = self.catalog.replace_media(ready)
         except BaseException:
             try:
                 retained = self.catalog.get_media_by_checksum(stored.sha256)
             except Exception:
                 retained = None
-            if retained is None:
+            if retained is None or retained.state != MediaState.ready:
                 try:
                     self.store.delete(stored.storage_key)
                 except OSError:
                     pass
+            self._mark_failed(pending)
             raise
         if authoritative.storage_key != stored.storage_key:
             try:
@@ -228,8 +257,21 @@ class MediaService:
                 pass
         return media_asset(authoritative)
 
+    def _mark_failed(self, pending: MediaRecord) -> None:
+        if pending.state == MediaState.failed:
+            return
+        try:
+            self.catalog.replace_media(
+                pending.model_copy(update={"state": MediaState.failed})
+            )
+        except Exception:
+            pass
+
     def get(self, media_id: str) -> MediaAsset:
-        return media_asset(self.require_record(media_id))
+        record = self.catalog.get_media(media_id)
+        if record is None:
+            raise MediaUnavailableError("The media asset is unavailable.")
+        return media_asset(record)
 
     def list(self, command: ListMediaCommand) -> MediaPage:
         scope = hashlib.sha256(

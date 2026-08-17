@@ -244,7 +244,7 @@ class ControlPlaneApplication:
             selected,
             command.capability_options,
         )
-        self.get_media(command.media_id)
+        self.media.require_record(command.media_id)
         self.require_models(selected)
 
     @application_boundary

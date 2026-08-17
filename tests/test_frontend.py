@@ -21,6 +21,7 @@ from vidxp.application_models import (
 from vidxp.capabilities.registry import create_capability_registry
 from vidxp.capability_service import CapabilityService
 from vidxp.control_plane import ControlPlaneApplication
+from vidxp.core.media import MediaState
 from vidxp.repository_layout import RepositoryLayout
 from vidxp.settings import LocalExecutionSettings, VidXPSettings
 
@@ -89,12 +90,12 @@ class FrontendTests(unittest.TestCase):
                 return_value=service,
             ):
                 available = frontend._available_query_modalities(
-                    ("dialogue", "scene", "actor"),
+                    ("dialogue", "scene", "actor", "videoprism"),
                 )
 
         self.assertEqual(
             available,
-            ("dialogue", "scene", "actor"),
+            ("dialogue", "scene", "actor", "videoprism"),
         )
 
     def tearDown(self):
@@ -201,6 +202,7 @@ class FrontendTests(unittest.TestCase):
                     media_id=MEDIA_ID,
                     original_filename="video.mp4",
                     duration_seconds=27.2,
+                    state=MediaState.ready,
                 ),
             ),
             next_cursor=None,
@@ -245,6 +247,64 @@ class FrontendTests(unittest.TestCase):
         self.assertTrue(uploader.call_args.kwargs["disabled"])
         video.assert_called_once_with("video.mp4", width=560)
 
+    def test_registered_video_selector_lists_only_ready_media(self):
+        service = Mock()
+        ready_id = MEDIA_ID
+        pending_id = "223456781234423481234567890abcde"
+        media_page = SimpleNamespace(
+            items=(
+                SimpleNamespace(
+                    media_id=ready_id,
+                    original_filename="ready.mp4",
+                    duration_seconds=12.0,
+                    state=MediaState.ready,
+                ),
+                SimpleNamespace(
+                    media_id=pending_id,
+                    original_filename="pending.mp4",
+                    duration_seconds=None,
+                    state=MediaState.pending,
+                ),
+            ),
+            next_cursor=None,
+        )
+        with (
+            patch.object(
+                frontend,
+                "_configured_service",
+                return_value=service,
+            ),
+            patch.object(frontend.st, "session_state", {}),
+            patch.object(frontend.st, "subheader"),
+            patch.object(
+                frontend.st,
+                "selectbox",
+                return_value=ready_id,
+            ) as selectbox,
+            patch.object(
+                frontend.st,
+                "expander",
+                return_value=nullcontext(),
+            ),
+            patch.object(frontend.st, "caption"),
+            patch.object(frontend.st, "text_input", return_value=""),
+            patch.object(frontend.st, "button", return_value=False),
+            patch.object(
+                frontend.st,
+                "file_uploader",
+                return_value=None,
+            ),
+            patch.object(frontend.st, "video"),
+        ):
+            _uploaded, media_id = frontend._select_video(
+                False,
+                pending_id,
+                media_page,
+            )
+
+        self.assertEqual(media_id, ready_id)
+        self.assertEqual(selectbox.call_args.args[1], (ready_id,))
+
     def test_local_path_import_uses_the_shared_application_command(self):
         service = Mock()
         service.import_media.return_value = SimpleNamespace(media_id=MEDIA_ID)
@@ -277,7 +337,7 @@ class FrontendTests(unittest.TestCase):
             ):
                 available = frontend._available_index_modalities()
 
-        self.assertEqual(available, ("dialogue", "scene"))
+        self.assertEqual(available, ("dialogue", "scene", "videoprism"))
         self.assertTrue(
             all(
                 not call.args[0].include_runtime_checks
@@ -338,6 +398,47 @@ class FrontendTests(unittest.TestCase):
         command = jobs.submit_index.call_args.args[0]
         self.assertEqual(command.scene_sample_fps, 2.0)
         service.require_models.assert_not_called()
+
+    def test_videoprism_clip_control_is_conditional_and_configures_index(self):
+        with patch.object(
+            frontend.st,
+            "selectbox",
+            return_value=4.0,
+        ) as selectbox:
+            selected = frontend._videoprism_sample_fps_control(
+                ("videoprism",),
+                disabled=False,
+            )
+
+        self.assertEqual(selected, 4.0)
+        self.assertEqual(
+            selectbox.call_args.args[:2],
+            ("Temporal clip length", (1.0, 2.0, 4.0)),
+        )
+        self.assertEqual(selectbox.call_args.kwargs["index"], 1)
+
+        jobs = Mock()
+        jobs.submit_index.return_value = SimpleNamespace(job_id="job-1")
+        session_state = {frontend.MEDIA_ID_KEY: MEDIA_ID}
+        with (
+            patch.object(frontend, "_configured_service", return_value=Mock()),
+            patch.object(frontend, "_configured_jobs", return_value=jobs),
+            patch.object(frontend.st, "session_state", session_state),
+            patch.object(frontend.st, "query_params", {}),
+            patch.object(frontend.st, "rerun"),
+        ):
+            frontend._run_indexing(
+                None,
+                {},
+                ("videoprism",),
+                videoprism_sample_fps=selected,
+            )
+
+        command = jobs.submit_index.call_args.args[0]
+        self.assertEqual(
+            command.capability_options,
+            {"videoprism": {"sample_fps": 4.0}},
+        )
 
     def test_indexing_omits_scene_sample_rate_without_scene(self):
         jobs = Mock()

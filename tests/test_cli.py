@@ -36,9 +36,11 @@ from vidxp.application_models import (
     IndexStatusSummary,
     Job,
     JobKind,
+    JobProgress,
     JobQueue,
     JobState,
     MediaAsset,
+    MediaPage,
     PrepareModelsResult,
     PrepareModelsJobResult,
     QueryAnswer,
@@ -390,6 +392,78 @@ class CliTests(unittest.TestCase):
                 "detail": "Local video processing is stopped.",
             },
         )
+
+    def test_media_list_shows_media_state(self):
+        self.service.list_media.return_value = MediaPage(
+        items=(
+            MediaAsset(
+                schema_version=1,
+                media_id=MEDIA_ID,
+                video_id=MEDIA_ID,
+                original_filename="video.mp4",
+                sha256="1" * 64,
+                byte_size=5,
+                detected_mime_type="video/mp4",
+                container="mp4",
+                duration_seconds=1,
+                streams=(
+                    MediaStream(
+                        index=0,
+                        kind="video",
+                        codec="h264",
+                        width=1,
+                        height=1,
+                    ),
+                ),
+                state=MediaState.ready,
+                created_at=datetime.now(timezone.utc),
+            ),
+        ),
+        next_cursor=None,
+        total =1,
+    )
+
+        result = self.invoke(["media", "list"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("State", result.output)
+        self.assertIn("ready", result.output)
+
+    def test_media_list_shows_pending_and_failed_states(self):
+        failed_id = "223456781234423481234567890abcde"
+        self.service.list_media.return_value = MediaPage(
+            items=(
+                MediaAsset(
+                    schema_version=1,
+                    media_id=MEDIA_ID,
+                    video_id=MEDIA_ID,
+                    original_filename="pending.mp4",
+                    sha256="1" * 64,
+                    byte_size=5,
+                    state=MediaState.pending,
+                    created_at=datetime.now(timezone.utc),
+                ),
+                MediaAsset(
+                    schema_version=1,
+                    media_id=failed_id,
+                    video_id=failed_id,
+                    original_filename="failed.mp4",
+                    sha256="2" * 64,
+                    byte_size=7,
+                    state=MediaState.failed,
+                    created_at=datetime.now(timezone.utc),
+                ),
+            ),
+            next_cursor=None,
+            total=2,
+        )
+
+        result = self.invoke(["media", "list"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("pending", result.output)
+        self.assertIn("failed", result.output)
+        self.assertIn("-", result.output)
 
     def test_ui_share_uses_streamlit_wildcard_bind_and_warns(self):
         with (
@@ -868,7 +942,22 @@ class CliTests(unittest.TestCase):
         command = self.service.check_dependencies.call_args.args[0]
         self.assertEqual(command.modalities, ("dialogue", "scene"))
 
-    def test_prepare_announces_start_and_subscribes_to_job_progress(self):
+    def test_doctor_can_skip_model_readiness_for_install_validation(self):
+        self.service.check_dependencies.return_value = DependencyCheckResult(
+            ok=True,
+            modalities=("scene",),
+            checks=(),
+        )
+
+        result = self.invoke(
+            ["doctor", "--modalities", "scene", "--no-models", "--json"]
+        )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        command = self.service.check_dependencies.call_args.args[0]
+        self.assertFalse(command.include_models)
+
+    def test_prepare_announces_start_and_writes_job_progress(self):
         self.service.model_readiness.return_value = DependencyCheckResult(
             ok=False,
             modalities=("scene",),
@@ -898,17 +987,42 @@ class CliTests(unittest.TestCase):
             state=JobState.queued,
             queue=JobQueue.cpu,
         )
-        self.jobs.wait.return_value = Job(
+        completed = Job(
             job_id=JOB_ID,
             kind=JobKind.prepare_models,
             state=JobState.succeeded,
             queue=JobQueue.cpu,
             result=PrepareModelsJobResult(result=prepared),
         )
-
-        result = self.invoke(
-            ["prepare", "--modalities", "scene", "--yes"]
+        expected_progress = JobProgress(
+            stage="scene_model",
+            message="Preparing scene model.",
+            updated_at=datetime.now(timezone.utc),
         )
+
+        def wait(_job_id, **kwargs):
+            kwargs["progress"](
+                self.jobs.submit_prepare_models.return_value.model_copy(
+                    update={"progress": expected_progress}
+                )
+            )
+            return completed
+
+        self.jobs.wait.side_effect = wait
+
+        with TemporaryDirectory() as temporary_directory:
+            progress_path = Path(temporary_directory) / "progress.json"
+            result = self.invoke(
+                [
+                    "prepare",
+                    "--modalities",
+                    "scene",
+                    "--yes",
+                    "--progress-file",
+                    str(progress_path),
+                ]
+            )
+            written_progress = json.loads(progress_path.read_text())
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("1.43 GiB", result.output)
@@ -918,6 +1032,10 @@ class CliTests(unittest.TestCase):
             r"scene\.",
         )
         self.assertTrue(callable(self.jobs.wait.call_args.kwargs["progress"]))
+        self.assertEqual(
+            written_progress,
+            expected_progress.model_dump(mode="json"),
+        )
 
     def test_prepare_distinguishes_cached_model_verification(self):
         self.service.model_readiness.return_value = DependencyCheckResult(

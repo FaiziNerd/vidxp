@@ -54,6 +54,7 @@ vidxp-worker = "vidxp.workflow_worker:main"
 vidxp-database = "vidxp.database_cli:main"
 vidxp-hooks = "vidxp.hook_cli:main"
 vidxp-mcp = "vidxp.mcp_cli:main"
+vidxp-codex-plugin = "vidxp.codex_plugin_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/grayhatdevelopers/vidxp"
@@ -71,6 +72,7 @@ include = ["vidxp*"]
 [tool.setuptools.package-data]
 vidxp = [
   "assets/artifact_download/*",
+  "assets/mcp_app/*",
   "assets/upload_page/*",
   "benchmarks/requirements.txt",
   "capabilities/*/requirements.txt",
@@ -93,11 +95,16 @@ actor = { file = [
   "src/vidxp/requirements/storage.txt",
   "src/vidxp/capabilities/actor/requirements.txt",
 ] }
+videoprism = { file = [
+  "src/vidxp/requirements/storage.txt",
+  "src/vidxp/capabilities/videoprism/requirements.txt",
+] }
 all = { file = [
   "src/vidxp/requirements/storage.txt",
   "src/vidxp/capabilities/dialogue/requirements.txt",
   "src/vidxp/capabilities/scene/requirements.txt",
   "src/vidxp/capabilities/actor/requirements.txt",
+  "src/vidxp/capabilities/videoprism/requirements.txt",
 ] }
 local-worker = { file = [
   "src/vidxp/requirements/storage.txt",
@@ -105,6 +112,7 @@ local-worker = { file = [
   "src/vidxp/capabilities/dialogue/requirements.txt",
   "src/vidxp/capabilities/scene/requirements.txt",
   "src/vidxp/capabilities/actor/requirements.txt",
+  "src/vidxp/capabilities/videoprism/requirements.txt",
 ] }
 mcp = { file = ["src/vidxp/requirements/mcp.txt"] }
 slm = { file = ["src/vidxp/requirements/slm.txt"] }
@@ -119,6 +127,7 @@ server-worker = { file = [
   "src/vidxp/capabilities/dialogue/requirements.txt",
   "src/vidxp/capabilities/scene/requirements.txt",
   "src/vidxp/capabilities/actor/requirements.txt",
+  "src/vidxp/capabilities/videoprism/requirements.txt",
 ] }
 test = { file = ["src/vidxp/requirements/test.txt"] }
 frontend = { file = ["src/vidxp/requirements/frontend.txt"] }
@@ -132,6 +141,9 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.uv.sources]
 torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
   { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 

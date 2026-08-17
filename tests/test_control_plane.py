@@ -16,7 +16,7 @@ from vidxp.application_models import (
 from vidxp.capabilities.registry import create_capability_registry
 from vidxp.capability_service import CapabilityService
 from vidxp.control_plane import ControlPlaneApplication
-from vidxp.core.media import MediaState, MediaStream
+from vidxp.core.media import MediaState, MediaStream, MediaUnavailableError
 from vidxp.core.snapshots import GenerationReference, IndexSnapshot
 from vidxp.repository_layout import RepositoryLayout
 
@@ -77,7 +77,40 @@ class ControlPlaneWorkspaceTests(unittest.TestCase):
         self.assertEqual(error["reason"], "capability_unknown")
         self.assertEqual(error["requested"], ["unknown"])
         self.assertIn("get_workspace", error["next_action"])
-        media.get.assert_not_called()
+        media.require_record.assert_not_called()
+
+    def test_index_preflight_rejects_non_ready_media(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            media = Mock()
+            media.require_record.side_effect = MediaUnavailableError(
+                "The media asset is unavailable."
+            )
+            application = ControlPlaneApplication(
+                layout=RepositoryLayout(root=root),
+                capabilities=CapabilityService(create_capability_registry()),
+                media=media,
+                artifacts=Mock(),
+                index_status=lambda: None,
+                model_cache=root / "models",
+            )
+
+            for state in (MediaState.pending, MediaState.failed):
+                with self.subTest(state=state):
+                    media.require_record.reset_mock()
+                    with self.assertRaises(ApplicationError) as raised:
+                        application.preflight_index(
+                            CreateIndexCommand(
+                                media_id=MEDIA_ID,
+                                modalities=("scene",),
+                            )
+                        )
+
+                    self.assertEqual(
+                        raised.exception.to_dict()["category"],
+                        "not_found",
+                    )
+                    media.require_record.assert_called_once_with(MEDIA_ID)
 
     def test_workspace_projects_index_coverage_roles_and_next_actions(self):
         indexed = media_asset(MEDIA_ID, "indexed.mp4")

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export type TargetKind = 'existing_local' | 'managed';
 export type LifecycleOwnership = 'external' | 'desktop';
@@ -186,6 +187,17 @@ export interface InstallRuntimeRequest {
   draft_id: string;
 }
 
+export interface ManagedSetupProgress {
+  draft_id: string;
+  current: number;
+  total: number;
+  stage: string;
+  message: string;
+  model_message?: string | null;
+  model_current?: number | null;
+  model_total?: number | null;
+}
+
 export interface InstallRuntimeResult {
   package_version: string;
   capabilities: string[];
@@ -239,6 +251,16 @@ export interface BrowserServiceStatus {
 
 export interface LocalWorkerStatus {
   running: boolean;
+  detail: string;
+}
+
+export interface CodexPluginInstallResult {
+  plugin_name: string;
+  plugin_id: string | null;
+  plugin_version: string;
+  marketplace_name: string;
+  marketplace_path: string;
+  installed_path: string | null;
   detail: string;
 }
 
@@ -348,6 +370,11 @@ export function installRuntime(request: InstallRuntimeRequest): Promise<InstallT
     setup: normalizeState(result.setup),
   }));
 }
+export function onManagedSetupProgress(
+  handler: (progress: ManagedSetupProgress) => void,
+): Promise<() => void> {
+  return listen<ManagedSetupProgress>('managed-setup-progress', (event) => handler(event.payload));
+}
 export function prepareManagedModels(draftId: string): Promise<TargetSetupState> {
   return invoke<WireTargetState>('prepare_managed_models', { draftId }).then(normalizeState);
 }
@@ -357,6 +384,7 @@ export function configureExternalInstallation(capabilities: string[], surfaces: 
   return invoke<WireTargetState>('configure_external_installation', { capabilities, surfaces }).then(normalizeState);
 }
 export function mcpClientConfig(): Promise<string> { return invoke('mcp_client_config'); }
+export function installCodexPlugin(): Promise<CodexPluginInstallResult> { return invoke('install_codex_plugin'); }
 export function localWorkerStatus(): Promise<LocalWorkerStatus> { return invoke('local_worker_status'); }
 export function startLocalWorker(): Promise<LocalWorkerStatus> { return invoke('start_local_worker'); }
 export function stopLocalWorker(): Promise<LocalWorkerStatus> { return invoke('stop_local_worker'); }

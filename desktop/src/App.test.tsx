@@ -9,10 +9,10 @@ const mocks = vi.hoisted(() => ({
   chooseLocalExecutable: vi.fn(), inspectLocalTarget: vi.fn(), activateLocalTarget: vi.fn(),
   selectTargetProfile: vi.fn(), deleteTargetProfile: vi.fn(), confirmForgetTarget: vi.fn(), beginManagedSetup: vi.fn(),
   cancelManagedSetup: vi.fn(), installMediaRuntime: vi.fn(), installRuntime: vi.fn(),
-  prepareManagedModels: vi.fn(),
+  prepareManagedModels: vi.fn(), onManagedSetupProgress: vi.fn(),
   runtimeManifest: vi.fn(), runtimeStatus: vi.fn(), launchUi: vi.fn(),
   chooseModelDirectory: vi.fn(), modelDirectoryInventory: vi.fn(),
-  targetDoctor: vi.fn(), mcpClientConfig: vi.fn(), localServerStatus: vi.fn(), localWorkerStatus: vi.fn(), browserServiceStatus: vi.fn(),
+  targetDoctor: vi.fn(), mcpClientConfig: vi.fn(), installCodexPlugin: vi.fn(), localServerStatus: vi.fn(), localWorkerStatus: vi.fn(), browserServiceStatus: vi.fn(),
   startLocalServer: vi.fn(), startSharedServer: vi.fn(), stopLocalServer: vi.fn(), startSharedBrowser: vi.fn(), stopBrowserService: vi.fn(), startLocalWorker: vi.fn(), stopLocalWorker: vi.fn(), configureExternalInstallation: vi.fn(),
 }));
 
@@ -98,6 +98,7 @@ describe('desktop target lifecycle', () => {
     mocks.runtimeStatus.mockResolvedValue({ state: 'never_configured', ready: false, runtime_profile: null, package_version: '0.4.0', capabilities: [], surfaces: [], model_directory: 'C:\\Models', detail: 'No managed runtime yet.' });
     mocks.modelDirectoryInventory.mockResolvedValue({ directory: 'C:\\Models', exists: false, readable: true, total_bytes: 0, file_count: 0, recognized_models: [], empty: true, verification_required: false, truncated: false, detail: 'Empty.' });
     mocks.installMediaRuntime.mockResolvedValue({ ready: true });
+    mocks.onManagedSetupProgress.mockResolvedValue(vi.fn());
     mocks.installRuntime.mockResolvedValue({
       install: { package_version: '0.4.0', capabilities: ['scene'], surfaces: ['worker', 'browser'], model_directory: 'C:\\Models', prepared: true },
       setup: { profiles: [managedProfile], selected_profile_id: managedProfile.id, issues: [] },
@@ -106,6 +107,12 @@ describe('desktop target lifecycle', () => {
     mocks.launchUi.mockResolvedValue(undefined);
     mocks.targetDoctor.mockResolvedValue({ ok: true, modalities: ['scene'], checks: [{ capability: 'media', kind: 'distribution', name: 'ffmpeg', ok: true }] });
     mocks.mcpClientConfig.mockResolvedValue('{"mcpServers":{"vidxp":{"command":"vidxp-mcp"}}}');
+    mocks.installCodexPlugin.mockResolvedValue({
+      plugin_name: 'vidxp', plugin_id: 'vidxp@vidxp-local', plugin_version: '0.4.0+codex.1234',
+      marketplace_name: 'vidxp-local', marketplace_path: 'C:\\Data\\codex-marketplace\\.agents\\plugins\\marketplace.json',
+      installed_path: 'C:\\Users\\test\\.codex\\plugins\\vidxp',
+      detail: 'VidXP is installed in Codex with its MCP server and skills. Start a new Codex chat to use the updated plugin.',
+    });
     mocks.browserServiceStatus.mockResolvedValue({ state: 'stopped', running: false, shared: false, port: null, local_url: null, network_url: null, detail: 'Stopped.' });
     mocks.startSharedBrowser.mockResolvedValue({ state: 'ready', running: true, shared: true, port: 8501, local_url: 'http://127.0.0.1:8501', network_url: 'http://192.168.1.20:8501', detail: 'Shared.' });
     mocks.stopBrowserService.mockResolvedValue({ state: 'stopped', running: false, shared: false, port: null, local_url: null, network_url: null, detail: 'Stopped.' });
@@ -175,7 +182,11 @@ describe('desktop target lifecycle', () => {
     expect(await screen.findByText('VidXP is ready')).toBeVisible();
     expect(mocks.targetDoctor).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: 'Set up connection' }));
+    await user.click(screen.getByRole('button', { name: 'Set up in Codex' }));
+    expect(await screen.findByText('VidXP is installed in Codex with its MCP server and skills. Start a new Codex chat to use the updated plugin.')).toBeVisible();
+    expect(mocks.installCodexPlugin).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: 'Copy MCP setup' }));
     expect(await screen.findByRole('heading', { name: 'Connect an AI assistant' })).toBeVisible();
     expect(mocks.mcpClientConfig).toHaveBeenCalledTimes(1);
 
@@ -195,6 +206,30 @@ describe('desktop target lifecycle', () => {
     expect(mocks.stopLocalServer).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps worker timeouts with the worker control and clears them after recovery', async () => {
+    const operational = {
+      ...managedProfile,
+      frontend,
+      surfaces: ['worker', 'browser'],
+      validation_error: null,
+    };
+    const state = { profiles: [operational], selected_profile_id: operational.id, issues: [] };
+    mocks.targetSetupState.mockResolvedValue(state);
+    mocks.recheckTargetState.mockResolvedValue(state);
+    mocks.localWorkerStatus.mockRejectedValue('VidXP local processing failed: the operation exceeded 120 seconds');
+    const user = userEvent.setup();
+    renderApp();
+
+    const workerFailure = await screen.findByRole('alert', { name: 'Local processing status could not be checked' });
+    expect(workerFailure).toHaveTextContent('the operation exceeded 120 seconds');
+    expect(screen.queryByRole('alert', { name: 'That did not work' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Start processing' }));
+
+    expect(await screen.findByRole('button', { name: 'Stop processing' })).toBeVisible();
+    expect(screen.queryByRole('alert', { name: 'Local processing status could not be checked' })).not.toBeInTheDocument();
+  });
+
   it('adds optional features to the selected existing installation', async () => {
     const updated = { ...localProfile, surfaces: ['worker', 'browser', 'mcp'] };
     const updatedState = { profiles: [updated], selected_profile_id: updated.id, issues: [] };
@@ -210,7 +245,8 @@ describe('desktop target lifecycle', () => {
     await user.click(screen.getByRole('button', { name: 'Apply changes' }));
 
     await waitFor(() => expect(mocks.configureExternalInstallation).toHaveBeenCalledWith([], ['worker', 'browser', 'mcp']));
-    expect(await screen.findByRole('button', { name: 'Set up connection' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Set up in Codex' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Copy MCP setup' })).toBeVisible();
   });
 
   it('offers an in-place manifest update when the selected runtime contract is too old', async () => {
@@ -358,9 +394,41 @@ describe('desktop target lifecycle', () => {
   it('directs a managed target without browser surface back to managed setup', async () => {
     const setup = { profiles: [managedProfile], selected_profile_id: managedProfile.id, issues: [] };
     mocks.targetSetupState.mockResolvedValue(setup); mocks.recheckTargetState.mockResolvedValue(setup);
-    renderApp();
+    const user = userEvent.setup(); renderApp();
     expect(await screen.findByText('The browser interface is not enabled')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Setup options' })).toBeEnabled();
+    const setupOptions = screen.getByRole('button', { name: 'Setup options' });
+    await waitFor(() => expect(setupOptions).toBeEnabled());
+    await user.click(setupOptions);
+    expect(await screen.findByRole('heading', { name: 'Choose your VidXP features' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Install and manage VidXP on this computer?' })).not.toBeInTheDocument();
+  });
+
+  it('opens a broken managed installation directly on a visible repair action', async () => {
+    const broken = {
+      ...managedProfile,
+      validation_error: {
+        code: 'validation_required',
+        message: 'The desktop runtime needs to be installed for this app version.',
+      },
+    };
+    const setup = { profiles: [broken], selected_profile_id: broken.id, issues: [] };
+    mocks.targetSetupState.mockResolvedValue(setup);
+    mocks.recheckTargetState.mockResolvedValue(setup);
+    mocks.runtimeStatus.mockResolvedValue({
+      state: 'broken', ready: false, runtime_profile: 'runtime-a', package_version: '0.4.0',
+      capabilities: ['scene'], surfaces: [], model_directory: 'C:\\Models',
+      detail: 'The desktop runtime needs to be installed for this app version.',
+    });
+    const user = userEvent.setup(); renderApp();
+
+    const repair = await screen.findByRole('button', { name: 'Repair VidXP' });
+    await waitFor(() => expect(repair).toBeEnabled());
+    await user.click(repair);
+
+    expect(await screen.findByRole('heading', { name: 'Choose your VidXP features' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Install and manage VidXP on this computer?' })).not.toBeInTheDocument();
+    expect(screen.getByText('VidXP needs attention')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Repair now' })).toBeVisible();
   });
 
   it('keeps ready managed settings read-only until a draft is dirty, then offers Apply and Reset', async () => {
@@ -395,6 +463,7 @@ describe('desktop target lifecycle', () => {
     expect(screen.getByRole('checkbox', { name: /VidXP app|Browser interface/i })).not.toBeChecked();
     await user.click(screen.getByText('Storage location'));
     expect(screen.getByText('D:\\CustomModels')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Repair now' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Repair VidXP' })).toBeEnabled();
   });
 
@@ -447,6 +516,63 @@ describe('desktop target lifecycle', () => {
     expect(mocks.launchUi).not.toHaveBeenCalled();
   });
 
+  it('keeps a managed installation failure visible in the setup dialog until it is acknowledged', async () => {
+    mocks.installRuntime.mockRejectedValueOnce('The installed runtime failed its compatibility check.');
+    const user = userEvent.setup(); renderApp(); await enterManaged(user);
+
+    await user.click(screen.getByRole('button', { name: 'Install VidXP' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Setup could not finish' })).toBeVisible();
+    expect(screen.getByRole('alert', { name: 'VidXP was not installed' })).toHaveTextContent('The installed runtime failed its compatibility check.');
+    expect(screen.getByText(/model files already downloaded remain cached/i)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Review setup' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Setup could not finish' })).not.toBeInTheDocument());
+  });
+
+  it('blocks setup interaction and reports managed installation stages', async () => {
+    const media = deferred<{ ready: boolean }>();
+    mocks.installMediaRuntime.mockReturnValue(media.promise);
+    let reportProgress: ((progress: { draft_id: string; current: number; total: number; stage: string; message: string; model_message?: string; model_current?: number; model_total?: number }) => void) | undefined;
+    mocks.onManagedSetupProgress.mockImplementation(async (handler) => {
+      reportProgress = handler;
+      return vi.fn();
+    });
+    const user = userEvent.setup(); renderApp(); await enterManaged(user);
+
+    await user.click(screen.getByRole('button', { name: 'Install VidXP' }));
+
+    expect(screen.getByRole('dialog', { name: 'Setting up VidXP' })).toBeVisible();
+    expect(screen.getByText('Step 1 of 8')).toBeVisible();
+    expect(screen.getByText('Checking FFmpeg and required video codecs')).toBeVisible();
+    reportProgress?.({ draft_id: 'draft-1', current: 4, total: 8, stage: 'dependencies', message: 'Installing the selected search features' });
+    expect(await screen.findByText('Step 4 of 8')).toBeVisible();
+    expect(screen.getByText('Installing the selected search features')).toBeVisible();
+    reportProgress?.({
+      draft_id: 'draft-1',
+      current: 7,
+      total: 8,
+      stage: 'models',
+      message: 'Verifying and downloading selected model files',
+      model_message: 'Preparing model artifacts.',
+    });
+    expect(await screen.findByText('Preparing model artifacts.')).toBeVisible();
+    reportProgress?.({
+      draft_id: 'draft-1',
+      current: 7,
+      total: 8,
+      stage: 'models',
+      message: 'Verifying and downloading selected model files',
+      model_message: 'Downloading dialogue transcription model.',
+      model_current: 512 * 1024 * 1024,
+      model_total: 1024 * 1024 * 1024,
+    });
+    expect(await screen.findByText('Downloading dialogue transcription model.')).toBeVisible();
+    expect(screen.getByText('512.0 MiB of 1.00 GiB')).toBeVisible();
+    expect(screen.getByRole('progressbar', { name: 'Current model download progress' })).toHaveAttribute('aria-valuenow', '50');
+
+    media.resolve({ ready: true });
+  });
+
   it('coalesces duplicate managed Continue actions', async () => {
     const pending = deferred<{ id: string; previous_profile_id: null }>();
     mocks.beginManagedSetup.mockReturnValue(pending.promise);
@@ -488,7 +614,6 @@ describe('desktop target lifecycle', () => {
     mocks.runtimeStatus.mockResolvedValue({ state: 'ready', ready: true, runtime_profile: 'runtime-a', package_version: '0.4.0', capabilities: ['scene'], surfaces: [], model_directory: 'C:\\Models', detail: 'Ready.' });
     const user = userEvent.setup(); renderApp();
     await user.click(await screen.findByRole('button', { name: 'Setup options' }));
-    await user.click(screen.getByRole('button', { name: 'Choose features' }));
     await screen.findByRole('heading', { name: 'Choose your VidXP features' });
     expect(screen.getByRole('button', { name: 'Apply update' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Check downloaded models' }));

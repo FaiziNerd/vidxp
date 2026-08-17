@@ -89,12 +89,18 @@ def list_media(
     table.add_column("Filename")
     table.add_column("Duration", justify="right")
     table.add_column("Size", justify="right")
+    table.add_column("State")
     for asset in assets:
         table.add_row(
             asset.media_id,
             asset.original_filename,
-            f"{asset.duration_seconds:.3f}s",
+            (
+                "-"
+                if asset.duration_seconds is None
+                else f"{asset.duration_seconds:.3f}s"
+            ),
             f"{asset.byte_size:,}",
+            asset.state.value
         )
     Console().print(table)
 

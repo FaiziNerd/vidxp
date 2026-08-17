@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tarfile
 import unittest
+import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import tomllib
@@ -19,6 +20,82 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_wheel_contains_mcp_app_and_canonical_plugin_bundle(self):
+        with TemporaryDirectory() as directory:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "setup.py",
+                    "bdist_wheel",
+                    "--dist-dir",
+                    directory,
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            wheels = tuple(Path(directory).glob("*.whl"))
+            self.assertEqual(len(wheels), 1)
+            with zipfile.ZipFile(wheels[0]) as archive:
+                members = set(archive.namelist())
+                entry_points_name = next(
+                    name
+                    for name in members
+                    if name.endswith(".dist-info/entry_points.txt")
+                )
+                entry_points = archive.read(entry_points_name).decode("utf-8")
+
+        required = {
+            "vidxp/assets/mcp_app/index.html",
+            "vidxp/bundled_plugins/vidxp/.codex-plugin/plugin.json",
+            "vidxp/bundled_plugins/vidxp/assets/logo.png",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-ingest-video/SKILL.md",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-ingest-video/agents/openai.yaml",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-find-video-evidence/SKILL.md",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-find-video-evidence/agents/openai.yaml",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-install/SKILL.md",
+            "vidxp/bundled_plugins/vidxp/skills/vidxp-install/agents/openai.yaml",
+        }
+        self.assertLessEqual(required, members)
+        self.assertIn(
+            "vidxp-codex-plugin = vidxp.codex_plugin_cli:main",
+            entry_points,
+        )
+
+    def test_repository_marketplace_uses_the_canonical_branded_plugin(self):
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        plugin_root = ROOT / "plugins" / "vidxp"
+        manifest = json.loads(
+            (plugin_root / ".codex-plugin" / "plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        marketplace = json.loads(
+            (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(manifest["name"], "vidxp")
+        self.assertEqual(
+            Version(manifest["version"]),
+            Version(project["project"]["version"]),
+        )
+        self.assertEqual(manifest["skills"], "./skills/")
+        self.assertNotIn("mcpServers", manifest)
+        self.assertEqual(manifest["interface"]["logo"], "./assets/logo.png")
+        self.assertEqual(
+            manifest["interface"]["composerIcon"], "./assets/logo.png"
+        )
+        self.assertTrue((plugin_root / "assets" / "logo.png").is_file())
+        self.assertEqual(marketplace["name"], "vidxp")
+        self.assertEqual(
+            marketplace["plugins"][0]["source"]["path"],
+            "./plugins/vidxp",
+        )
+        self.assertFalse((ROOT / "skills").exists())
+
     def test_sdist_contains_every_upload_page_build_input(self):
         with TemporaryDirectory() as directory:
             subprocess.run(
@@ -262,8 +339,15 @@ class PackagingTests(unittest.TestCase):
             (ROOT / "README.md").read_text(encoding="utf-8"),
         )
         build_hook = (ROOT / "setup.py").read_text(encoding="utf-8")
-        self.assertIn('"docs" / "images" / "logo.png"', build_hook)
+        self.assertIn(
+            '"docs" / "images" / "logo.png"',
+            build_hook,
+        )
         self.assertIn('"vidxp" / "assets" / "icon.png"', build_hook)
+        self.assertIn(
+            'copyfile(source, plugin_target / "assets" / "logo.png")',
+            build_hook,
+        )
 
         package = json.loads(
             (ROOT / "desktop" / "package.json").read_text(encoding="utf-8")
@@ -283,17 +367,27 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(
             package["scripts"]["icons"],
             (
-                "npm run sync:branding && "
                 "tauri icon ../docs/images/logo.png "
-                "--output src-tauri/icons"
+                "--output src-tauri/icons && npm run sync:branding"
             ),
         )
         sync_script = (
             ROOT / "desktop" / "scripts" / "sync-branding.mjs"
         ).read_text(encoding="utf-8")
         self.assertIn("../docs/images/logo.png", sync_script)
+        self.assertIn("../plugins/vidxp/assets/logo.png", sync_script)
+        self.assertIn(
+            "../src/vidxp/assets/artifact_download/vidxp-logo.png",
+            sync_script,
+        )
+        self.assertIn("src-tauri/icons/128x128.png", sync_script)
         self.assertIn('resolve(desktopRoot, "public")', sync_script)
         self.assertIn('resolve(publicDirectory, "icon.png")', sync_script)
+        self.assertIn("copyFileSync(source, favicon)", sync_script)
+        self.assertEqual(
+            (ROOT / "plugins" / "vidxp" / "assets" / "logo.png").read_bytes(),
+            icon.read_bytes(),
+        )
         self.assertIn(
             'href="/icon.png"',
             (ROOT / "desktop" / "index.html").read_text(
@@ -590,6 +684,7 @@ class PackagingTests(unittest.TestCase):
     def test_combined_release_version_contract(self):
         expected_extra_files = {
             "uv.lock",
+            "plugins/vidxp/.codex-plugin/plugin.json",
             "desktop/src-tauri/Cargo.toml",
             "desktop/src-tauri/Cargo.lock",
             "desktop/package.json",
