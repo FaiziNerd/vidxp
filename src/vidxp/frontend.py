@@ -751,7 +751,11 @@ def _import_local_video(service, raw_path):
 def _select_video(busy, media_id, media_page):
     service = _configured_service()
     st.subheader("Video")
-    assets = tuple(media_page.items if media_page is not None else ())
+    assets = tuple(
+        asset
+        for asset in (media_page.items if media_page is not None else ())
+        if getattr(asset, "state", None) == MediaState.ready
+    )
     media_id = _default_media_id(media_id, assets)
     if media_id is not None:
         st.session_state[MEDIA_ID_KEY] = media_id
