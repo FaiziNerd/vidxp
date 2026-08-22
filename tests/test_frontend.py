@@ -248,8 +248,9 @@ class FrontendTests(unittest.TestCase):
         video.assert_called_once_with("video.mp4", width=560)
 
     def test_registered_video_selector_lists_only_ready_media(self):
-        service = Mock()
         ready_id = MEDIA_ID
+        pending_id = "pending-media-id"
+
         media_page = SimpleNamespace(
             items=(
                 SimpleNamespace(
@@ -257,6 +258,12 @@ class FrontendTests(unittest.TestCase):
                     original_filename="ready.mp4",
                     duration_seconds=12.0,
                     state=MediaState.ready,
+                ),
+                SimpleNamespace(
+                    media_id=pending_id,
+                    original_filename="pending.mp4",
+                    duration_seconds=12.0,
+                    state=MediaState.pending,
                 ),
             ),
             next_cursor=None,

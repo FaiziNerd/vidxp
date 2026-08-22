@@ -274,9 +274,13 @@ class MediaService:
         return media_asset(record)
 
     def list(self, command: ListMediaCommand) -> MediaPage:
-        scope = hashlib.sha256(
-            str(self.settings.repository_root.resolve()).encode()
-        ).hexdigest()
+        scope = (
+            hashlib.sha256(
+                str(self.settings.repository_root.resolve()).encode()
+            ).hexdigest(),
+            command.filename,
+            command.state,
+        )
         try:
             offset = decode_offset_cursor(command.cursor, scope=scope)
         except CursorError as exc:
