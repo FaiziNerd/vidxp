@@ -248,6 +248,8 @@ class FrontendTests(unittest.TestCase):
         video.assert_called_once_with("video.mp4", width=560)
 
     def test_registered_video_selector_lists_only_ready_media(self):
+        service = Mock()
+        
         ready_id = MEDIA_ID
         pending_id = "pending-media-id"
 
