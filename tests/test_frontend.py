@@ -249,7 +249,7 @@ class FrontendTests(unittest.TestCase):
 
     def test_registered_video_selector_lists_only_ready_media(self):
         service = Mock()
-        
+
         ready_id = MEDIA_ID
         pending_id = "pending-media-id"
 

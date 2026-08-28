@@ -188,10 +188,11 @@ def list_media(
 ) -> MediaPage:
     return service.application.list_media(
         ListMediaCommand(
-            page_size=page_size, 
+            page_size=page_size,
             cursor=cursor,
-            filename = filename,
-            state = state)
+            filename=filename,
+            state=state,
+        )
     )
 
 

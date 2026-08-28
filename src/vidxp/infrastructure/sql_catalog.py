@@ -70,8 +70,7 @@ def _record(model: Any, value: Any) -> Any:
 
 def _escape_like_pattern(value: str) -> str:
     escaped = (
-        value.lower()
-        .replace("\\", "\\\\")
+        value.replace("\\", "\\\\")
         .replace("%", "\\%")
         .replace("_", "\\_")
     )
@@ -84,6 +83,7 @@ def _media_payload_text(key: str):
 
 def _media_list_conditions(
     *,
+    dialect_name: str,
     filename: str | None,
     state: MediaState | None,
 ) -> tuple[Any, ...]:
@@ -91,9 +91,12 @@ def _media_list_conditions(
     if state is not None:
         conditions.append(_media_payload_text("state") == state.value)
     if filename is not None:
+        filename_text = _media_payload_text("original_filename")
+        if dialect_name == "postgresql":
+            filename_text = filename_text.collate("pg_unicode_fast")
         conditions.append(
-            func.lower(_media_payload_text("original_filename")).like(
-                _escape_like_pattern(filename),
+            func.casefold(filename_text).like(
+                _escape_like_pattern(filename.casefold()),
                 escape="\\",
             )
         )
@@ -212,6 +215,12 @@ class SQLCatalog:
 
     @staticmethod
     def _configure_sqlite(dbapi_connection: Any, _record: Any) -> None:
+        dbapi_connection.create_function(
+            "casefold",
+            1,
+            str.casefold,
+            deterministic=True,
+        )
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute("PRAGMA foreign_keys = ON")
@@ -353,7 +362,11 @@ class SQLCatalog:
     ) -> tuple[MediaRecord, ...]:
         if limit <= 0 or offset < 0:
             raise ValueError("limit must be positive and offset nonnegative")
-        conditions = _media_list_conditions(filename=filename, state=state)
+        conditions = _media_list_conditions(
+            dialect_name=self.engine.dialect.name,
+            filename=filename,
+            state=state,
+        )
         query = select(media.c.payload).order_by(media.c.created_at, media.c.media_id)
         if conditions:
             query = query.where(and_(*conditions))
@@ -372,7 +385,11 @@ class SQLCatalog:
         filename: str | None = None,
         state: MediaState | None = None,
     ) -> int:
-        conditions = _media_list_conditions(filename=filename, state=state)
+        conditions = _media_list_conditions(
+            dialect_name=self.engine.dialect.name,
+            filename=filename,
+            state=state,
+        )
         query = select(func.count()).select_from(media)
         if conditions:
             query = query.where(and_(*conditions))

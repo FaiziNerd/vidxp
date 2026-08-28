@@ -176,7 +176,7 @@ class LocalCatalogTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             catalog = LocalCatalog(Path(directory) / "catalog.sqlite3")
             clip = media_record().model_copy(
-                update={"original_filename": "Holiday-Clip.mp4"}
+                update={"original_filename": "Straße-Épisode-Clip.mp4"}
             )
             other = media_record(
                 OTHER_MEDIA_ID,
@@ -187,6 +187,8 @@ class LocalCatalogTests(unittest.TestCase):
 
             self.assertEqual(catalog.count_media(filename="clip"), 1)
             self.assertEqual(catalog.count_media(filename="CLIP"), 1)
+            self.assertEqual(catalog.count_media(filename="STRASSE"), 1)
+            self.assertEqual(catalog.count_media(filename="éPISODE"), 1)
             self.assertEqual(
                 catalog.list_media(limit=10, filename="clip"),
                 (clip,),

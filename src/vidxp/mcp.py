@@ -1279,10 +1279,10 @@ def create_mcp_server(
             Field(min_length=1, max_length=512),
         ] = None,
         filename: Annotated[
-        str | None,
-        Field(min_length=1),
+            str | None,
+            Field(min_length=1),
         ] = None,
-        state: MediaState | None = None
+        state: MediaState | None = None,
     ) -> WorkspaceOverview:
         return await _invoke_async(
             context,
@@ -1290,11 +1290,11 @@ def create_mcp_server(
             permission=RepositoryPermission.read,
             operation=lambda _actor: context.application.workspace(
                 ListMediaCommand(
-                    page_size=page_size, 
+                    page_size=page_size,
                     cursor=cursor,
-                    filename = filename,
-                    state = state,
-                    )
+                    filename=filename,
+                    state=state,
+                )
             ),
         )
 
@@ -1367,18 +1367,18 @@ def create_mcp_server(
         state: MediaState | None = None,
     ) -> MediaPage:
         return await _invoke_async(
-        context,
-        default_principal=default_principal,
-        permission=RepositoryPermission.read,
-        operation=lambda _actor: context.application.list_media(
-            ListMediaCommand(
-                page_size=page_size,
-                cursor=cursor,
-                filename=filename,
-                state=state,
-            )
-        ),
-    )
+            context,
+            default_principal=default_principal,
+            permission=RepositoryPermission.read,
+            operation=lambda _actor: context.application.list_media(
+                ListMediaCommand(
+                    page_size=page_size,
+                    cursor=cursor,
+                    filename=filename,
+                    state=state,
+                )
+            ),
+        )
 
     @server.tool(
         title="Get media",
