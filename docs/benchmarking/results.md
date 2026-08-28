@@ -152,20 +152,25 @@ The result is a useful legacy validation baseline, not a final held-out paper
 result. The current two-video Qwen3 smoke establishes compatibility only; it
 does not supersede this score.
 
-## Next benchmark: LongVALE
+## Next combined benchmark
 
-LongVALE is the next useful experiment because it combines visual and spoken
-evidence in longer videos. The immediate work is limited to:
+The FineLAP environmental-sound layer is implemented but has no VidXP quality
+result yet. LongVALE is the primary next experiment because it contains visual,
+generic-audio, and spoken evidence in long videos. The work is ordered as follows:
 
-1. Convert LongVALE event descriptions into VidXP visual and dialogue searches.
-2. Combine those two result lists using one fixed rule.
-3. Return the single start/end range required by the official evaluator.
-4. Process one of the nine evaluation archives to measure runtime, temporary
+1. Complete a bounded real-media FineLAP integration smoke and record resource use.
+2. Convert LongVALE event descriptions into visual, sound, and dialogue searches.
+3. Combine those result lists using one fixed, provenance-preserving rule.
+4. Return the single start/end range required by the official evaluator.
+5. Process one of the nine evaluation archives to measure runtime, temporary
    storage, and index growth.
-5. Run the complete evaluation only if that pilot finishes cleanly.
+6. Run the complete evaluation only if that pilot finishes cleanly.
 
-VidXP does not currently understand general sound events. Sound-only misses must
-remain in the official result and be disclosed rather than filtered out.
+VidXP now indexes general sound events, but implementation is not evidence of
+retrieval or boundary quality. The full LongVALE query set must remain in the
+official denominator, including sound-only misses. See
+[multimodal model direction](model_selection.md) for the selection evidence and
+benchmark roles.
 
 ## Sources and reproduction
 
