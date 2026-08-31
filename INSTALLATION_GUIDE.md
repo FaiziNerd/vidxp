@@ -33,7 +33,7 @@ Approximate model downloads are:
 
 | Feature | Download |
 |---|---:|
-| Dialogue search | 2.63 GiB |
+| Speech search | 2.63 GiB |
 | Sound event search | 0.91 GiB |
 | Scene search | 1.43 GiB |
 | Action search | 0.93 GiB |
@@ -200,8 +200,8 @@ asking for confirmation. Download only selected features when preferred:
 
 ```bash
 vidxp prepare --modalities scene
-vidxp prepare --modalities dialogue,actor
-vidxp prepare --modalities videoprism  # action search
+vidxp prepare --modalities speech,actor
+vidxp prepare --modalities action
 vidxp prepare --modalities sound       # music and environmental sounds
 ```
 
@@ -232,14 +232,14 @@ vidxp index create <media-id>
 # Find a visual scene
 vidxp search scene "a yellow taxi on a city street"
 
-# Find an action or event (`videoprism` is the CLI name for action search)
-vidxp search videoprism "a person opens a door and walks outside"
+# Find an action or motion across multiple frames
+vidxp search action "a person opens a door and walks outside"
 
 # Find music or an environmental sound
 vidxp search sound "an alarm ringing"
 
 # Find something that was said
-vidxp search dialogue "the bread just came out of the oven"
+vidxp search speech "the bread just came out of the oven"
 ```
 
 Add `--media-id <media-id>` to a search command to restrict results to one
@@ -313,6 +313,30 @@ clients, or public access, use the supported server deployment instead.
 See [Local API and MCP server](docs/local-api.md) for authentication, uploads,
 and sharing behavior.
 
+## Optional local grounded answers
+
+VidXP search does not require a language model. To let CLI, HTTP, or MCP
+queries plan searches and draft grounded answers locally, enable **Local
+grounded answers** in VidXP Desktop setup. Desktop checks for a compatible
+loopback Ollama service, asks before installing Ollama through the supported
+Windows or macOS package manager when needed, and explicitly downloads the
+approved Qwen3.5 4B model. Linux setup links to Ollama's official installation
+instructions instead of running a privileged script.
+
+This optional feature follows Ollama's platform floor: Windows 10 22H2 or
+newer, or macOS 14 or newer. VidXP Desktop itself can still run without local
+grounded answers on older supported systems.
+
+The model is an additional approximately 3.4 GB download and has no per-run
+API charge or numbered hosted-model allowance. It uses local storage, memory,
+compute time, and electricity. Desktop configures the private service address
+for its browser, worker, API, Premiere, and generated MCP/Codex setup; there is
+no URL field to fill in. A command-line-only installation remains available
+for developers and custom deployments.
+
+The complete setup and its current evidence limitations are documented under
+[Enable local grounded answers](docs/local-api.md#enable-local-grounded-answers).
+
 ## Optional dependency extras
 
 Most users should choose one of the package profiles above. The individual
@@ -321,10 +345,10 @@ assembling a custom installation:
 
 | Extra | Adds |
 |---|---|
-| `dialogue` | Transcription, dialogue embeddings, and storage |
+| `speech` | Transcription, speech embeddings, and storage |
 | `sound` | Music and environmental-sound search and storage |
 | `scene` | Scene search and storage |
-| `videoprism` | Action search and storage |
+| `action` | Multi-frame action and motion search plus storage |
 | `actor` | Actor matching and storage |
 | `all` | Every built-in search feature |
 | `local-worker` | All search features plus local job processing |
@@ -403,6 +427,11 @@ When an upgrade changes a search model or index format, existing videos may need
 to be indexed again. VidXP reports this instead of silently replacing a working
 index. Prepare the required models, re-index the affected videos, and keep the
 old repository until you have checked the replacement results.
+
+The current public capability names are `scene`, `action`, `sound`, `speech`,
+and `actor`. VidXP does not translate removed capability names.
+If an older repository reports an incompatible index schema, rebuild it using
+the current names.
 
 ## Data locations
 

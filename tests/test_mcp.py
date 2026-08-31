@@ -1108,6 +1108,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
         config = stdio_client_config(
             command=r"C:\VidXP\vidxp-mcp.exe",
             repository="library",
+            environment={},
         )
         self.assertEqual(
             config,
@@ -1138,6 +1139,24 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             rendered["mcpServers"]["vidxp"]["args"],
             ["--repository", "library"],
+        )
+
+    def test_stdio_config_carries_only_local_query_runtime_environment(self):
+        config = stdio_client_config(
+            command="vidxp-mcp",
+            environment={
+                "VIDXP_SLM_BASE_URL": "http://127.0.0.1:11434/v1",
+                "VIDXP_SLM_MODEL": "qwen3.5:4b-q4_K_M",
+                "VIDXP_HTTP_STATIC_BEARER_TOKEN": "must-not-leak",
+            },
+        )
+
+        self.assertEqual(
+            config["mcpServers"]["vidxp"]["env"],
+            {
+                "VIDXP_SLM_BASE_URL": "http://127.0.0.1:11434/v1",
+                "VIDXP_SLM_MODEL": "qwen3.5:4b-q4_K_M",
+            },
         )
 
     def test_stdio_check_performs_handshake_and_tool_probe(self):
@@ -1305,7 +1324,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                         "command": {
                             "question": "What happens after the taxi arrives?",
                             "media_id": MEDIA_ID,
-                            "modalities": ["scene", "dialogue"],
+                            "modalities": ["scene", "speech"],
                         },
                         "idempotency_key": "agent-query-0001",
                     },
@@ -1318,7 +1337,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             QueryVideoCommand(
                 question="What happens after the taxi arrives?",
                 media_id=MEDIA_ID,
-                modalities=("scene", "dialogue"),
+                modalities=("scene", "speech"),
                 evidence_delivery=InitialEvidenceDeliveryPolicy(
                     mode=EvidenceDeliveryMode.none
                 ),
@@ -1409,7 +1428,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     details={
                         "model": "publisher/model",
                         "partial_files_preserved": True,
-                        "remediation": "vidxp prepare --modalities dialogue",
+                        "remediation": "vidxp prepare --modalities speech",
                     },
                     retryable=True,
                 ),
@@ -2734,7 +2753,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [item["name"] for item in result.structured_content["items"]],
-            ["dialogue", "sound", "scene", "actor", "videoprism"],
+            ["speech", "sound", "scene", "actor", "action"],
         )
 
     async def test_streamable_http_works_with_the_official_remote_client(self):

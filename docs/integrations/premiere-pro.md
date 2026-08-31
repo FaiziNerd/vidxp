@@ -2,7 +2,7 @@
 
 The VidXP Premiere Pro extension lets an editor select clips or bins from the
 open project, index their existing source files, and search the resulting
-library without leaving Premiere. It discovers dialogue, sound, scene, actor,
+library without leaving Premiere. It discovers speech, sound, scene, actor,
 and future search features from the connected VidXP runtime instead of keeping
 a fixed capability list in the extension.
 
@@ -70,15 +70,23 @@ Offline clips, sequences, generated items without a media path, and duplicate
 source paths are not submitted. Large selections are split into durable VidXP
 ingestion sessions.
 
-## Search indexed moments
+## Ask about indexed media
 
-Enter a description, choose one indexed video or the complete active library,
-and select any searchable features reported by VidXP. Results show the source
+Enter a question or description, choose one indexed video or the complete
+active library, and select any searchable features reported by VidXP. The
+extension uses VidXP's shared grounded-query workflow and shows each generated
+statement with numbered supporting evidence. Results also retain the source
 video, time range, contributing features, and fused score.
+
+Enable **Local grounded answers** during Desktop setup to generate cited answers
+with the approved local model. If that model is unavailable or cannot return a
+valid cited response, the same workflow falls back to ranked indexed evidence
+instead of inventing an answer. This fallback does not prevent ordinary scene,
+action, sound, or speech retrieval.
 
 Timeline navigation, Source Monitor actions, marker creation, and snippet
 insertion remain future host-adapter operations. They can be added without
-changing the VidXP client or shared search workflow.
+changing the VidXP client or shared grounded-query workflow.
 
 ## Current release limits
 
