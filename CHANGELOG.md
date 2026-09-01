@@ -1,5 +1,44 @@
 # CHANGELOG
 
+## [1.0.0-b](https://github.com/FaiziNerd/vidxp/compare/v0.4.0...v1.0.0-b) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* dialogue and videoprism are removed as capability names and package extras. Use speech and action, then rebuild existing indexes.
+
+### Features
+
+* align media capabilities and add grounded-query tooling ([#135](https://github.com/FaiziNerd/vidxp/issues/135)) ([10237cc](https://github.com/FaiziNerd/vidxp/commit/10237cc50c31255665bbead0b8d74a1082d6dcb0))
+* **codex:** install guided workflows for VidXP setup, video ingestion, evidence search, and connection to the selected local installation ([5c6552e](https://github.com/FaiziNerd/vidxp/commit/5c6552e4768e325a580abcffc62983d4e264bc33))
+* **deploy:** add published server deployment profiles ([600e333](https://github.com/FaiziNerd/vidxp/commit/600e3335bfd5b0dd97406b4c66dbb4b291db2049))
+* **desktop:** add managed local application ([3ff20ec](https://github.com/FaiziNerd/vidxp/commit/3ff20ec9aebf4bea7efe041b0ae9ca2e637266c9))
+* **desktop:** set up an existing installation or create a Desktop-managed one, choose its features, verify readiness, and control local services from the app ([8e779a3](https://github.com/FaiziNerd/vidxp/commit/8e779a3364670aab833668956a289415eac8652b))
+* **desktop:** ship signed, notarized, and stapled macOS installers that launch without unsigned-app Gatekeeper warnings ([4074332](https://github.com/FaiziNerd/vidxp/commit/40743321907c5393dc66a7e7d21a95e8dc3e602e))
+* **interfaces:** expose CLI, browser, API, and MCP surfaces ([5ae9fc7](https://github.com/FaiziNerd/vidxp/commit/5ae9fc7bbb54dfcbca4a7597604d8466dc3b978c))
+* **mcp:** upload or import videos, follow ingestion and indexing progress, and receive visual boards, keyframes, and clips with search results ([9a5a911](https://github.com/FaiziNerd/vidxp/commit/9a5a911bef79474e55152c62e9289023fcf10c5a))
+* **media:** add filename and readiness filters to shared listing ([#126](https://github.com/FaiziNerd/vidxp/issues/126)) ([bdfd309](https://github.com/FaiziNerd/vidxp/commit/bdfd30955d2c19b14cc2db4f45e753d1be3c558b))
+* **media:** show pending, ready, and failed imports across CLI, API, and MCP instead of hiding failed ingestion behind generic errors ([aa1f61e](https://github.com/FaiziNerd/vidxp/commit/aa1f61e4a79dcc7b08ee4a5fabc852b02b36d85e))
+* **networking:** share browser, API, and MCP services on trusted networks; API and MCP use bearer-token authentication while browser sharing remains unauthenticated ([37f3a84](https://github.com/FaiziNerd/vidxp/commit/37f3a84f03dcfc9022d723bac91d970352c3c1e3))
+* **platform:** add durable media and search services ([98b85a8](https://github.com/FaiziNerd/vidxp/commit/98b85a8d06e181919d724716b616bebdd63ecd24))
+* **premiere:** add installable media search for CEP and UXP ([#131](https://github.com/FaiziNerd/vidxp/issues/131)) ([ae2babd](https://github.com/FaiziNerd/vidxp/commit/ae2babd5f42f7a509d0be6017f626472f4e50241))
+* **search:** find actions and events across several seconds of video with Action search; enabling it downloads about 0.93 GiB and requires indexing videos with Action search selected ([8922823](https://github.com/FaiziNerd/vidxp/commit/89228238e748558d163663c44d331a754c6fdefe))
+* **sound:** add FineLAP audio event search ([#130](https://github.com/FaiziNerd/vidxp/issues/130)) ([c8942c6](https://github.com/FaiziNerd/vidxp/commit/c8942c6fda009a50bb18ceac887039a329cdb5fb))
+
+
+### Bug Fixes
+
+* **desktop:** use a managed headless Ollama runtime ([#137](https://github.com/FaiziNerd/vidxp/issues/137)) ([438ae8a](https://github.com/FaiziNerd/vidxp/commit/438ae8aae512343bf81ea3cf25fb07efe0a44322))
+* **models:** resume supported interrupted downloads, verify cached files against pinned checksums, and return actionable preparation errors ([62cb7b1](https://github.com/FaiziNerd/vidxp/commit/62cb7b1b2dbdfbc968435bb76101b3199a88c1f8))
+* **models:** resume supported interrupted downloads, verify cached files against pinned checksums, and return actionable preparation errors ([69c5e51](https://github.com/FaiziNerd/vidxp/commit/69c5e51588c496699fe3a49b8c61a374f1058a98))
+* **release:** resolve repository in finalizers ([#30](https://github.com/FaiziNerd/vidxp/issues/30)) ([83891e3](https://github.com/FaiziNerd/vidxp/commit/83891e3115f507ddc751415accb98f457a8bffa6))
+* **release:** update uv lock version structurally ([#138](https://github.com/FaiziNerd/vidxp/issues/138)) ([1debd61](https://github.com/FaiziNerd/vidxp/commit/1debd6140c1417acde30c51241b9fb5815bfcbe0))
+
+
+### Documentation
+
+* present product setup capabilities and roadmap ([8d4d5ef](https://github.com/FaiziNerd/vidxp/commit/8d4d5effda8b00a113315a287c31490a43b212d0))
+
 ## [0.4.0](https://github.com/grayhatdevelopers/vidxp/compare/v0.3.0...v0.4.0) (2026-08-17)
 
 
