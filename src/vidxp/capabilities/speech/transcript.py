@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -62,10 +62,7 @@ def flatten_transcript_words(
                 start, end = _valid_interval(
                     word["start"],
                     word["end"],
-                    (
-                        "Transcript word "
-                        f"{len(words)} in segment {segment_index}"
-                    ),
+                    f"Transcript word {len(words)} in segment {segment_index}",
                 )
                 words.append(
                     TimedWord(
@@ -94,41 +91,15 @@ def flatten_transcript_words(
             continue
         duration = end - start
         for offset, token in enumerate(tokens):
-            group_start = start + duration * offset / len(tokens)
-            group_end = start + duration * (offset + 1) / len(tokens)
             words.append(
                 TimedWord(
                     text=token,
-                    start=group_start,
-                    end=group_end,
+                    start=start + duration * offset / len(tokens),
+                    end=start + duration * (offset + 1) / len(tokens),
                     index=len(words),
                 )
             )
     return words
-
-
-def transcript_payload(
-    words: Sequence[TimedWord],
-    *,
-    language: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "schema_version": TRANSCRIPT_SCHEMA_VERSION,
-        "language": language,
-        "words": [
-            {
-                "index": word.index,
-                "word": word.text,
-                "start": word.start,
-                "end": word.end,
-            }
-            for word in words
-        ],
-    }
-
-
-def transcript_path(run_directory: str | Path) -> Path:
-    return Path(run_directory) / TRANSCRIPT_FILE
 
 
 def save_transcript(
@@ -137,18 +108,31 @@ def save_transcript(
     *,
     language: str | None = None,
 ) -> Path:
-    path = transcript_path(run_directory)
-    write_json_atomic(path, transcript_payload(words, language=language))
+    path = Path(run_directory) / TRANSCRIPT_FILE
+    write_json_atomic(
+        path,
+        {
+            "schema_version": TRANSCRIPT_SCHEMA_VERSION,
+            "language": language,
+            "words": [
+                {
+                    "index": word.index,
+                    "word": word.text,
+                    "start": word.start,
+                    "end": word.end,
+                }
+                for word in words
+            ],
+        },
+    )
     return path
 
 
 def load_transcript(run_directory: str | Path) -> list[TimedWord]:
-    path = transcript_path(run_directory)
+    path = Path(run_directory) / TRANSCRIPT_FILE
     payload = json.loads(path.read_text(encoding="utf-8"))
     if int(payload.get("schema_version", 0)) != TRANSCRIPT_SCHEMA_VERSION:
-        raise ValueError(
-            f"Unsupported speech transcript schema in {path}."
-        )
+        raise ValueError(f"Unsupported speech transcript schema in {path}.")
     words = []
     for item in payload.get("words") or ():
         start, end = _valid_interval(
@@ -165,7 +149,3 @@ def load_transcript(run_directory: str | Path) -> list[TimedWord]:
             )
         )
     return words
-
-
-def words_as_dicts(words: Sequence[TimedWord]) -> list[dict[str, Any]]:
-    return [asdict(word) for word in words]

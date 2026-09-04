@@ -147,6 +147,26 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(result.hits[0].start, 1.0)
         self.assertEqual(result.hits[0].end, 2.0)
 
+    def test_keyword_tokens_do_not_match_substrings(self):
+        row = dialogue_row("run:video-1:speech:start", 0.9)
+        row["metadata"]["text"] = "please start the oven"
+        storage = FakeStorage([row])
+        with patch(
+            "vidxp.capabilities.speech.operations.speech_embedding",
+            return_value=[0.5],
+        ):
+            result = search_speech(
+                "art",
+                config=self.config,
+                runtime=self.runtime,
+                top_k=1,
+                video_id=MEDIA_ID,
+                storage=storage,
+            )
+
+        self.assertEqual(result.hits[0].metadata["match_kind"], "semantic")
+        self.assertEqual(result.hits[0].raw_distance, 0.9)
+
     def test_score_is_strictly_monotonic_and_not_a_probability(self):
         self.assertGreater(distance_to_score(0.1), distance_to_score(0.2))
         self.assertEqual(distance_to_score(2.5), -2.5)

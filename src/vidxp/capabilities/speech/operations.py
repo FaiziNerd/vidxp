@@ -84,10 +84,6 @@ def speech_embedding(
     return encoded[0].tolist()
 
 
-def _normalize_text(value: str) -> str:
-    return " ".join(value.casefold().split())
-
-
 def _query_tokens(query: str) -> tuple[str, ...]:
     return tuple(
         token
@@ -99,16 +95,17 @@ def _query_tokens(query: str) -> tuple[str, ...]:
 def _keyword_distance(query: str, text: str) -> float | None:
     """Return a lexical distance, or None when the text does not match."""
 
-    needle = _normalize_text(query)
-    haystack = _normalize_text(text)
-    if not needle or not haystack:
+    query_tokens = _query_tokens(query)
+    if not query_tokens:
         return None
-    if needle in haystack:
-        return _EXACT_DISTANCE
-    tokens = _query_tokens(query)
-    if not tokens:
+    text_tokens = _query_tokens(text)
+    if not text_tokens:
         return None
-    if all(token in haystack for token in tokens):
+    window = len(query_tokens)
+    for offset in range(len(text_tokens) - window + 1):
+        if text_tokens[offset:offset + window] == query_tokens:
+            return _EXACT_DISTANCE
+    if set(query_tokens) <= set(text_tokens):
         return _KEYWORD_DISTANCE
     return None
 

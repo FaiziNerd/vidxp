@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Sequence
 
+from vidxp.capabilities.speech.config import SegmentationMode
 from vidxp.capabilities.speech.transcript import TimedWord
 
-SegmentationMode = Literal[
-    "fixed_words",
-    "overlapping_windows",
-    "sentence",
-]
-
-SENTENCE_END = re.compile(r"[.!?…][\"')\]]*$")
+# Punctuation that ends a spoken sentence when attached to a word.
+_SENTENCE_END = re.compile(r'[.!?…]["\')\]]*$')
 
 
 @dataclass(frozen=True)
@@ -45,104 +41,15 @@ def _phrase_from_words(
 ) -> DialoguePhrase:
     if not words:
         raise ValueError("A dialogue phrase requires at least one word.")
-    text = " ".join(word.text for word in words)
     return DialoguePhrase(
         phrase_id=phrase_id,
-        text=text,
+        text=" ".join(word.text for word in words),
         start=words[0].start,
         end=words[-1].end,
         word_start=words[0].index,
         word_end=words[-1].index,
         segmentation_mode=mode,
     )
-
-
-def _non_overlapping_phrases(
-    words: Sequence[TimedWord],
-    *,
-    words_per_phrase: int,
-) -> list[DialoguePhrase]:
-    if words_per_phrase <= 0:
-        raise ValueError("words_per_phrase must be greater than zero.")
-    phrases: list[DialoguePhrase] = []
-    for offset in range(0, len(words), words_per_phrase):
-        group = words[offset:offset + words_per_phrase]
-        phrases.append(
-            _phrase_from_words(
-                group,
-                mode="fixed_words",
-                phrase_id=len(phrases),
-            )
-        )
-    return phrases
-
-
-def _overlapping_phrases(
-    words: Sequence[TimedWord],
-    *,
-    words_per_phrase: int,
-    window_stride_words: int,
-) -> list[DialoguePhrase]:
-    if words_per_phrase <= 0:
-        raise ValueError("words_per_phrase must be greater than zero.")
-    if window_stride_words <= 0:
-        raise ValueError("window_stride_words must be greater than zero.")
-    phrases: list[DialoguePhrase] = []
-    if not words:
-        return phrases
-    offset = 0
-    while True:
-        group = words[offset:offset + words_per_phrase]
-        phrases.append(
-            _phrase_from_words(
-                group,
-                mode="overlapping_windows",
-                phrase_id=len(phrases),
-            )
-        )
-        if offset + words_per_phrase >= len(words):
-            break
-        offset += window_stride_words
-        if offset >= len(words):
-            break
-    return phrases
-
-
-def _ends_sentence(word: TimedWord) -> bool:
-    return bool(SENTENCE_END.search(word.text))
-
-
-def _sentence_phrases(
-    words: Sequence[TimedWord],
-    *,
-    max_words: int,
-) -> list[DialoguePhrase]:
-    if max_words <= 0:
-        raise ValueError("words_per_phrase must be greater than zero.")
-    phrases: list[DialoguePhrase] = []
-    current: list[TimedWord] = []
-    for word in words:
-        current.append(word)
-        boundary = _ends_sentence(word) or len(current) >= max_words
-        if not boundary:
-            continue
-        phrases.append(
-            _phrase_from_words(
-                current,
-                mode="sentence",
-                phrase_id=len(phrases),
-            )
-        )
-        current = []
-    if current:
-        phrases.append(
-            _phrase_from_words(
-                current,
-                mode="sentence",
-                phrase_id=len(phrases),
-            )
-        )
-    return phrases
 
 
 def build_dialogue_phrases_from_words(
@@ -154,23 +61,69 @@ def build_dialogue_phrases_from_words(
 ) -> list[DialoguePhrase]:
     """Segment timed words into searchable phrases.
 
-    ``fixed_words`` retains the historical five-word baseline. Other modes
-    exist so retrieval quality can be compared (see issue #76 / #89).
+    ``fixed_words`` is the historical five-word baseline. Other modes exist so
+    retrieval quality can be compared (see issues #76 and #89).
     """
 
+    if words_per_phrase <= 0:
+        raise ValueError("words_per_phrase must be greater than zero.")
+    if window_stride_words <= 0:
+        raise ValueError("window_stride_words must be greater than zero.")
+    if not words:
+        return []
+
+    phrases: list[DialoguePhrase] = []
     if segmentation_mode == "fixed_words":
-        return _non_overlapping_phrases(
-            words,
-            words_per_phrase=words_per_phrase,
-        )
+        for offset in range(0, len(words), words_per_phrase):
+            phrases.append(
+                _phrase_from_words(
+                    words[offset:offset + words_per_phrase],
+                    mode="fixed_words",
+                    phrase_id=len(phrases),
+                )
+            )
+        return phrases
+
     if segmentation_mode == "overlapping_windows":
-        return _overlapping_phrases(
-            words,
-            words_per_phrase=words_per_phrase,
-            window_stride_words=window_stride_words,
-        )
+        offset = 0
+        while True:
+            phrases.append(
+                _phrase_from_words(
+                    words[offset:offset + words_per_phrase],
+                    mode="overlapping_windows",
+                    phrase_id=len(phrases),
+                )
+            )
+            if offset + words_per_phrase >= len(words):
+                break
+            offset += window_stride_words
+            if offset >= len(words):
+                break
+        return phrases
+
     if segmentation_mode == "sentence":
-        return _sentence_phrases(words, max_words=words_per_phrase)
+        current: list[TimedWord] = []
+        for word in words:
+            current.append(word)
+            if _SENTENCE_END.search(word.text) or len(current) >= words_per_phrase:
+                phrases.append(
+                    _phrase_from_words(
+                        current,
+                        mode="sentence",
+                        phrase_id=len(phrases),
+                    )
+                )
+                current = []
+        if current:
+            phrases.append(
+                _phrase_from_words(
+                    current,
+                    mode="sentence",
+                    phrase_id=len(phrases),
+                )
+            )
+        return phrases
+
     raise ValueError(
         "segmentation_mode must be one of: fixed_words, "
         "overlapping_windows, sentence."
